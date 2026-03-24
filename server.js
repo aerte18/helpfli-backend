@@ -35,7 +35,9 @@ if (process.env.VERCEL !== '1') {
   if (!process.env.MONGO_URI) process.env.MONGO_URI = 'mongodb://localhost:27017/helpfli';
 }
 if (!process.env.JWT_SECRET) process.env.JWT_SECRET = 'your-super-secret-jwt-key-here';
-if (!process.env.CORS_ORIGIN) process.env.CORS_ORIGIN = 'http://localhost:5174';
+if (!process.env.CORS_ORIGIN && process.env.NODE_ENV !== 'production') {
+  process.env.CORS_ORIGIN = 'http://localhost:5174';
+}
 
 const express = require('express');
 const http = require('http');
@@ -182,48 +184,37 @@ if (process.env.SENTRY_DSN) {
 }
 
 // ---------- CORS Configuration ----------
-// Pobierz dozwolone originy z zmiennych środowiskowych
-const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5174').split(',').map(o => o.trim());
+const allowedOrigins = (process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
+
 const isDevelopment = process.env.NODE_ENV !== 'production';
 
-// Funkcja sprawdzająca czy origin jest dozwolony
 const isAllowedOrigin = (origin) => {
-  // W development pozwól na brak origin (narzędzia lokalne)
-  if (!origin && isDevelopment) return true;
-  
-  // Sprawdź czy origin jest na liście dozwolonych
+  // Pozwól na brak origin (curl, healthcheck, serwer-serwer)
+  if (!origin) return true;
+
+  // Dokładne dopasowanie do listy z env
   if (allowedOrigins.includes(origin)) return true;
-  
-  // W development pozwól na localhost z różnymi portami
-  if (isDevelopment && origin && /^http:\/\/localhost:\d+$/.test(origin)) return true;
-  
-  // W produkcji wymagaj dokładnego dopasowania
+
+  // Dodatkowo localhost tylko w development
+  if (isDevelopment && /^http:\/\/localhost:\d+$/.test(origin)) return true;
+
   return false;
 };
 
-// Konfiguracja CORS
 const corsOptions = {
   origin: (origin, cb) => {
-    // W development zawsze pozwól na localhost
-    if (isDevelopment) {
-      if (!origin || /^http:\/\/localhost:\d+$/.test(origin)) {
-        return cb(null, true);
-      }
-    }
-    
     if (isAllowedOrigin(origin)) {
-      cb(null, true);
-    } else {
-      // W development loguj zablokowane originy, ale pozwól na localhost
-      if (isDevelopment && origin && origin.includes('localhost')) {
-        logger.debug(`🔵 CORS: Allowing localhost origin: ${origin}`);
-        return cb(null, true);
-      }
-      if (isDevelopment) {
-        logger.warn(`⚠️ CORS blocked origin: ${origin}`);
-      }
-      cb(new Error(`CORS blocked for origin: ${origin}`));
+      return cb(null, true);
     }
+
+    if (isDevelopment) {
+      logger.warn(`⚠️ CORS blocked origin: ${origin}`);
+    }
+
+    return cb(new Error(`CORS blocked for origin: ${origin}`));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
