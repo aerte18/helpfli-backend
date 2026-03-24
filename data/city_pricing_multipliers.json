@@ -1,0 +1,104 @@
+{
+  "cities": {
+    "warszawa": {
+      "name": "Warszawa",
+      "multiplier": 1.15,
+      "description": "Stolica - wyższe koszty życia i usług",
+      "tier": "large"
+    },
+    "kraków": {
+      "name": "Kraków",
+      "multiplier": 1.10,
+      "description": "Duże miasto - wyższe koszty usług",
+      "tier": "large"
+    },
+    "krakow": {
+      "name": "Kraków",
+      "multiplier": 1.10,
+      "description": "Duże miasto - wyższe koszty usług",
+      "tier": "large"
+    },
+    "wrocław": {
+      "name": "Wrocław",
+      "multiplier": 1.08,
+      "description": "Duże miasto - umiarkowanie wyższe koszty",
+      "tier": "large"
+    },
+    "wroclaw": {
+      "name": "Wrocław",
+      "multiplier": 1.08,
+      "description": "Duże miasto - umiarkowanie wyższe koszty",
+      "tier": "large"
+    },
+    "poznań": {
+      "name": "Poznań",
+      "multiplier": 1.08,
+      "description": "Duże miasto - umiarkowanie wyższe koszty",
+      "tier": "large"
+    },
+    "poznan": {
+      "name": "Poznań",
+      "multiplier": 1.08,
+      "description": "Duże miasto - umiarkowanie wyższe koszty",
+      "tier": "large"
+    },
+    "gdańsk": {
+      "name": "Gdańsk",
+      "multiplier": 1.05,
+      "description": "Duże miasto nadmorskie",
+      "tier": "large"
+    },
+    "gdansk": {
+      "name": "Gdańsk",
+      "multiplier": 1.05,
+      "description": "Duże miasto nadmorskie",
+      "tier": "large"
+    },
+    "katowice": {
+      "name": "Katowice",
+      "multiplier": 1.03,
+      "description": "Duże miasto przemysłowe",
+      "tier": "medium"
+    },
+    "łódź": {
+      "name": "Łódź",
+      "multiplier": 1.03,
+      "description": "Duże miasto",
+      "tier": "medium"
+    },
+    "lodz": {
+      "name": "Łódź",
+      "multiplier": 1.03,
+      "description": "Duże miasto",
+      "tier": "medium"
+    }
+  },
+  "tiers": {
+    "large": {
+      "multiplier": 1.10,
+      "description": "Duże miasta (powyżej 500k mieszkańców) - wyższe koszty życia i usług"
+    },
+    "medium": {
+      "multiplier": 1.05,
+      "description": "Średnie miasta (100k-500k mieszkańców) - umiarkowane koszty"
+    },
+    "small": {
+      "multiplier": 1.0,
+      "description": "Małe miasta i wsie (poniżej 100k mieszkańców) - standardowe koszty"
+    }
+  },
+  "default": {
+    "multiplier": 1.0,
+    "description": "Standardowe koszty dla regionu"
+  }
+}
+
+
+
+
+
+
+
+
+
+

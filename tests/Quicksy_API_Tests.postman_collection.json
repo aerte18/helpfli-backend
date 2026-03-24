@@ -1,0 +1,678 @@
+?{
+  "info": {
+    "name": "Helpfli API Tests",
+    "description": "Complete test collection for Helpfli API including AI, Push Notifications, Web Search, and KB Manager",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.0.0"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{auth_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:5000",
+      "type": "string"
+    },
+    {
+      "key": "auth_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "user_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "article_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    pm.collectionVariables.set('auth_token', response.token);",
+                  "    pm.collectionVariables.set('user_id', response.user._id);",
+                  "    console.log('Auth token set:', response.token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@helpfli.local\",\n  \"password\": \"admin123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "Get Current User",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/auth/me",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "me"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "AI Claude Integration",
+      "item": [
+        {
+          "name": "Claude Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/ai/claude/status",
+              "host": ["{{base_url}}"],
+              "path": ["api", "ai", "claude", "status"]
+            }
+          }
+        },
+        {
+          "name": "Test Claude Connection",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/ai/claude/test",
+              "host": ["{{base_url}}"],
+              "path": ["api", "ai", "claude", "test"]
+            }
+          }
+        },
+        {
+          "name": "Claude Analyze Problem",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Mam problem z zatkanym odpływem w kuchni. Woda nie spływa i zaczyna się cofać. Co mogę zrobić?\",\n  \"lang\": \"pl\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/ai/claude/analyze",
+              "host": ["{{base_url}}"],
+              "path": ["api", "ai", "claude", "analyze"]
+            }
+          }
+        },
+        {
+          "name": "Compare Claude vs Ollama",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Brak prądu w gniazdku w łazience\",\n  \"lang\": \"pl\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/ai/claude/compare",
+              "host": ["{{base_url}}"],
+              "path": ["api", "ai", "claude", "compare"]
+            }
+          }
+        },
+        {
+          "name": "Configure LLM Provider",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"auto\",\n  \"fallbackEnabled\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/ai/claude/config",
+              "host": ["{{base_url}}"],
+              "path": ["api", "ai", "claude", "config"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Web Search Tools",
+      "item": [
+        {
+          "name": "Web Search Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/ai/web-search/status",
+              "host": ["{{base_url}}"],
+              "path": ["api", "ai", "web-search", "status"]
+            }
+          }
+        },
+        {
+          "name": "Test Web Search",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"hydraulik Warszawa cennik\",\n  \"provider\": \"bing\",\n  \"lang\": \"pl\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/ai/web-search/test",
+              "host": ["{{base_url}}"],
+              "path": ["api", "ai", "web-search", "test"]
+            }
+          }
+        },
+        {
+          "name": "Search Service Info",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"serviceName\": \"elektryk\",\n  \"location\": \"Warszawa\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/ai/web-search/service-info",
+              "host": ["{{base_url}}"],
+              "path": ["api", "ai", "web-search", "service-info"]
+            }
+          }
+        },
+        {
+          "name": "Compare Search Providers",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"remont łazienki porady\",\n  \"lang\": \"pl\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/ai/web-search/compare",
+              "host": ["{{base_url}}"],
+              "path": ["api", "ai", "web-search", "compare"]
+            }
+          }
+        },
+        {
+          "name": "Configure Web Search",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"defaultProvider\": \"bing\",\n  \"fallbackEnabled\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/ai/web-search/config",
+              "host": ["{{base_url}}"],
+              "path": ["api", "ai", "web-search", "config"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Push Notifications",
+      "item": [
+        {
+          "name": "Get Push Config",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/push/config",
+              "host": ["{{base_url}}"],
+              "path": ["api", "push", "config"]
+            }
+          }
+        },
+        {
+          "name": "Subscribe to Push",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    console.log('Push subscription successful');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subscription\": {\n    \"endpoint\": \"https://fcm.googleapis.com/fcm/send/test-endpoint\",\n    \"keys\": {\n      \"p256dh\": \"test-p256dh-key\",\n      \"auth\": \"test-auth-key\"\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/push/subscribe",
+              "host": ["{{base_url}}"],
+              "path": ["api", "push", "subscribe"]
+            }
+          }
+        },
+        {
+          "name": "Test Push Notification",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Test Push\",\n  \"body\": \"To jest test powiadomienia push\",\n  \"url\": \"/dashboard\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/push/test",
+              "host": ["{{base_url}}"],
+              "path": ["api", "push", "test"]
+            }
+          }
+        },
+        {
+          "name": "Admin Broadcast Push",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Ogłoszenie systemowe\",\n  \"body\": \"Nowa funkcja dostępna w aplikacji!\",\n  \"url\": \"/about\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/push/admin/broadcast",
+              "host": ["{{base_url}}"],
+              "path": ["api", "push", "admin", "broadcast"]
+            }
+          }
+        },
+        {
+          "name": "Unsubscribe from Push",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"endpoint\": \"https://fcm.googleapis.com/fcm/send/test-endpoint\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/push/unsubscribe",
+              "host": ["{{base_url}}"],
+              "path": ["api", "push", "unsubscribe"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Knowledge Base Manager",
+      "item": [
+        {
+          "name": "Get KB Stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/kb/stats",
+              "host": ["{{base_url}}"],
+              "path": ["api", "kb", "stats"]
+            }
+          }
+        },
+        {
+          "name": "List KB Articles",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/kb/articles?page=1&limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["api", "kb", "articles"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create KB Article",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    pm.collectionVariables.set('article_id', response._id);",
+                  "    console.log('Article created with ID:', response._id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Jak naprawić zatkany odpływ\",\n  \"content\": \"Zatkany odpływ to częsty problem w kuchni i łazience. Oto kilka sposobów na jego rozwiązanie:\\n\\n1. Użyj przepychaczki - to najprostszy sposób\\n2. Wlej wrzącą wodę do odpływu\\n3. Użyj sody oczyszczonej i octu\\n4. W ostateczności użyj środka chemicznego\\n\\nJeśli problem się powtarza, skontaktuj się z hydraulikiem.\",\n  \"category\": \"hydraulika\",\n  \"tags\": \"odpływ, zatkanie, hydraulik, naprawa\",\n  \"isActive\": true,\n  \"priority\": 2\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/kb/articles",
+              "host": ["{{base_url}}"],
+              "path": ["api", "kb", "articles"]
+            }
+          }
+        },
+        {
+          "name": "Get KB Article by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/kb/articles/{{article_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "kb", "articles", "{{article_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Update KB Article",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Jak naprawić zatkany odpływ - Poradnik\",\n  \"content\": \"Zatkany odpływ to częsty problem w kuchni i łazience. Oto szczegółowy poradnik:\\n\\n1. Użyj przepychaczki - to najprostszy i najbezpieczniejszy sposób\\n2. Wlej wrzącą wodę do odpływu - może rozpuścić tłuszcz\\n3. Użyj sody oczyszczonej i octu - naturalny sposób\\n4. W ostateczności użyj środka chemicznego\\n\\nJeśli problem się powtarza, skontaktuj się z wykwalifikowanym hydraulikiem.\",\n  \"priority\": 3\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/kb/articles/{{article_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "kb", "articles", "{{article_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Filter KB Articles by Category",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/kb/articles?category=hydraulika",
+              "host": ["{{base_url}}"],
+              "path": ["api", "kb", "articles"],
+              "query": [
+                {
+                  "key": "category",
+                  "value": "hydraulika"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Filter KB Articles by Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/kb/articles?isActive=true",
+              "host": ["{{base_url}}"],
+              "path": ["api", "kb", "articles"],
+              "query": [
+                {
+                  "key": "isActive",
+                  "value": "true"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete KB Article",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/kb/articles/{{article_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "kb", "articles", "{{article_id}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "AI Concierge",
+      "item": [
+        {
+          "name": "Analyze Problem",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Mam problem z prądem w gniazdku w łazience. Gniazdko nie działa i nie wiem co robić.\",\n  \"locationText\": \"Warszawa\",\n  \"lat\": 52.2297,\n  \"lon\": 21.0122,\n  \"urgency\": \"normal\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/ai/concierge/analyze",
+              "host": ["{{base_url}}"],
+              "path": ["api", "ai", "concierge", "analyze"]
+            }
+          }
+        },
+        {
+          "name": "Concierge with Web Search",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Ile kosztuje remont łazienki w Warszawie? Jakie są aktualne ceny materiałów i robocizny?\",\n  \"locationText\": \"Warszawa\",\n  \"lat\": 52.2297,\n  \"lon\": 21.0122,\n  \"urgency\": \"normal\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/ai/concierge/analyze",
+              "host": ["{{base_url}}"],
+              "path": ["api", "ai", "concierge", "analyze"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Public KB Access",
+      "item": [
+        {
+          "name": "Search KB Articles",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/kb?q=odpływ&lang=pl",
+              "host": ["{{base_url}}"],
+              "path": ["api", "kb"],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "odpływ"
+                },
+                {
+                  "key": "lang",
+                  "value": "pl"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get KB Article by Slug",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/kb?slug=jak-naprawic-zatkany-odplyw&lang=pl",
+              "host": ["{{base_url}}"],
+              "path": ["api", "kb"],
+              "query": [
+                {
+                  "key": "slug",
+                  "value": "jak-naprawic-zatkany-odplyw"
+                },
+                {
+                  "key": "lang",
+                  "value": "pl"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List All KB Articles",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/kb?lang=pl",
+              "host": ["{{base_url}}"],
+              "path": ["api", "kb"],
+              "query": [
+                {
+                  "key": "lang",
+                  "value": "pl"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

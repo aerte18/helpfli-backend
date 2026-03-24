@@ -1,0 +1,1001 @@
+[
+  {
+    "id": "hydraulika",
+    "name": "Hydraulika",
+    "icon": "🔧",
+    "subcategories": [
+      {
+        "id": "hydraulika-udraznianie-odp-ywow-i-kanalizacji",
+        "name": "Udrażnianie odpływów i kanalizacji"
+      },
+      {
+        "id": "hydraulika-naprawa-wycieku",
+        "name": "Naprawa wycieku"
+      },
+      {
+        "id": "hydraulika-pod-aczenie-zmywarki-pralki-bia-y-montaz",
+        "name": "Podłączenie zmywarki / pralki (biały montaż)"
+      },
+      {
+        "id": "hydraulika-wymiana-wc-sp-uczki-mechanizmu",
+        "name": "Wymiana WC / spłuczki / mechanizmu"
+      },
+      {
+        "id": "hydraulika-lokalizacja-wyciekow-kamery-czujniki",
+        "name": "Lokalizacja wycieków (kamery, czujniki)"
+      },
+      {
+        "id": "hydraulika-odpowietrzanie-i-regulacja-instalacji-c-o",
+        "name": "Odpowietrzanie i regulacja instalacji c.o."
+      },
+      {
+        "id": "hydraulika-wymiana-serwis-grzejnikow-i-termostatow",
+        "name": "Wymiana/serwis grzejników i termostatów"
+      },
+      {
+        "id": "hydraulika-inne",
+        "name": "Inne"
+      }
+    ]
+  },
+  {
+    "id": "elektryka",
+    "name": "Elektryka",
+    "icon": "⚡",
+    "subcategories": [
+      {
+        "id": "elektryka-montaz-gniazdek-w-acznikow-oswietlenia-led",
+        "name": "Montaż gniazdek / włączników / oświetlenia (LED)"
+      },
+      {
+        "id": "elektryka-wymiana-bezpiecznikow-naprawa-rozdzielni",
+        "name": "Wymiana bezpieczników / naprawa rozdzielni"
+      },
+      {
+        "id": "elektryka-pomiary-elektryczne-i-protoko-y",
+        "name": "Pomiary elektryczne i protokoły"
+      },
+      {
+        "id": "elektryka-smart-home-tuya-sonoff-konfiguracja",
+        "name": "Smart Home (Tuya/Sonoff) – konfiguracja"
+      },
+      {
+        "id": "elektryka-stacje-adowania-ev-montaz-przeglad",
+        "name": "Stacje ładowania EV – montaż/przegląd"
+      },
+      {
+        "id": "elektryka-rtv-sat-okablowanie-anteny-wzmacniacze",
+        "name": "RTV/SAT – okablowanie, anteny, wzmacniacze"
+      },
+      {
+        "id": "elektryka-inne",
+        "name": "Inne"
+      }
+    ]
+  },
+  {
+    "id": "agd-rtv",
+    "name": "Agd Rtv",
+    "icon": "📺",
+    "subcategories": [
+      {
+        "id": "agd-rtv-montaz-tv-na-scianie-okablowanie",
+        "name": "Montaż TV na ścianie + okablowanie"
+      },
+      {
+        "id": "agd-rtv-konfiguracja-smart-tv-soundbar-multiroom",
+        "name": "Konfiguracja Smart TV / soundbar / multiroom"
+      },
+      {
+        "id": "agd-rtv-instalacja-okapu-zabudowa-agd",
+        "name": "Instalacja okapu / zabudowa AGD"
+      },
+      {
+        "id": "agd-rtv-naprawa-agd",
+        "name": "Naprawa AGD"
+      },
+      {
+        "id": "agd-rtv-naprawa-rtv",
+        "name": "Naprawa RTV"
+      },
+      {
+        "id": "agd-rtv-inne",
+        "name": "Inne"
+      }
+    ]
+  },
+  {
+    "id": "klimatyzacja-ogrzewanie",
+    "name": "Klimatyzacja Ogrzewanie",
+    "icon": "❄️",
+    "subcategories": [
+      {
+        "id": "klimatyzacja-ogrzewanie-montaz-klimatyzacji",
+        "name": "Montaż klimatyzacji"
+      },
+      {
+        "id": "klimatyzacja-ogrzewanie-nabicie-serwis-czynnika-odgrzybianie",
+        "name": "Nabicie/serwis czynnika, odgrzybianie"
+      },
+      {
+        "id": "klimatyzacja-ogrzewanie-serwis-pomp-ciep-a",
+        "name": "Serwis pomp ciepła"
+      },
+      {
+        "id": "klimatyzacja-ogrzewanie-regulacja-serwis-instalacji-c-o-sterowniki-termostaty",
+        "name": "Regulacja/serwis instalacji c.o., sterowniki/termostaty"
+      },
+      {
+        "id": "klimatyzacja-ogrzewanie-kominiarz-przeglady-okresowe",
+        "name": "Kominiarz – przeglądy okresowe"
+      },
+      {
+        "id": "klimatyzacja-ogrzewanie-inne",
+        "name": "Inne"
+      }
+    ]
+  },
+  {
+    "id": "remont-wykonczenia",
+    "name": "Remont Wykonczenia",
+    "icon": "🎨",
+    "subcategories": [
+      {
+        "id": "remont-wykonczenia-malowanie",
+        "name": "Malowanie"
+      },
+      {
+        "id": "remont-wykonczenia-g-adzie-szpachlowanie-naprawy-scian",
+        "name": "Gładzie / szpachlowanie / naprawy ścian"
+      },
+      {
+        "id": "remont-wykonczenia-zabudowy-gk-sufity-podwieszane",
+        "name": "Zabudowy GK / sufity podwieszane"
+      },
+      {
+        "id": "remont-wykonczenia-tynki-gips-p-yty",
+        "name": "Tynki / gips / płyty"
+      },
+      {
+        "id": "remont-wykonczenia-montaz-drzwi-oscieznic-rolet-i-karniszy",
+        "name": "Montaż drzwi / ościeżnic / rolet i karniszy"
+      },
+      {
+        "id": "remont-wykonczenia-silikonowanie-fugi-drobne-uszczelnienia",
+        "name": "Silikonowanie, fugi, drobne uszczelnienia"
+      },
+      {
+        "id": "remont-wykonczenia-cyklinowanie-renowacja-pod-og",
+        "name": "Cyklinowanie / renowacja podłóg"
+      },
+      {
+        "id": "remont-wykonczenia-posadzki-zywiczne-mikrocement",
+        "name": "Posadzki żywiczne / mikrocement"
+      },
+      {
+        "id": "remont-wykonczenia-montaz-paneli",
+        "name": "Montaż paneli"
+      },
+      {
+        "id": "remont-wykonczenia-glazura",
+        "name": "Glazura"
+      },
+      {
+        "id": "remont-wykonczenia-naprawa-okien",
+        "name": "Naprawa okien"
+      },
+      {
+        "id": "remont-wykonczenia-tapetowanie-scian",
+        "name": "Tapetowanie ścian"
+      },
+      {
+        "id": "remont-wykonczenia-montaz-listew",
+        "name": "Montaż listew"
+      },
+      {
+        "id": "remont-wykonczenia-inne",
+        "name": "Inne"
+      }
+    ]
+  },
+  {
+    "id": "stolarstwo-montaz",
+    "name": "Stolarstwo Montaz",
+    "icon": "🔨",
+    "subcategories": [
+      {
+        "id": "stolarstwo-montaz-sk-adanie-mebli",
+        "name": "Składanie mebli"
+      },
+      {
+        "id": "stolarstwo-montaz-naprawa-dopasowanie-drzwi-zawiasow-prowadnic",
+        "name": "Naprawa/dopasowanie drzwi, zawiasów, prowadnic"
+      },
+      {
+        "id": "stolarstwo-montaz-blaty-kuchenne-po-ki-na-wymiar",
+        "name": "Blaty kuchenne, półki na wymiar"
+      },
+      {
+        "id": "stolarstwo-montaz-zabudowy-i-szafy-wnekowe-prosty-montaz",
+        "name": "Zabudowy i szafy wnękowe (prosty montaż)"
+      },
+      {
+        "id": "stolarstwo-montaz-listwy-przypod-ogowe-progi-coko-y",
+        "name": "Listwy przypodłogowe, progi, cokoły"
+      },
+      {
+        "id": "stolarstwo-montaz-montaz-karniszy-rolet-zaluzji",
+        "name": "Montaż karniszy / rolet / żaluzji"
+      },
+      {
+        "id": "stolarstwo-montaz-inne",
+        "name": "Inne"
+      }
+    ]
+  },
+  {
+    "id": "slusarz-zabezpieczenia",
+    "name": "Slusarz Zabezpieczenia",
+    "icon": "🔐",
+    "subcategories": [
+      {
+        "id": "slusarz-zabezpieczenia-awaryjne-otwieranie-drzwi",
+        "name": "Awaryjne otwieranie drzwi"
+      },
+      {
+        "id": "slusarz-zabezpieczenia-wymiana-zamka",
+        "name": "Wymiana zamka"
+      },
+      {
+        "id": "slusarz-zabezpieczenia-montaz-zamkow-antyw-amaniowych",
+        "name": "Montaż zamków antywłamaniowych"
+      },
+      {
+        "id": "slusarz-zabezpieczenia-wizjery-wideodomofony-samozamykacze",
+        "name": "Wizjery / wideodomofony / samozamykacze"
+      },
+      {
+        "id": "slusarz-zabezpieczenia-sejfy-montaz-serwis",
+        "name": "Sejfy – montaż/serwis"
+      },
+      {
+        "id": "slusarz-zabezpieczenia-naprawa-rolet-zewnetrznych-zabezpieczenia",
+        "name": "Naprawa rolet zewnętrznych (zabezpieczenia)"
+      },
+      {
+        "id": "slusarz-zabezpieczenia-inne",
+        "name": "Inne"
+      }
+    ]
+  },
+  {
+    "id": "sprzatanie",
+    "name": "Sprzątanie",
+    "icon": "🧹",
+    "subcategories": [
+      {
+        "id": "sprzatanie-sprzatanie-mieszkania",
+        "name": "Sprzątanie mieszkania"
+      },
+      {
+        "id": "sprzatanie-sprzatanie-po-remoncie-po-wyprowadzce",
+        "name": "Sprzątanie po remoncie / po wyprowadzce"
+      },
+      {
+        "id": "sprzatanie-sprzatanie-biur-lokali-us-ugowych",
+        "name": "Sprzątanie biur / lokali usługowych"
+      },
+      {
+        "id": "sprzatanie-pranie-dywanow-materacy-ozonowanie",
+        "name": "Pranie dywanów / materacy / ozonowanie"
+      },
+      {
+        "id": "sprzatanie-mycie-okien",
+        "name": "Mycie okien"
+      },
+      {
+        "id": "sprzatanie-pranie-tapicerki",
+        "name": "Pranie tapicerki"
+      },
+      {
+        "id": "sprzatanie-sprzatanie-piwnic-strychow",
+        "name": "Sprzątanie piwnic/strychów"
+      },
+      {
+        "id": "sprzatanie-inne",
+        "name": "Inne"
+      }
+    ]
+  },
+  {
+    "id": "dom-ogrod",
+    "name": "Dom Ogrod",
+    "icon": "🌱",
+    "subcategories": [
+      {
+        "id": "dom-ogrod-pielegnacja-ogrodu",
+        "name": "Pielęgnacja ogrodu"
+      },
+      {
+        "id": "dom-ogrod-projekt-ogrodu-koncepcja-nasadzenia",
+        "name": "Projekt ogrodu (koncepcja + nasadzenia)"
+      },
+      {
+        "id": "dom-ogrod-ma-a-architektura-taras-pergola-sciezki",
+        "name": "Mała architektura (taras, pergola, ścieżki)"
+      },
+      {
+        "id": "dom-ogrod-koncepcja-systemu-nawadniania",
+        "name": "Koncepcja systemu nawadniania"
+      },
+      {
+        "id": "dom-ogrod-zak-adanie-trawnika-wertykulacja-aeracja",
+        "name": "Zakładanie trawnika / wertykulacja / aeracja"
+      },
+      {
+        "id": "dom-ogrod-systemy-nawadniania-montaz-serwis",
+        "name": "Systemy nawadniania – montaż/serwis"
+      },
+      {
+        "id": "dom-ogrod-montaz-naprawa-ogrodzen-i-bram",
+        "name": "Montaż/naprawa ogrodzeń i bram"
+      },
+      {
+        "id": "dom-ogrod-altany-tarasy-naprawy-i-olejowanie",
+        "name": "Altany / tarasy – naprawy i olejowanie"
+      },
+      {
+        "id": "dom-ogrod-odsniezanie",
+        "name": "Odśnieżanie"
+      },
+      {
+        "id": "dom-ogrod-koszenie-trawnika",
+        "name": "Koszenie trawnika"
+      },
+      {
+        "id": "dom-ogrod-przycinanie-krzewow",
+        "name": "Przycinanie krzewów"
+      },
+      {
+        "id": "dom-ogrod-usuwanie-gniazd-os-szerszeni",
+        "name": "Usuwanie gniazd os/szerszeni"
+      },
+      {
+        "id": "dom-ogrod-czyszczenie-pieca",
+        "name": "Czyszczenie pieca"
+      },
+      {
+        "id": "dom-ogrod-czyszczenie-dachu",
+        "name": "Czyszczenie dachu"
+      },
+      {
+        "id": "dom-ogrod-grabienie-lisci",
+        "name": "Grabienie liści"
+      },
+      {
+        "id": "dom-ogrod-moskitiery",
+        "name": "Moskitiery"
+      },
+      {
+        "id": "dom-ogrod-inne",
+        "name": "Inne"
+      }
+    ]
+  },
+  {
+    "id": "auto-mobilne",
+    "name": "Auto Mobilne",
+    "icon": "🚗",
+    "subcategories": [
+      {
+        "id": "auto-mobilne-wymiana-akumulatora",
+        "name": "Wymiana akumulatora"
+      },
+      {
+        "id": "auto-mobilne-wymiana-ko-a",
+        "name": "Wymiana koła"
+      },
+      {
+        "id": "auto-mobilne-wymiana-opon-ko-a-na-miejscu-sezonowo",
+        "name": "Wymiana opon/koła na miejscu (sezonowo)"
+      },
+      {
+        "id": "auto-mobilne-rozruch-z-kabli",
+        "name": "Rozruch z kabli"
+      },
+      {
+        "id": "auto-mobilne-holowanie-laweta-light-w-miescie",
+        "name": "Holowanie / 'laweta light' w mieście"
+      },
+      {
+        "id": "auto-mobilne-diagnostyka-obd-proste-odczyty",
+        "name": "Diagnostyka OBD (proste odczyty)"
+      },
+      {
+        "id": "auto-mobilne-wymiana-zarowek-wycieraczek-bezpiecznikow",
+        "name": "Wymiana żarówek / wycieraczek / bezpieczników"
+      },
+      {
+        "id": "auto-mobilne-myjnia-mobilna-szybkie-detailing-mini",
+        "name": "Myjnia mobilna / szybkie detailing mini"
+      },
+      {
+        "id": "auto-mobilne-dowoz-paliwa",
+        "name": "Dowóz paliwa"
+      },
+      {
+        "id": "auto-mobilne-inne",
+        "name": "Inne"
+      }
+    ]
+  },
+  {
+    "id": "it",
+    "name": "IT",
+    "icon": "💻",
+    "subcategories": [
+      {
+        "id": "it-naprawa-laptopow-pc-czyszczenie-termopasty",
+        "name": "Naprawa laptopów/PC (czyszczenie, termopasty)"
+      },
+      {
+        "id": "it-instalacja-systemu-sterownikow-office",
+        "name": "Instalacja systemu, sterowników, Office"
+      },
+      {
+        "id": "it-usuwanie-wirusow-malware",
+        "name": "Usuwanie wirusów / malware"
+      },
+      {
+        "id": "it-konfiguracja-wi-fi-drukarki-sieci-mesh",
+        "name": "Konfiguracja Wi-Fi / drukarki / sieci mesh"
+      },
+      {
+        "id": "it-backup-w-chmurze-odzysk-podstawowy-danych",
+        "name": "Backup w chmurze, odzysk podstawowy danych"
+      },
+      {
+        "id": "it-konfiguracja-telefonu-migracja-danych",
+        "name": "Konfiguracja telefonu / migracja danych"
+      },
+      {
+        "id": "it-smart-home-konfiguracja-aplikacji-i-scen",
+        "name": "Smart Home – konfiguracja aplikacji i scen"
+      },
+      {
+        "id": "it-inne",
+        "name": "Inne"
+      }
+    ]
+  },
+  {
+    "id": "zdrowie",
+    "name": "Zdrowie",
+    "icon": "🏥",
+    "subcategories": [
+      {
+        "id": "zdrowie-telekonsultacja-lekarza",
+        "name": "Telekonsultacja lekarza"
+      },
+      {
+        "id": "zdrowie-wizyty-domowe-opieka-podstawowa",
+        "name": "Wizyty domowe (opieka podstawowa)"
+      },
+      {
+        "id": "zdrowie-wizyty-pielegniarskie-zastrzyki-opatrunki",
+        "name": "Wizyty pielęgniarskie (zastrzyki, opatrunki)"
+      },
+      {
+        "id": "zdrowie-fizjoterapeuta-domowy",
+        "name": "Fizjoterapeuta domowy"
+      },
+      {
+        "id": "zdrowie-asystent-seniora-towarzyszenie",
+        "name": "Asystent seniora / towarzyszenie"
+      },
+      {
+        "id": "zdrowie-inne",
+        "name": "Inne"
+      }
+    ]
+  },
+  {
+    "id": "zwierzeta",
+    "name": "Zwierzęta",
+    "icon": "🐕",
+    "subcategories": [
+      {
+        "id": "zwierzeta-konsultacja-weterynaryjna",
+        "name": "Konsultacja weterynaryjna"
+      },
+      {
+        "id": "zwierzeta-wyprowadzanie-psa-regularnie-jednorazowo",
+        "name": "Wyprowadzanie psa (regularnie / jednorazowo)"
+      },
+      {
+        "id": "zwierzeta-opieka-dzienna-wyjazdowa-pet-sitting",
+        "name": "Opieka dzienna / wyjazdowa (pet sitting)"
+      },
+      {
+        "id": "zwierzeta-wizyty-karmienie-czyszczenie-kuwety",
+        "name": "Wizyty karmienie / czyszczenie kuwety"
+      },
+      {
+        "id": "zwierzeta-transport-do-weterynarza",
+        "name": "Transport do weterynarza"
+      },
+      {
+        "id": "zwierzeta-groomer-mobilny-strzyzenie",
+        "name": "Groomer mobilny / strzyżenie"
+      },
+      {
+        "id": "zwierzeta-behawiorysta-trening-podstawowy",
+        "name": "Behawiorysta / trening podstawowy"
+      },
+      {
+        "id": "zwierzeta-weterynarz-domowy",
+        "name": "Weterynarz domowy"
+      },
+      {
+        "id": "zwierzeta-inne",
+        "name": "Inne"
+      }
+    ]
+  },
+  {
+    "id": "dezynsekcja-szkodniki",
+    "name": "Dezynsekcja Szkodniki",
+    "icon": "🐛",
+    "subcategories": [
+      {
+        "id": "dezynsekcja-szkodniki-zwalczanie-pluskiew-karaluchow-prusakow",
+        "name": "Zwalczanie pluskiew / karaluchów / prusaków"
+      },
+      {
+        "id": "dezynsekcja-szkodniki-zwalczanie-mrowek-rybikow",
+        "name": "Zwalczanie mrówek / rybików"
+      },
+      {
+        "id": "dezynsekcja-szkodniki-osy-szerszenie-bezpieczne-usuwanie",
+        "name": "Osy / szerszenie – bezpieczne usuwanie"
+      },
+      {
+        "id": "dezynsekcja-szkodniki-deratyzacja-gryzonie-monitoring-haccp",
+        "name": "Deratyzacja (gryzonie) + monitoring HACCP"
+      },
+      {
+        "id": "dezynsekcja-szkodniki-zabezpieczenia-po-inwazji-siatki-uszczelnienia",
+        "name": "Zabezpieczenia po inwazji (siatki, uszczelnienia)"
+      },
+      {
+        "id": "dezynsekcja-szkodniki-inne",
+        "name": "Inne"
+      }
+    ]
+  },
+  {
+    "id": "przeprowadzki-transport",
+    "name": "Przeprowadzki Transport",
+    "icon": "🚚",
+    "subcategories": [
+      {
+        "id": "przeprowadzki-transport-taxi-bagazowe-ma-e-przeprowadzki",
+        "name": "Taxi bagażowe (małe przeprowadzki)"
+      },
+      {
+        "id": "przeprowadzki-transport-transport-gabarytow",
+        "name": "Transport gabarytów"
+      },
+      {
+        "id": "przeprowadzki-transport-demontaz-montaz-mebli-pakowanie",
+        "name": "Demontaż/montaż mebli, pakowanie"
+      },
+      {
+        "id": "przeprowadzki-transport-wnoszenie-znoszenie-ekipy",
+        "name": "Wnoszenie / znoszenie (ekipy)"
+      },
+      {
+        "id": "przeprowadzki-transport-kurier-miejski-ekspres-lokalny",
+        "name": "Kurier miejski (ekspres lokalny)"
+      },
+      {
+        "id": "przeprowadzki-transport-inne",
+        "name": "Inne"
+      }
+    ]
+  },
+  {
+    "id": "gaz",
+    "name": "Gaz",
+    "icon": "⛽",
+    "subcategories": [
+      {
+        "id": "gaz-przeglad-instalacji",
+        "name": "Przegląd instalacji"
+      },
+      {
+        "id": "gaz-wyciek-gazu",
+        "name": "Wyciek gazu"
+      },
+      {
+        "id": "gaz-montaz-kuchenki-gazowej",
+        "name": "Montaż kuchenki gazowej"
+      },
+      {
+        "id": "gaz-wymiana-reduktorow-wezy",
+        "name": "Wymiana reduktorów / węży"
+      },
+      {
+        "id": "gaz-proby-szczelnosci-i-protoko-y",
+        "name": "Próby szczelności i protokoły"
+      },
+      {
+        "id": "gaz-inne",
+        "name": "Inne"
+      }
+    ]
+  },
+  {
+    "id": "wywoz-utylizacja",
+    "name": "Wywoz Utylizacja",
+    "icon": "🗑️",
+    "subcategories": [
+      {
+        "id": "wywoz-utylizacja-wywoz-gruzu-kontener",
+        "name": "Wywóz gruzu / kontener"
+      },
+      {
+        "id": "wywoz-utylizacja-wywoz-gabarytow-mebli",
+        "name": "Wywóz gabarytów / mebli"
+      },
+      {
+        "id": "wywoz-utylizacja-utylizacja-elektrosmieci-agd-rtv",
+        "name": "Utylizacja elektrośmieci (AGD/RTV)"
+      },
+      {
+        "id": "wywoz-utylizacja-wywoz-zieleni-ga-ezi",
+        "name": "Wywóz zieleni / gałęzi"
+      },
+      {
+        "id": "wywoz-utylizacja-czyszczenie-piwnic-strychow",
+        "name": "Czyszczenie piwnic/strychów"
+      },
+      {
+        "id": "wywoz-utylizacja-wywoz-z-omu",
+        "name": "Wywóz złomu"
+      },
+      {
+        "id": "wywoz-utylizacja-wywoz-fekalii",
+        "name": "Wywóz fekalii"
+      },
+      {
+        "id": "wywoz-utylizacja-inne",
+        "name": "Inne"
+      }
+    ]
+  },
+  {
+    "id": "pomoc-24-7",
+    "name": "Pomoc 24 7",
+    "icon": "⏰",
+    "subcategories": [
+      {
+        "id": "pomoc-24-7-awaria-hydrauliczna-wyciek",
+        "name": "Awaria hydrauliczna (wyciek)"
+      },
+      {
+        "id": "pomoc-24-7-awaria-elektryczna-zabezpieczenia",
+        "name": "Awaria elektryczna (zabezpieczenia)"
+      },
+      {
+        "id": "pomoc-24-7-awaryjne-otwieranie-drzwi-slusarz",
+        "name": "Awaryjne otwieranie drzwi (ślusarz)"
+      },
+      {
+        "id": "pomoc-24-7-pomoc-drogowa-rozruch-ko-o",
+        "name": "Pomoc drogowa / rozruch / koło"
+      },
+      {
+        "id": "pomoc-24-7-zabezpieczenie-po-zalaniu-dachu",
+        "name": "Zabezpieczenie po zalaniu / dachu"
+      },
+      {
+        "id": "pomoc-24-7-inne",
+        "name": "Inne"
+      }
+    ]
+  },
+  {
+    "id": "zlota-raczka",
+    "name": "Zlota Raczka",
+    "icon": "🔧",
+    "subcategories": [
+      {
+        "id": "zlota-raczka-montaz-tv-karniszy-rolet-obrazow",
+        "name": "Montaż TV / karniszy / rolet / obrazów"
+      },
+      {
+        "id": "zlota-raczka-drobne-naprawy-w-domu-zawiasy-zamki-meblowe",
+        "name": "Drobne naprawy w domu (zawiasy, zamki meblowe)"
+      },
+      {
+        "id": "zlota-raczka-silikonowanie-uszczelnienia-poprawki",
+        "name": "Silikonowanie, uszczelnienia, poprawki"
+      },
+      {
+        "id": "zlota-raczka-skrecanie-mebli-po-ki-uchwyty",
+        "name": "Skręcanie mebli / półki / uchwyty"
+      },
+      {
+        "id": "zlota-raczka-godzina-dla-domu-mix-drobiazgow",
+        "name": "„Godzina dla domu” (mix drobiazgów)"
+      }
+    ]
+  },
+  {
+    "id": "codzienne-sprawy",
+    "name": "Codzienne sprawy",
+    "icon": "🛒",
+    "subcategories": [
+      {
+        "id": "codzienne-sprawy-zakupy-na-szybko",
+        "name": "Zakupy na szybko"
+      },
+      {
+        "id": "codzienne-sprawy-odbior-zwrot-paczek",
+        "name": "Odbiór/zwrot paczek"
+      },
+      {
+        "id": "codzienne-sprawy-pomoc-przy-przeprowadzce-light-pude-ka",
+        "name": "Pomoc przy przeprowadzce light (pudełka)"
+      },
+      {
+        "id": "codzienne-sprawy-drobne-porzadki",
+        "name": "Drobne porządki"
+      },
+      {
+        "id": "codzienne-sprawy-inne",
+        "name": "Inne"
+      }
+    ]
+  },
+  {
+    "id": "urzedy-formalnosci",
+    "name": "Urzedy Formalnosci",
+    "icon": "📄",
+    "subcategories": [
+      {
+        "id": "urzedy-formalnosci-wype-nianie-wnioskow-epuap-profil-zaufany",
+        "name": "Wypełnianie wniosków / ePUAP / profil zaufany"
+      },
+      {
+        "id": "urzedy-formalnosci-rejestracja-auta-dowod-rejestracyjny",
+        "name": "Rejestracja auta / dowód rejestracyjny"
+      },
+      {
+        "id": "urzedy-formalnosci-t-umaczenie-krotkich-pism-nie-przysieg-e",
+        "name": "Tłumaczenie krótkich pism (nie-przysięgłe)"
+      },
+      {
+        "id": "urzedy-formalnosci-umawianie-wizyt-rezerwacje",
+        "name": "Umawianie wizyt / rezerwacje"
+      },
+      {
+        "id": "urzedy-formalnosci-inne",
+        "name": "Inne"
+      }
+    ]
+  },
+  {
+    "id": "edukacja-korepetycje",
+    "name": "Edukacja Korepetycje",
+    "icon": "🎓",
+    "subcategories": [
+      {
+        "id": "edukacja-korepetycje-matematyka-jezyki-matura",
+        "name": "Matematyka / języki / matura"
+      },
+      {
+        "id": "edukacja-korepetycje-nauka-obs-ugi-komputera-telefonu",
+        "name": "Nauka obsługi komputera/telefonu"
+      },
+      {
+        "id": "edukacja-korepetycje-pomoc-zadania-domowe",
+        "name": "Pomoc „zadania domowe”"
+      },
+      {
+        "id": "edukacja-korepetycje-kursy-krotkie-excel-cv-linkedin",
+        "name": "Kursy krótkie (Excel, CV/LinkedIn)"
+      },
+      {
+        "id": "edukacja-korepetycje-inne",
+        "name": "Inne"
+      }
+    ]
+  },
+  {
+    "id": "rower-hulajnoga",
+    "name": "Rower Hulajnoga",
+    "icon": "🚲",
+    "subcategories": [
+      {
+        "id": "rower-hulajnoga-serwis-roweru-hamulce-przerzutki",
+        "name": "Serwis roweru (hamulce, przerzutki)"
+      },
+      {
+        "id": "rower-hulajnoga-wymiana-detki-opony",
+        "name": "Wymiana dętki / opony"
+      },
+      {
+        "id": "rower-hulajnoga-konserwacja-hulajnogi-elektrycznej",
+        "name": "Konserwacja hulajnogi elektrycznej"
+      },
+      {
+        "id": "rower-hulajnoga-inne",
+        "name": "Inne"
+      }
+    ]
+  },
+  {
+    "id": "monitoring-alarms",
+    "name": "Monitoring Alarms",
+    "icon": "📷",
+    "subcategories": [
+      {
+        "id": "monitoring-alarms-montaz-kamer-wideodomofonow",
+        "name": "Montaż kamer / wideodomofonów"
+      },
+      {
+        "id": "monitoring-alarms-konfiguracja-alarmu-czujnikow",
+        "name": "Konfiguracja alarmu / czujników"
+      },
+      {
+        "id": "monitoring-alarms-inne",
+        "name": "Inne"
+      }
+    ]
+  },
+  {
+    "id": "akwarystyka",
+    "name": "Akwarystyka",
+    "icon": "🐟",
+    "subcategories": [
+      {
+        "id": "akwarystyka-zak-adanie-i-start-akwarium",
+        "name": "Zakładanie i start akwarium"
+      },
+      {
+        "id": "akwarystyka-aranzacja-aquascaping",
+        "name": "Aranżacja / aquascaping"
+      },
+      {
+        "id": "akwarystyka-podmiany-wody-i-serwis-cykliczny",
+        "name": "Podmiany wody i serwis cykliczny"
+      },
+      {
+        "id": "akwarystyka-inne",
+        "name": "Inne"
+      }
+    ]
+  },
+  {
+    "id": "wynajem",
+    "name": "Wynajem",
+    "icon": "📦",
+    "subcategories": [
+      {
+        "id": "wynajem-wynajem-przyczep-i-lawe",
+        "name": "Wynajem przyczep i lawe"
+      },
+      {
+        "id": "wynajem-wynajem-maszyn-budowlanych",
+        "name": "Wynajem maszyn budowlanych"
+      },
+      {
+        "id": "wynajem-wynajem-narzedzi-i-ogrodowych",
+        "name": "Wynajem narzędzi i ogrodowych"
+      },
+      {
+        "id": "wynajem-wynajem-foto-video-av",
+        "name": "Wynajem foto-video/AV"
+      },
+      {
+        "id": "wynajem-wynajem-sprzetu-eventowego",
+        "name": "Wynajem sprzętu eventowego"
+      },
+      {
+        "id": "wynajem-wynajem-sport-outdoor",
+        "name": "Wynajem sport/outdoor"
+      },
+      {
+        "id": "wynajem-wynajem-samochodu",
+        "name": "Wynajem samochodu"
+      },
+      {
+        "id": "wynajem-inne",
+        "name": "Inne"
+      }
+    ]
+  },
+  {
+    "id": "architektura",
+    "name": "Architektura",
+    "icon": "📐",
+    "subcategories": [
+      {
+        "id": "architektura-konsultacje-online",
+        "name": "Konsultacje online"
+      },
+      {
+        "id": "architektura-projekt-koncepcyjny-mieszkania-pokoju",
+        "name": "Projekt koncepcyjny mieszkania/pokoju"
+      },
+      {
+        "id": "architektura-wizualizacje-3d",
+        "name": "Wizualizacje 3D"
+      },
+      {
+        "id": "architektura-inwentaryzacja-pomiarowa-2d-3d",
+        "name": "Inwentaryzacja pomiarowa 2D/3D"
+      },
+      {
+        "id": "architektura-audyt-funkcjonalny-lokalu-us-ugu-uk-ad-scian-strefy",
+        "name": "Audyt funkcjonalny lokalu/usługu (układ ścian, strefy)"
+      },
+      {
+        "id": "architektura-projekt-budowlany-przebudowa",
+        "name": "Projekt budowlany / przebudowa"
+      }
+    ]
+  },
+  {
+    "id": "teleporada",
+    "name": "Teleporada",
+    "icon": "📞",
+    "subcategories": [
+      {
+        "id": "teleporada-lekarz",
+        "name": "Lekarz"
+      },
+      {
+        "id": "teleporada-prawnik",
+        "name": "Prawnik"
+      },
+      {
+        "id": "teleporada-specjalista-it",
+        "name": "Specjalista IT"
+      },
+      {
+        "id": "teleporada-doradca-biznesowy",
+        "name": "Doradca biznesowy"
+      },
+      {
+        "id": "teleporada-psycholog",
+        "name": "Psycholog"
+      },
+      {
+        "id": "teleporada-korepetycje",
+        "name": "Korepetycje"
+      },
+      {
+        "id": "teleporada-doradca-nieruchomosci",
+        "name": "Doradca nieruchomości"
+      },
+      {
+        "id": "teleporada-inne",
+        "name": "Inne"
+      }
+    ]
+  },
+  {
+    "id": "inne",
+    "name": "Inne",
+    "icon": "➕",
+    "subcategories": [
+      {
+        "id": "inne-inne-opisz-problem",
+        "name": "Inne opisz problem"
+      }
+    ]
+  }
+]

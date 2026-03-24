@@ -1,0 +1,197 @@
+[
+  {
+    "category": "hydraulika",
+    "parts": [
+      {
+        "name": "Uszczelka 3/8\"",
+        "type": "gasket",
+        "specification": "3/8 cala",
+        "typicalPrice": { "min": 8, "max": 15, "currency": "PLN" },
+        "availability": "high",
+        "commonBrands": ["Grohe", "Hansgrohe", "Oras", "Geberit"]
+      },
+      {
+        "name": "Taśma teflonowa",
+        "type": "tape",
+        "specification": "PTFE, szerokość 12mm",
+        "typicalPrice": { "min": 5, "max": 12, "currency": "PLN" },
+        "availability": "very_high",
+        "commonBrands": ["Loctite", "Unipack"]
+      },
+      {
+        "name": "Głowica baterii",
+        "type": "faucet_cartridge",
+        "specification": "Standardowa ceramiczna",
+        "typicalPrice": { "min": 30, "max": 80, "currency": "PLN" },
+        "availability": "high",
+        "commonBrands": ["Grohe", "Hansgrohe", "Oras"]
+      },
+      {
+        "name": "Zawór kulowy 1/2\"",
+        "type": "valve",
+        "specification": "1/2 cala, kulowy",
+        "typicalPrice": { "min": 25, "max": 60, "currency": "PLN" },
+        "availability": "high",
+        "commonBrands": ["Fam", "Brodno", "Farg"]
+      },
+      {
+        "name": "Wąż elastyczny do pralki",
+        "type": "hose",
+        "specification": "3/4 cala, długość 1.5m",
+        "typicalPrice": { "min": 20, "max": 45, "currency": "PLN" },
+        "availability": "high",
+        "commonBrands": ["Fam", "Brodno"]
+      }
+    ]
+  },
+  {
+    "category": "elektryka",
+    "parts": [
+      {
+        "name": "Taśma izolacyjna",
+        "type": "insulation_tape",
+        "specification": "PVC, szerokość 19mm",
+        "typicalPrice": { "min": 6, "max": 15, "currency": "PLN" },
+        "availability": "very_high",
+        "commonBrands": ["3M", "Tesa", "Unipack"]
+      },
+      {
+        "name": "Bezpiecznik topikowy 10A",
+        "type": "fuse",
+        "specification": "10A, standardowy",
+        "typicalPrice": { "min": 2, "max": 8, "currency": "PLN" },
+        "availability": "very_high",
+        "commonBrands": ["Eaton", "Schneider", "ABB"]
+      },
+      {
+        "name": "Gniazdko elektryczne",
+        "type": "socket",
+        "specification": "Schuko, biały",
+        "typicalPrice": { "min": 15, "max": 40, "currency": "PLN" },
+        "availability": "very_high",
+        "commonBrands": ["Ospel", "Berker", "Gira"]
+      },
+      {
+        "name": "Włącznik światła",
+        "type": "switch",
+        "specification": "Jednoklawiszowy, biały",
+        "typicalPrice": { "min": 12, "max": 35, "currency": "PLN" },
+        "availability": "very_high",
+        "commonBrands": ["Ospel", "Berker", "Gira"]
+      },
+      {
+        "name": "Przewód elektryczny 3x1.5mm²",
+        "type": "cable",
+        "specification": "3 żyły, 1.5mm²",
+        "typicalPrice": { "min": 8, "max": 15, "currency": "PLN/m" },
+        "availability": "high",
+        "commonBrands": ["Ospel", "Nexans", "NKT"]
+      }
+    ]
+  },
+  {
+    "category": "it",
+    "parts": [
+      {
+        "name": "Kabel HDMI",
+        "type": "cable",
+        "specification": "HDMI 2.0, długość 2m",
+        "typicalPrice": { "min": 20, "max": 80, "currency": "PLN" },
+        "availability": "very_high",
+        "commonBrands": ["Belkin", "Amazon Basics", "Ugreen"]
+      },
+      {
+        "name": "Zasilacz laptopa",
+        "type": "power_adapter",
+        "specification": "19V, 65W (typowe)",
+        "typicalPrice": { "min": 80, "max": 200, "currency": "PLN" },
+        "availability": "high",
+        "commonBrands": ["Oryginalne", "Uniwersalne"]
+      },
+      {
+        "name": "Kabel USB-C",
+        "type": "cable",
+        "specification": "USB-C, długość 1m",
+        "typicalPrice": { "min": 15, "max": 50, "currency": "PLN" },
+        "availability": "very_high",
+        "commonBrands": ["Belkin", "Anker", "Ugreen"]
+      },
+      {
+        "name": "Dysk SSD 256GB",
+        "type": "storage",
+        "specification": "SATA 3, 2.5 cala",
+        "typicalPrice": { "min": 150, "max": 300, "currency": "PLN" },
+        "availability": "high",
+        "commonBrands": ["Samsung", "Kingston", "Crucial"]
+      }
+    ]
+  },
+  {
+    "category": "remont",
+    "parts": [
+      {
+        "name": "Farba emulsyjna",
+        "type": "paint",
+        "specification": "10L, biała matowa",
+        "typicalPrice": { "min": 80, "max": 200, "currency": "PLN" },
+        "availability": "very_high",
+        "commonBrands": ["Dulux", "Śnieżka", "Beckers"]
+      },
+      {
+        "name": "Klej do płytek",
+        "type": "adhesive",
+        "specification": "25kg, uniwersalny",
+        "typicalPrice": { "min": 30, "max": 80, "currency": "PLN" },
+        "availability": "very_high",
+        "commonBrands": ["Ceresit", "Atlas", "Knauf"]
+      },
+      {
+        "name": "Fuga do płytek",
+        "type": "grout",
+        "specification": "5kg, biała",
+        "typicalPrice": { "min": 25, "max": 60, "currency": "PLN" },
+        "availability": "very_high",
+        "commonBrands": ["Ceresit", "Atlas", "Knauf"]
+      },
+      {
+        "name": "Gładź gipsowa",
+        "type": "plaster",
+        "specification": "25kg, uniwersalna",
+        "typicalPrice": { "min": 20, "max": 50, "currency": "PLN" },
+        "availability": "very_high",
+        "commonBrands": ["Ceresit", "Atlas", "Knauf"]
+      }
+    ]
+  },
+  {
+    "category": "inne",
+    "parts": [
+      {
+        "name": "Środek czyszczący uniwersalny",
+        "type": "cleaner",
+        "specification": "1L, uniwersalny",
+        "typicalPrice": { "min": 10, "max": 25, "currency": "PLN" },
+        "availability": "very_high",
+        "commonBrands": ["Cif", "Mr Muscle", "Domestos"]
+      },
+      {
+        "name": "Gąbki i ścierki",
+        "type": "cleaning_tools",
+        "specification": "Zestaw podstawowy",
+        "typicalPrice": { "min": 8, "max": 20, "currency": "PLN" },
+        "availability": "very_high",
+        "commonBrands": ["Vileda", "Scotch-Brite"]
+      }
+    ]
+  }
+]
+
+
+
+
+
+
+
+
+
+
