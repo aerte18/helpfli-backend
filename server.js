@@ -189,6 +189,13 @@ const allowedOrigins = (process.env.CORS_ORIGIN || '')
   .map(o => o.trim())
   .filter(Boolean);
 
+const cspConnectSrc = [
+  "'self'",
+  ...allowedOrigins,
+  'https://api.stripe.com',
+  'https://onesignal.com',
+].filter(Boolean);
+
 const isDevelopment = process.env.NODE_ENV !== 'production';
 
 const isAllowedOrigin = (origin) => {
@@ -268,7 +275,7 @@ app.use(helmet({
     directives: {
       "default-src": ["'self'"],
       "script-src": ["'self'", "https://js.stripe.com", "https://cdn.onesignal.com"],
-      "connect-src": ["'self'", process.env.CORS_ORIGIN, "https://api.stripe.com", "https://onesignal.com"],
+      "connect-src": cspConnectSrc,
       "img-src": ["'self'", "data:", "blob:", "https://*.amazonaws.com"],
       "frame-src": ["https://js.stripe.com"],
       "worker-src": ["'self'", "blob:"]
