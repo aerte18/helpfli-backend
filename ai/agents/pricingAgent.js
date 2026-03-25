@@ -95,10 +95,7 @@ async function runPricingAgent({ service, urgency = 'standard', userContext = {}
           });
         }
       }
-    } catch (error) {
-      console.warn('Could not compute price hints:', error.message);
-    }
-    
+
     // Jeśli priceHints nie zostały użyte, użyj bazowych widełek
     if (!ranges) {
     

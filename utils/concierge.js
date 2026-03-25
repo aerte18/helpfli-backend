@@ -527,6 +527,49 @@ function scoreServiceMatch(description = '', service) {
   return score;
 }
 
+/**
+ * Podobne zakończone zlecenia (kontekst dla AI) — uproszczona heurystyka.
+ */
+async function findSimilarOrders(description, serviceCode, locationText, limit = 5) {
+  try {
+    if (!description) return [];
+    const q = { status: 'completed' };
+    if (serviceCode) q.service = serviceCode;
+    const orders = await Order.find(q)
+      .sort({ completedAt: -1 })
+      .limit(Math.min(Number(limit) || 5, 20))
+      .select('service description amountTotal completedAt')
+      .lean();
+    return (orders || []).map((o) => ({
+      id: o._id,
+      service: o.service,
+      description: (o.description || '').slice(0, 400),
+      amountTotal: o.amountTotal
+    }));
+  } catch (e) {
+    console.warn('findSimilarOrders:', e.message);
+    return [];
+  }
+}
+
+/**
+ * Feedback oznaczony jako „zadziałało” (dla kontekstu LLM).
+ */
+async function findSuccessfulFeedback(description, serviceCode, locationText, limit = 3) {
+  try {
+    const q = { 'feedback.worked': true };
+    if (serviceCode) q.serviceCode = serviceCode;
+    const list = await AIFeedback.find(q)
+      .sort({ createdAt: -1 })
+      .limit(Math.min(Number(limit) || 3, 20))
+      .lean();
+    return list || [];
+  } catch (e) {
+    console.warn('findSuccessfulFeedback:', e.message);
+    return [];
+  }
+}
+
 module.exports = {
   deriveSelfHelpSteps,
   suggestParts,
