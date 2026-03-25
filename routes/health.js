@@ -60,11 +60,13 @@ router.get('/', async (req, res) => {
         healthCheck.services.storage = 'available';
       } catch (error) {
         healthCheck.services.storage = 'unavailable';
-        if (isProd || strictStorageHealth) healthCheck.status = 'degraded';
+        // Storage jest opcjonalne dla MVP — w trybie produkcyjnym nie psuj readinessa,
+        // jeśli nie zbudowałeś jeszcze kompletnej konfiguracji AWS.
+        if (strictStorageHealth) healthCheck.status = 'degraded';
       }
     } else if (process.env.AWS_ACCESS_KEY_ID && !s3Bucket) {
       healthCheck.services.storage = 'misconfigured';
-      if (isProd || strictStorageHealth) healthCheck.status = 'degraded';
+      if (strictStorageHealth) healthCheck.status = 'degraded';
     } else {
       healthCheck.services.storage = 'local';
     }
