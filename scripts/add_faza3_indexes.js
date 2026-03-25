@@ -1,4 +1,4 @@
-?// Skrypt do dodania dodatkowych indeksów dla FAZY 3
+// Skrypt do dodania dodatkowych indeksów dla FAZY 3
 // Uruchom: node backend/scripts/add_faza3_indexes.js
 
 const mongoose = require('mongoose');

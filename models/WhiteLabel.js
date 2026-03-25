@@ -1,4 +1,4 @@
-?// Model dla white-label (własne brandingi, domeny, customizacja UI)
+// Model dla white-label (własne brandingi, domeny, customizacja UI)
 const mongoose = require('mongoose');
 
 const whiteLabelSchema = new mongoose.Schema({

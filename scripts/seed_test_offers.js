@@ -1,4 +1,4 @@
-?require('dotenv').config();
+require('dotenv').config();
 const mongoose = require('mongoose');
 const Offer = require('../models/Offer');
 const User = require('../models/User');

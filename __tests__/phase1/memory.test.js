@@ -1,4 +1,4 @@
-?/**
+/**
  * Testy dla Memory & Context Management (Faza 1)
  */
 

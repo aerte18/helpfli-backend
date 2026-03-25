@@ -1,4 +1,4 @@
-?const cron = require("node-cron");
+const cron = require("node-cron");
 const nodemailer = require("nodemailer");
 const User = require("../models/User");
 const { sendPushToUser } = require("../utils/webpush");

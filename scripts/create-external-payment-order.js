@@ -1,4 +1,4 @@
-?/**
+/**
  * Skrypt do utworzenia przykładowego zlecenia z płatnością zewnętrzną (bez gwarancji Helpfli)
  * 
  * Użycie:

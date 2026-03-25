@@ -1,4 +1,4 @@
-?// Serwis do wysyłania webhooków do partnerów
+// Serwis do wysyłania webhooków do partnerów
 const axios = require('axios');
 const crypto = require('crypto');
 const Webhook = require('../models/Webhook');

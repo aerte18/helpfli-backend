@@ -1,4 +1,4 @@
-?/**
+/**
  * Testy integracyjne dla Fazy 3
  */
 

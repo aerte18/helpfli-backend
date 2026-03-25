@@ -1,4 +1,4 @@
-?const User = require('../models/User');
+const User = require('../models/User');
 const UserSubscription = require('../models/UserSubscription');
 const SubscriptionPlan = require('../models/SubscriptionPlan');
 const { sendMail } = require('../utils/email');

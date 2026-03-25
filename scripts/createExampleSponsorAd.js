@@ -1,4 +1,4 @@
-?/**
+/**
  * Skrypt do utworzenia przykładowej reklamy sponsorowanej
  * Uruchom: node backend/scripts/createExampleSponsorAd.js
  */

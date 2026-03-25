@@ -1,4 +1,4 @@
-?const axios = require('axios');
+const axios = require('axios');
 const NotificationLog = require('../models/NotificationLog');
 
 /**

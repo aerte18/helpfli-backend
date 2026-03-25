@@ -1,4 +1,4 @@
-?// Używaj na endpointach, które mają przysługiwać tylko zleceniom opłaconych w systemie (np. spory, gwarancja, szybkie zwroty)
+// Używaj na endpointach, które mają przysługiwać tylko zleceniom opłaconych w systemie (np. spory, gwarancja, szybkie zwroty)
 module.exports.requireProtectedOrder = (req, res, next) => {
   const order = req.order || req.loadedOrder;
   if (!order) return res.status(400).json({ message: 'Order not loaded' });

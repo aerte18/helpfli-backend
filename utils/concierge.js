@@ -399,7 +399,7 @@ async function recommendProviders(serviceCode, lat, lon, limit = 3, urgency = 'n
           _id: '$provider',
           total: { $sum: 1 },
           completed: { $sum: { $cond: [{ $eq: ['$status','completed'] }, 1, 0] } },
-          systemPaid: { $sum: { $cond: [{ $eq: ['$paidInSystem'], true] }, 1, 0] } }, // eslint-disable-line
+          systemPaid: { $sum: { $cond: [{ $eq: ['$paidInSystem', true] }, 1, 0] } }, // eslint-disable-line
         }
       }
     ]);

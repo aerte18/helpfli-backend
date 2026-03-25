@@ -1,4 +1,4 @@
-?// Serwis do zarządzania white-label
+// Serwis do zarządzania white-label
 const WhiteLabel = require('../models/WhiteLabel');
 const crypto = require('crypto');
 const dns = require('dns').promises;

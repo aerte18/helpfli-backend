@@ -1,4 +1,4 @@
-?/**
+/**
  * Testy dla Feedback Loop (Faza 1)
  */
 

@@ -1,4 +1,4 @@
-?const mongoose = require('mongoose');
+const mongoose = require('mongoose');
 
 // Ogólny model faktur dla użytkowników (klientów) i firm
 // Kwoty w groszach, VAT 23% domyślnie

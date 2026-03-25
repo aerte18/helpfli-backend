@@ -1,4 +1,4 @@
-?// Skrypt do dodania indeksów MongoDB dla optymalizacji zapytań
+// Skrypt do dodania indeksów MongoDB dla optymalizacji zapytań
 // Uruchom: node scripts/add_indexes_optimization.js
 
 const mongoose = require('mongoose');

@@ -1,4 +1,4 @@
-?// Serwis do integracji z systemami księgowymi
+// Serwis do integracji z systemami księgowymi
 const axios = require('axios');
 const AccountingIntegration = require('../models/AccountingIntegration');
 const Payment = require('../models/Payment');

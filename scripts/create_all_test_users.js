@@ -1,4 +1,4 @@
-?/**
+/**
  * Skrypt do tworzenia wszystkich użytkowników testowych
  * Uruchom: node scripts/create_all_test_users.js
  */

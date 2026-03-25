@@ -1,4 +1,4 @@
-?/**
+/**
  * Base Prompt - wspólny dla wszystkich agentów
  * Zawiera podstawowe zasady i kontekst platformy Helpfli
  */

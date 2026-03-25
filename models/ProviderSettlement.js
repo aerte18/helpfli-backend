@@ -1,4 +1,4 @@
-?const mongoose = require('mongoose');
+const mongoose = require('mongoose');
 
 // Rozliczenie okresowe dla providera (Model A – faktura od providera do Helpfli)
 const ProviderSettlementSchema = new mongoose.Schema(

@@ -1,4 +1,4 @@
-?require('dotenv').config();
+require('dotenv').config();
 const path = require('path');
 const mongoose = require('mongoose');
 const Offer = require(path.join(__dirname, '../models/Offer'));

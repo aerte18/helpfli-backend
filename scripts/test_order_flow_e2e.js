@@ -1,4 +1,4 @@
-?/**
+/**
  * E2E test: pełny proces zlecenia (utworzenie → oferta → akceptacja → realizacja → zakończenie → ocena)
  * w obu wariantach płatności: przez stronę (system) i poza systemem (external).
  * Sprawdza widoczność na koncie klienta i providera po każdym etapie.

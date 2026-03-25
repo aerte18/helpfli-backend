@@ -1,4 +1,4 @@
-?/**
+/**
  * Cron job do automatycznego zarządzania reklamami sponsorowanymi
  * - Sprawdzanie dat końca kampanii
  * - Automatyczne wygaszanie reklam

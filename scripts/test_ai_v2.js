@@ -1,4 +1,4 @@
-?/**
+/**
  * Prosty skrypt testowy dla endpointu /api/ai/concierge/v2
  * Użycie: node scripts/test_ai_v2.js
  */

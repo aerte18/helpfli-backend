@@ -1,4 +1,4 @@
-?const crypto = require('crypto');
+const crypto = require('crypto');
 const { sendMail } = require('../utils/email');
 const User = require('../models/User');
 

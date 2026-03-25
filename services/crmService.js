@@ -1,4 +1,4 @@
-?// Serwis do integracji z CRM (Salesforce, HubSpot, etc.)
+// Serwis do integracji z CRM (Salesforce, HubSpot, etc.)
 const axios = require('axios');
 const CrmIntegration = require('../models/CrmIntegration');
 const Order = require('../models/Order');

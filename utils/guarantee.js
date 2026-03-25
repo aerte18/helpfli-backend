@@ -1,4 +1,4 @@
-?const Verification = require("../models/Verification");
+const Verification = require("../models/Verification");
 
 /**
  * Zwraca { eligible: boolean, reasons: string[] }

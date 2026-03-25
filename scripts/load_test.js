@@ -1,4 +1,4 @@
-?// Load testing script dla endpointów Helpfli
+// Load testing script dla endpointów Helpfli
 // Uruchom: node scripts/load_test.js
 
 const http = require('http');

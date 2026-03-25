@@ -1,4 +1,4 @@
-?const User = require('../models/User');
+const User = require('../models/User');
 const Order = require('../models/Order');
 const Event = require('../models/Event');
 const Payment = require('../models/Payment');

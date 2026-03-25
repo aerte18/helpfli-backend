@@ -1,4 +1,4 @@
-?/**
+/**
  * Testy dla Analytics & Monitoring (Faza 1)
  */
 
