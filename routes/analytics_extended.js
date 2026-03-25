@@ -1,4 +1,4 @@
-?// Rozszerzone metryki biznesowe dla Helpfli
+// Rozszerzone metryki biznesowe dla Helpfli
 const express = require('express');
 const router = express.Router();
 const { authMiddleware } = require('../middleware/authMiddleware');

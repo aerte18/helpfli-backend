@@ -1,4 +1,4 @@
-?const express = require('express');
+const express = require('express');
 const router = express.Router();
 const webpush = require('web-push');
 const PushSubscription = require('../models/pushSubscription');

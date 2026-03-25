@@ -1,4 +1,4 @@
-?// Integracje zewnętrzne - kalendarze, płatności, API, webhooks
+// Integracje zewnętrzne - kalendarze, płatności, API, webhooks
 const express = require('express');
 const router = express.Router();
 const { authMiddleware } = require('../middleware/authMiddleware');

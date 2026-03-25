@@ -1,4 +1,4 @@
-?const express = require("express");
+const express = require("express");
 const mongoose = require("mongoose");
 const { authMiddleware: auth } = require("../middleware/authMiddleware");
 const { requireKycVerified } = require("../middleware/kyc");

@@ -1,4 +1,4 @@
-?const express = require('express');
+const express = require('express');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const adminMiddleware = require('../middleware/adminMiddleware');
 const User = require('../models/User');

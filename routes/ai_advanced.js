@@ -1,4 +1,4 @@
-?// Zaawansowane funkcje AI
+// Zaawansowane funkcje AI
 const express = require('express');
 const router = express.Router();
 const { authMiddleware } = require('../middleware/authMiddleware');

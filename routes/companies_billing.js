@@ -1,4 +1,4 @@
-?// Centralne rozliczenia dla firm (Multi-tenant)
+// Centralne rozliczenia dla firm (Multi-tenant)
 const express = require('express');
 const router = express.Router();
 const { authMiddleware } = require('../middleware/authMiddleware');

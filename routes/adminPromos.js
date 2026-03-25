@@ -1,4 +1,4 @@
-?const express = require('express');
+const express = require('express');
 const router = express.Router();
 const PromoCode = require('../models/PromoCode');
 const { authMiddleware: auth } = require('../middleware/authMiddleware');

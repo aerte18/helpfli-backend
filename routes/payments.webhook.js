@@ -1,4 +1,4 @@
-?const router = require('express').Router();
+const router = require('express').Router();
 const stripe = process.env.STRIPE_SECRET_KEY ? require('stripe')(process.env.STRIPE_SECRET_KEY) : null;
 const Payment = require('../models/Payment');
 const Order = require('../models/Order');

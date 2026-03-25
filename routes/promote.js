@@ -1,4 +1,4 @@
-?const express = require('express');
+const express = require('express');
 const router = express.Router();
 const Stripe = require('stripe');
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;

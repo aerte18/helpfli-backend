@@ -1,4 +1,4 @@
-?// Social features routes - recenzje, portfolio, galeria, referral
+// Social features routes - recenzje, portfolio, galeria, referral
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
