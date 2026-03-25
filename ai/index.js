@@ -242,9 +242,6 @@ async function conciergeHandler(req, res) {
 
     // Web Search Integration (Faza 3) - sprawdź czy potrzebne wyszukiwanie
     let webSearchResults = null;
-    const lastUserMessage = finalMessages
-      .filter(m => m.role === 'user')
-      .pop();
     const userMessageText = lastUserMessage?.content || '';
 
     if (WebSearchIntegrationService.shouldSearchWeb(
