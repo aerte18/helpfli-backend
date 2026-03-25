@@ -1,4 +1,4 @@
-?const express = require('express');
+const express = require('express');
 const router = express.Router();
 const Stripe = require('stripe');
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
@@ -10,6 +10,7 @@ const UserSubscription = require('../models/UserSubscription');
 const Coupon = require('../models/Coupon');
 const PaymentErrorLog = require('../models/PaymentErrorLog');
 const Invoice = require('../models/Invoice');
+const Revenue = require('../models/Revenue');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const NotificationService = require('../services/NotificationService');
 const { validateNIP } = require('../utils/companyValidation');
@@ -457,6 +458,90 @@ router.post('/create-commission-intent', authMiddleware, async (req, res) => {
   }
 });
 
+async function createInvoiceForOrder(client, order, payment, customerType, invoiceMode) {
+  const grossAmount = order.amountTotal;
+  const taxRate = 23;
+  const subtotal = Math.round(grossAmount / (1 + taxRate / 100));
+  const taxAmount = grossAmount - subtotal;
+
+  const buyerName = customerType === 'company'
+    ? (client.billing?.companyName || client.name || client.email)
+    : (client.name || client.email);
+
+  const saleDate = new Date();
+  const dueDate = new Date(saleDate);
+  dueDate.setDate(dueDate.getDate() + 14);
+
+  const invoice = await Invoice.create({
+    ownerType: 'user',
+    owner: client._id,
+    source: 'order',
+    order: order._id,
+    payment: payment._id,
+    saleDate,
+    dueDate,
+    buyer: {
+      name: buyerName,
+      email: client.email,
+      nip: customerType === 'company' ? (client.billing?.nip || '') : '',
+      address: {
+        street: client.billing?.street || '',
+        city: client.billing?.city || '',
+        postalCode: client.billing?.postalCode || '',
+        country: client.billing?.country || 'Polska'
+      }
+    },
+    seller: {
+      name: process.env.INVOICE_SELLER_NAME || 'Helpfli Sp. z o.o.',
+      nip: process.env.INVOICE_SELLER_NIP || '',
+      address: {
+        street: process.env.INVOICE_SELLER_STREET || '',
+        city: process.env.INVOICE_SELLER_CITY || '',
+        postalCode: process.env.INVOICE_SELLER_POSTAL || '',
+        country: process.env.INVOICE_SELLER_COUNTRY || 'Polska'
+      }
+    },
+    items: [
+      {
+        description: order.service || 'Usługa Helpfli',
+        quantity: 1,
+        unitPrice: subtotal,
+        totalPrice: subtotal
+      }
+    ],
+    summary: {
+      subtotal,
+      taxRate,
+      taxAmount,
+      total: grossAmount,
+      currency: (process.env.CURRENCY || 'pln').toUpperCase()
+    },
+    status: 'issued',
+    metadata: {
+      generatedAutomatically: true,
+      customerType,
+      invoiceMode
+    }
+  });
+
+  try {
+    await NotificationService.sendNotification(
+      'client_invoice_issued',
+      [client._id],
+      {
+        clientName: client.name || client.email,
+        service: order.service || 'Usługa Helpfli',
+        orderId: order._id,
+        invoiceNumber: invoice.invoiceNumber
+      }
+    );
+  } catch (notifyErr) {
+    console.error('client_invoice_issued notification error:', notifyErr);
+  }
+
+  return invoice;
+}
+
 // POST /api/payments/capture - capture PaymentIntent dla escrow
 router.post('/capture', authMiddleware, async (req, res) => {
   try {
@@ -541,6 +626,20 @@ router.post('/capture', authMiddleware, async (req, res) => {
           console.error('Błąd podczas wystawiania faktury:', invoiceError);
           // Nie przerywamy płatności nawet jeśli faktura się nie udała
         }
+
+        try {
+          await Revenue.updateMany(
+            { orderId: order._id, status: 'pending' },
+            { $set: { status: 'paid', paidAt: new Date() } }
+          );
+        } catch (revErr) {
+          console.error('Revenue update after capture:', revErr);
+        }
+        try {
+          await NotificationService.notifyOrderFunded(order._id);
+        } catch (error) {
+          console.error('Notification error:', error);
+        }
       }
     } else {
       return res.status(400).json({ message: 'Nie można sfinalizować płatności w tym statusie' });
@@ -558,135 +657,6 @@ router.post('/capture', authMiddleware, async (req, res) => {
       userId: req.user?._id
     });
     res.status(500).json({ message: 'Błąd podczas finalizacji płatności', error: error.message });
-  }
-});
-
-// Funkcja pomocnicza do tworzenia faktury
-async function createInvoiceForOrder(client, order, payment, customerType, invoiceMode) {
-  const grossAmount = order.amountTotal;
-  const taxRate = 23;
-  const subtotal = Math.round(grossAmount / (1 + taxRate / 100));
-  const taxAmount = grossAmount - subtotal;
-
-  const buyerName = customerType === 'company' 
-    ? (client.billing?.companyName || client.name || client.email)
-    : (client.name || client.email);
-
-  const saleDate = new Date(); // Data sprzedaży = data płatności
-  const dueDate = new Date(saleDate);
-  dueDate.setDate(dueDate.getDate() + 14); // Termin płatności: 14 dni
-
-  const invoice = await Invoice.create({
-    ownerType: 'user',
-    owner: client._id,
-    source: 'order',
-    order: order._id,
-    payment: payment._id,
-    saleDate,
-    dueDate,
-    buyer: {
-      name: buyerName,
-      email: client.email,
-      nip: customerType === 'company' ? (client.billing?.nip || '') : '',
-      address: {
-        street: client.billing?.street || '',
-        city: client.billing?.city || '',
-        postalCode: client.billing?.postalCode || '',
-        country: client.billing?.country || 'Polska'
-      }
-    },
-    seller: {
-      name: process.env.INVOICE_SELLER_NAME || 'Helpfli Sp. z o.o.',
-      nip: process.env.INVOICE_SELLER_NIP || '',
-      address: {
-        street: process.env.INVOICE_SELLER_STREET || '',
-        city: process.env.INVOICE_SELLER_CITY || '',
-        postalCode: process.env.INVOICE_SELLER_POSTAL || '',
-        country: process.env.INVOICE_SELLER_COUNTRY || 'Polska'
-      }
-    },
-    items: [
-      {
-        description: order.service || 'Usługa Helpfli',
-        quantity: 1,
-        unitPrice: subtotal,
-        totalPrice: subtotal
-      }
-    ],
-    summary: {
-      subtotal,
-      taxRate,
-      taxAmount,
-      total: grossAmount,
-      currency: (process.env.CURRENCY || 'pln').toUpperCase()
-    },
-    status: 'issued',
-    metadata: {
-      generatedAutomatically: true,
-      customerType,
-      invoiceMode
-    }
-  });
-
-  // Wyślij mail do klienta z informacją o fakturze
-  try {
-    await NotificationService.sendNotification(
-      'client_invoice_issued',
-      [client._id],
-      {
-        clientName: client.name || client.email,
-        service: order.service || 'Usługa Helpfli',
-        orderId: order._id,
-        invoiceNumber: invoice.invoiceNumber
-      }
-    );
-  } catch (notifyErr) {
-    console.error('client_invoice_issued notification error:', notifyErr);
-  }
-
-  return invoice;
-}
-
-        // Aktualizuj Revenue
-        await Revenue.updateMany(
-          { orderId: order._id, status: 'pending' },
-          { $set: { status: 'paid', paidAt: new Date() } }
-        );
-
-        // Wyślij powiadomienie do providera o zabezpieczeniu środków
-        try {
-          await NotificationService.notifyOrderFunded(order._id);
-        } catch (error) {
-          console.error('Notification error:', error);
-        }
-      }
-
-      res.json({ 
-        message: 'Płatność została zabezpieczona',
-        status: intent.status,
-        amount: intent.amount_received
-      });
-    } else {
-      res.status(400).json({ 
-        message: 'Nie udało się zabezpieczyć płatności',
-        status: intent.status
-      });
-    }
-
-  } catch (error) {
-    console.error('Capture payment error:', error);
-    await logPaymentError({
-      errorType: 'capture_failed',
-      errorMessage: error.message,
-      errorStack: error.stack,
-      paymentId: payment?._id,
-      orderId: payment?.order,
-      userId: req.user?._id,
-      stripePaymentIntentId: paymentIntentId,
-      retryable: true,
-      metadata: { action: 'capture' }
-    });
-    res.status(500).json({ message: 'Błąd zabezpieczania płatności' });
   }
 });
 
