@@ -44,18 +44,27 @@ router.get('/', async (req, res) => {
       // healthCheck.status = 'degraded';
     }
 
-    // Check storage (if using S3 or similar)
-    if (process.env.AWS_ACCESS_KEY_ID) {
+    // Check storage (S3) — bucket name może być w AWS_S3_BUCKET lub AWS_BUCKET_NAME (upload używa drugiego)
+    const s3Bucket = process.env.AWS_S3_BUCKET || process.env.AWS_BUCKET_NAME;
+    if (process.env.AWS_ACCESS_KEY_ID && s3Bucket) {
       try {
-        const AWS = require('aws-sdk');
-        const s3 = new AWS.S3();
-        await s3.headBucket({ Bucket: process.env.AWS_S3_BUCKET }).promise();
+        const { S3Client, HeadBucketCommand } = require('@aws-sdk/client-s3');
+        const s3 = new S3Client({
+          region: process.env.AWS_REGION || 'eu-central-1',
+          credentials: {
+            accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+            secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+          }
+        });
+        await s3.send(new HeadBucketCommand({ Bucket: s3Bucket }));
         healthCheck.services.storage = 'available';
       } catch (error) {
         healthCheck.services.storage = 'unavailable';
-        // W dev/test storage bywa niekonfigurowane (placeholder ENV) — nie blokuj readiness
         if (isProd || strictStorageHealth) healthCheck.status = 'degraded';
       }
+    } else if (process.env.AWS_ACCESS_KEY_ID && !s3Bucket) {
+      healthCheck.services.storage = 'misconfigured';
+      if (isProd || strictStorageHealth) healthCheck.status = 'degraded';
     } else {
       healthCheck.services.storage = 'local';
     }

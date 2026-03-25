@@ -2,16 +2,18 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const sharp = require('sharp');
-const AWS = require('aws-sdk');
+const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 const { verifyToken } = require('../middleware/authMiddleware');
 
-AWS.config.update({
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-  region: process.env.AWS_REGION
+const s3 = new S3Client({
+  region: process.env.AWS_REGION || 'eu-central-1',
+  credentials: process.env.AWS_ACCESS_KEY_ID
+    ? {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+      }
+    : undefined
 });
-
-const s3 = new AWS.S3();
 
 // Use memory storage to access file buffer for thumbnail generation
 const upload = multer({
@@ -43,13 +45,13 @@ router.post('/upload', verifyToken, upload.array('files', 5), async (req, res) =
 
       // Upload original file to S3
       const key = `chat/${Date.now()}_${file.originalname}`;
-      await s3.putObject({
+      await s3.send(new PutObjectCommand({
         Bucket: process.env.AWS_BUCKET_NAME,
         Key: key,
         Body: file.buffer,
         ACL: 'public-read',
         ContentType: file.mimetype
-      }).promise();
+      }));
 
       const url = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
 
@@ -63,13 +65,13 @@ router.post('/upload', verifyToken, upload.array('files', 5), async (req, res) =
             .toBuffer();
 
           const thumbKey = `chat/thumbs/${Date.now()}_${file.originalname}.webp`;
-          await s3.putObject({
+          await s3.send(new PutObjectCommand({
             Bucket: process.env.AWS_BUCKET_NAME,
             Key: thumbKey,
             Body: thumbBuffer,
             ACL: 'public-read',
             ContentType: 'image/webp'
-          }).promise();
+          }));
 
           thumbUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${thumbKey}`;
         } catch (thumbError) {

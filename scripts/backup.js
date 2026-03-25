@@ -1,4 +1,4 @@
-?#!/usr/bin/env node
+#!/usr/bin/env node
 
 const { exec } = require('child_process');
 const fs = require('fs');
@@ -85,29 +85,27 @@ function uploadToS3(filepath, filename) {
       resolve();
       return;
     }
-    
-    const AWS = require('aws-sdk');
-    const s3 = new AWS.S3({ region: config.awsRegion });
-    
+
+    const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
     const fileContent = fs.readFileSync(filepath);
     const key = `backups/${filename}`;
-    
-    const params = {
-      Bucket: config.s3Bucket,
-      Key: key,
-      Body: fileContent,
-      ContentType: config.compression ? 'application/gzip' : 'application/octet-stream',
-      ServerSideEncryption: 'AES256'
-    };
-    
-    s3.upload(params, (err, data) => {
-      if (err) {
-        reject(err);
-      } else {
-        console.log(`☁️ Backup uploaded to S3: ${data.Location}`);
-        resolve(data);
-      }
-    });
+    const client = new S3Client({ region: config.awsRegion });
+
+    client
+      .send(
+        new PutObjectCommand({
+          Bucket: config.s3Bucket,
+          Key: key,
+          Body: fileContent,
+          ContentType: config.compression ? 'application/gzip' : 'application/octet-stream',
+          ServerSideEncryption: 'AES256'
+        })
+      )
+      .then(() => {
+        console.log(`☁️ Backup uploaded to S3: s3://${config.s3Bucket}/${key}`);
+        resolve();
+      })
+      .catch(reject);
   });
 }
 

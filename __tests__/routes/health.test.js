@@ -24,10 +24,7 @@ jest.mock('axios', () => ({
   get: jest.fn()
 }));
 
-// Mock AWS SDK
-jest.mock('aws-sdk', () => ({
-  S3: jest.fn()
-}));
+// AWS v3 — health ładuje S3 tylko przy AWS_ACCESS_KEY_ID + bucket; testy tego nie ustawiają
 
 const healthRoutes = require('../../routes/health');
 
