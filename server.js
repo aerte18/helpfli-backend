@@ -270,6 +270,7 @@ if (process.env.ENABLE_CSRF === '1') {
 // Security headers
 app.use(helmet({
   crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: false,
   contentSecurityPolicy: {
     useDefaults: true,
     directives: {
@@ -350,7 +351,16 @@ for (const sub of ['kyc', 'drafts']) {
   if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
 }
 
-app.use("/uploads", express.static(path.join(__dirname, UPLOAD_DIR)));
+app.use("/uploads", (req, res, next) => {
+  // Allow images/documents from API domain to be embedded by frontend domain.
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  const origin = req.get('origin');
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
+  next();
+}, express.static(path.join(__dirname, UPLOAD_DIR)));
 
 // ---------- Socket.IO (musi być PRZED trasą /api/chat) ----------
 let io = null;
