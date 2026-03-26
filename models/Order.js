@@ -29,7 +29,6 @@ const orderSchema = new mongoose.Schema({
   service: { type: String, required: true },
   serviceDetails: { type: String, default: '' }, // Doprecyzowanie usługi przez klienta (np. "wymiana rur")
   description: String,
-  location: String,
   // Status workflow (ujednolicony z planem MVP)
   status: { 
     type: String, 

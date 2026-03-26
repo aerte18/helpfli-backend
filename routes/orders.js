@@ -443,7 +443,9 @@ router.post("/", auth, async (req, res) => {
       ...(providerId ? { provider: providerId } : {}),
       service,
       description,
-      location: location || "Do ustalenia",
+      // Schema `Order.location` jest obiektem { lat, lng, address }.
+      // Nawet gdy użytkownik nie podał GPS, zapisujemy address jako location.address.
+      location: locationObj || { address: location || "Do ustalenia" },
       // MVP Fields
       urgency: finalUrgency,
       budgetRange: finalBudgetRange,
@@ -455,7 +457,6 @@ router.post("/", auth, async (req, res) => {
       // paymentMethod w schemie Order to enum ['card','p24','blik','unknown'] – nie ustawiać na 'system'/'external'
       // Location (geo)
       ...(locationObj && {
-        location: locationObj,
         locationLat: locationObj.lat,
         locationLon: locationObj.lng
       }),
