@@ -7,8 +7,27 @@ const path = require('path');
 // Static fallback (serverless/no-DB mode)
 let STATIC_CATALOG = [];
 try {
-  // Root-level catalog with basic fields: slug, parent_slug, name_pl, name_en, name, service_kind, is_top, urgency_level, seasonal
-  STATIC_CATALOG = require(path.join(__dirname, '..', '..', 'services_catalog.json')) || [];
+  // Static catalog with basic fields: slug, parent_slug, name_pl, name_en, name, service_kind, is_top, urgency_level, seasonal
+  // Repo can store it either at backend/services_catalog.json or backend/data/services_catalog.json.
+  const candidates = [
+    path.join(__dirname, '..', 'services_catalog.json'),
+    path.join(__dirname, '..', 'data', 'services_catalog.json'),
+    path.join(__dirname, '..', '..', 'services_catalog.json'), // legacy root-level location
+  ];
+  let loaded = null;
+  for (const p of candidates) {
+    try {
+      // eslint-disable-next-line import/no-dynamic-require, global-require
+      const data = require(p);
+      if (Array.isArray(data) && data.length > 0) {
+        loaded = data;
+        break;
+      }
+    } catch (_) {
+      // ignore and try next candidate
+    }
+  }
+  STATIC_CATALOG = loaded || [];
 } catch (_) {
   STATIC_CATALOG = [];
 }
@@ -106,6 +125,22 @@ router.get('/', async (req, res) => {
       .skip(+skip)
       .limit(requestedLimit)
       .lean();
+
+    // Jeśli baza jest pusta (częste na świeżym deployu), użyj statycznego katalogu,
+    // żeby onboarding i formularze zawsze miały listę usług.
+    if (items.length === 0 && Array.isArray(STATIC_CATALOG) && STATIC_CATALOG.length > 0) {
+      const data = filterStaticServices({
+        parent_slug,
+        is_top,
+        kind,
+        seasonal,
+        q,
+        slug,
+        limit: requestedLimit,
+        skip,
+      });
+      return res.json({ ...data, count: data.items.length });
+    }
 
     console.log('🔍 SERVICES_RESULTS:', { 
       count: items.length, 
