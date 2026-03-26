@@ -295,7 +295,7 @@ router.post("/", auth, async (req, res) => {
       return res.status(403).json({ error: "Tylko klienci mogą tworzyć zlecenia" });
     }
     
-    const { 
+    const {
       service, 
       description, 
       location, 
@@ -318,6 +318,38 @@ router.post("/", auth, async (req, res) => {
       paymentPreference = "system", // MVP: 'system' | 'external'
       paymentMethod = "system" // Legacy: 'system' | 'external'
     } = req.body;
+
+    // Attachments can arrive as JSON string or objects array.
+    // Normalize to a safe structure before validation/create.
+    let normalizedAttachments = [];
+    if (attachments) {
+      let parsed = attachments;
+      if (typeof parsed === 'string') {
+        try {
+          parsed = JSON.parse(parsed);
+        } catch (_e) {
+          parsed = [];
+        }
+      }
+      const list = Array.isArray(parsed) ? parsed : [];
+      normalizedAttachments = list
+        .map((att) => {
+          if (!att) return null;
+          if (typeof att === 'string') return { url: att };
+          if (typeof att === 'object') {
+            const url = typeof att.url === 'string' ? att.url : '';
+            if (!url) return null;
+            return {
+              url,
+              type: typeof att.type === 'string' ? att.type : '',
+              filename: typeof att.filename === 'string' ? att.filename : '',
+              size: Number(att.size) || 0
+            };
+          }
+          return null;
+        })
+        .filter(Boolean);
+    }
 
     // Walidacja wymaganych pól
     if (!service || !description) {
@@ -437,7 +469,7 @@ router.post("/", auth, async (req, res) => {
       ...(budget && { budget }),
       ...(req.body.urgencyTime && { urgencyTime: req.body.urgencyTime }),
       ...(contactPreference && { contactPreference }),
-      ...(attachments && { attachments }),
+      ...(normalizedAttachments.length > 0 && { attachments: normalizedAttachments }),
       createdAt: new Date(),
     });
     
