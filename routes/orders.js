@@ -91,8 +91,14 @@ const upload = multer({
   }
 });
 
-const toPublicUrl = (filename) => `/uploads/orders/${filename}`;
-const toInvoiceUrl = (filename) => `/uploads/orders/invoices/${filename}`;
+const withServerOrigin = (relativePath) => {
+  const base = (process.env.SERVER_URL || '').trim().replace(/\/$/, '');
+  if (!base) return relativePath;
+  if (!/^https?:\/\//i.test(base)) return relativePath;
+  return `${base}${relativePath}`;
+};
+const toPublicUrl = (filename) => withServerOrigin(`/uploads/orders/${filename}`);
+const toInvoiceUrl = (filename) => withServerOrigin(`/uploads/orders/invoices/${filename}`);
 const fs = require('fs');
 
 // Multer dla faktur (tylko PDF)
