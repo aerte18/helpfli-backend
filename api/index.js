@@ -9,7 +9,10 @@ module.exports = async function handler(req, res) {
   res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cache-Control, Pragma, Expires'
+  );
   if (req.method === 'OPTIONS') return res.status(204).end();
   // ultra-light health endpoint, never touches DB
   if (req.url && (req.url === '/api/health' || req.url === '/health' || req.url.includes('health'))) {
