@@ -6,6 +6,10 @@ const DISABLE_LIMITERS = (process.env.ENABLE_RATE_LIMIT !== '1') && (process.env
 
 // Helper: no-op middleware
 const passThrough = (req, res, next) => next();
+const API_LIMIT_SKIP_PATHS = [
+  '/api/notifications/unread/count',
+  '/api/orders/temp-upload'
+];
 
 // Rate limiter dla autentykacji
 const authLimiter = DISABLE_LIMITERS ? passThrough : rateLimit({
@@ -45,7 +49,13 @@ const apiLimiter = DISABLE_LIMITERS ? passThrough : rateLimit({
     retryAfter: 15 * 60
   },
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
+  skip: (req) => {
+    const trustedIPs = process.env.TRUSTED_IPS?.split(',') || [];
+    if (trustedIPs.includes(req.ip)) return true;
+    const url = req.originalUrl || req.url || '';
+    return API_LIMIT_SKIP_PATHS.some((path) => url.startsWith(path));
+  }
 });
 
 // Rate limiter dla wyszukiwania
