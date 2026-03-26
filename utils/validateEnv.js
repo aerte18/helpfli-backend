@@ -22,9 +22,7 @@ const optionalVars = {
   // Opcjonalne, ale zalecane
   recommended: [
     'SENTRY_DSN',
-    'SMTP_HOST',
-    'SMTP_USER',
-    'SMTP_PASS'
+    'RESEND_API_KEY'
   ]
 };
 
@@ -55,6 +53,13 @@ function validateEnv() {
   for (const varName of optionalVars.recommended) {
     if (!process.env[varName]) {
       warnings.push(`💡 ZALECANE: ${varName} nie jest ustawione (niektóre funkcje mogą nie działać)`);
+    }
+  }
+
+  // E-mail provider: prefer Resend, allow SMTP fallback
+  if (!process.env.RESEND_API_KEY) {
+    if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
+      warnings.push('💡 ZALECANE: ustaw RESEND_API_KEY albo pełną konfigurację SMTP (SMTP_HOST/SMTP_USER/SMTP_PASS) do wysyłki emaili');
     }
   }
 
