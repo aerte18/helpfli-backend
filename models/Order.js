@@ -15,6 +15,14 @@ const offerSchema = new mongoose.Schema({
   boostFree: { type: Boolean, default: false } // Czy wyróżnienie było darmowe (z pakietu PRO)
 });
 
+const AttachmentSchema = new mongoose.Schema({
+  url: { type: String, required: true },
+  mimeType: { type: String, default: '' },
+  filename: { type: String, default: '' },
+  size: { type: Number, default: 0 },
+  uploadedAt: { type: Date, default: Date.now }
+}, { _id: true });
+
 const orderSchema = new mongoose.Schema({
   client: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   provider: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // dodane dla draftów wycen
@@ -180,13 +188,10 @@ const orderSchema = new mongoose.Schema({
   }],
   
   // Załączniki (zdjęcia, dokumenty)
-  attachments: [{
-    url: String,                // /uploads/orders/filename.ext
-    type: String,               // image/jpeg, application/pdf, etc.
-    filename: String,           // oryginalna nazwa pliku
-    size: Number,               // rozmiar w bajtach
-    uploadedAt: { type: Date, default: Date.now }
-  }],
+  attachments: {
+    type: [AttachmentSchema],
+    default: []
+  },
 
   // Faktura od providera do klienta
   invoice: {

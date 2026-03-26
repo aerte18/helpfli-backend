@@ -205,7 +205,7 @@ router.post('/temp-upload', auth, (req, res, next) => {
     // Dodaj nowe pliki
     const newAttachments = (req.files || []).map(file => ({
       url: toPublicUrl(file.filename),
-      type: file.mimetype,
+      mimeType: file.mimetype,
       filename: file.originalname,
       size: file.size
     }));
@@ -341,7 +341,10 @@ router.post("/", auth, async (req, res) => {
             if (!url) return null;
             return {
               url,
-              type: typeof att.type === 'string' ? att.type : '',
+              mimeType:
+                typeof att.mimeType === 'string'
+                  ? att.mimeType
+                  : (typeof att.type === 'string' ? att.type : ''),
               filename: typeof att.filename === 'string' ? att.filename : '',
               size: Number(att.size) || 0
             };
@@ -2010,7 +2013,7 @@ router.post('/:id/attachments', auth, upload.array('files', 5), async (req, res)
     // Dodaj nowe pliki do zlecenia
     const newAttachments = (req.files || []).map(file => ({
       url: toPublicUrl(file.filename),
-      type: file.mimetype,
+      mimeType: file.mimetype,
       filename: file.originalname,
       size: file.size
     }));
