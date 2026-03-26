@@ -51,16 +51,43 @@ const upload = multer({
   storage: storage,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
   fileFilter: (req, file, cb) => {
-    // Akceptuj tylko obrazy i dokumenty
-    const allowedTypes = /jpeg|jpg|png|gif|pdf|doc|docx|txt/;
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
-    
-    if (mimetype && extname) {
+    const allowedMimeTypes = [
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+      'image/heic',
+      'image/heif',
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    ];
+
+    const allowedExtensions = new Set(['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.pdf', '.doc', '.docx', '.xls', '.xlsx']);
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    const isAllowedMime = allowedMimeTypes.includes(file.mimetype);
+    const isAllowedExt = allowedExtensions.has(ext);
+
+    console.log('UPLOAD DEBUG:', {
+      route: req.originalUrl || req.url,
+      originalname: file.originalname,
+      mimetype: file.mimetype,
+      ext
+    });
+
+    // Primary rule: trusted MIME type. Fallback rule: known extension.
+    if (isAllowedMime || isAllowedExt) {
       return cb(null, true);
-    } else {
-      cb(new Error('Tylko obrazy i dokumenty są dozwolone!'));
     }
+
+    console.error('UPLOAD REJECTED:', {
+      route: req.originalUrl || req.url,
+      originalname: file.originalname,
+      mimetype: file.mimetype,
+      ext
+    });
+    cb(new Error('Tylko obrazy i dokumenty są dozwolone!'));
   }
 });
 
@@ -156,7 +183,18 @@ function calculateOrderExpirationFrom(urgency, baseDate) {
 }
 
 // POST /api/orders/temp-upload - tymczasowy upload plików (przed utworzeniem zlecenia)
-router.post('/temp-upload', auth, upload.array('files', 5), async (req, res) => {
+router.post('/temp-upload', auth, (req, res, next) => {
+  upload.array('files', 5)(req, res, (err) => {
+    if (!err) return next();
+    if (err instanceof multer.MulterError) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ message: 'Plik jest za duży (max 10MB).' });
+      }
+      return res.status(400).json({ message: `Błąd uploadu: ${err.message}` });
+    }
+    return res.status(400).json({ message: err.message || 'Błąd uploadu plików' });
+  });
+}, async (req, res) => {
   try {
     // Dodaj nowe pliki
     const newAttachments = (req.files || []).map(file => ({
