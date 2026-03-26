@@ -495,6 +495,8 @@ router.post('/register', validate('register'), validateRegistration, async (req,
       }
     }
 
+    let verificationEmailSent = true;
+
     // W trybie deweloperskim automatycznie weryfikuj email
     if (process.env.NODE_ENV === 'development' || !process.env.SMTP_HOST) {
       logger.debug('DEV_MODE: Auto-verifying email for development');
@@ -507,11 +509,8 @@ router.post('/register', validate('register'), validateRegistration, async (req,
         await svc?.sendVerificationEmail(user);
       } catch (emailError) {
         logger.error('EMAIL_SEND_ERROR:', emailError);
-        // Usuń użytkownika jeśli nie udało się wysłać emaila
-        await User.findByIdAndDelete(user._id);
-        return res.status(500).json({ 
-          message: 'Błąd wysyłania emaila weryfikacyjnego. Spróbuj ponownie.' 
-        });
+        // Nie usuwaj konta przy błędzie SMTP - użytkownik może ponowić wysyłkę.
+        verificationEmailSent = false;
       }
     }
     
@@ -553,7 +552,10 @@ router.post('/register', validate('register'), validateRegistration, async (req,
     } else {
       res.json({ 
         success: true,
-        message: 'Konto zostało utworzone! Sprawdź swój email i kliknij w link weryfikacyjny.',
+        message: verificationEmailSent
+          ? 'Konto zostało utworzone! Sprawdź swój email i kliknij w link weryfikacyjny.'
+          : 'Konto zostało utworzone, ale nie udało się wysłać emaila weryfikacyjnego. Użyj opcji ponownej wysyłki.',
+        verificationEmailSent,
         user: { 
           id: freshUser._id, 
           name: freshUser.name, 
