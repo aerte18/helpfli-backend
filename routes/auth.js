@@ -497,20 +497,29 @@ router.post('/register', validate('register'), validateRegistration, async (req,
 
     let verificationEmailSent = true;
 
-    // W trybie deweloperskim automatycznie weryfikuj email
-    if (process.env.NODE_ENV === 'development' || !process.env.SMTP_HOST) {
+    // W trybie deweloperskim automatycznie weryfikuj email.
+    // UWAGA: brak SMTP_HOST nie oznacza "dev" – w produkcji możemy używać Resend (RESEND_API_KEY).
+    const mailConfigured =
+      !!process.env.RESEND_API_KEY ||
+      (!!process.env.SMTP_HOST && !!process.env.SMTP_USER && !!process.env.SMTP_PASS);
+
+    if (process.env.NODE_ENV === 'development') {
       logger.debug('DEV_MODE: Auto-verifying email for development');
       user.emailVerified = true;
       await user.save();
     } else {
-      // Wysyłaj email weryfikacyjny w produkcji
-      try {
-        const svc = getEmailService();
-        await svc?.sendVerificationEmail(user);
-      } catch (emailError) {
-        logger.error('EMAIL_SEND_ERROR:', emailError);
-        // Nie usuwaj konta przy błędzie SMTP - użytkownik może ponowić wysyłkę.
+      // Produkcja: wysyłaj email weryfikacyjny jeśli mamy skonfigurowany provider maili.
+      if (!mailConfigured) {
         verificationEmailSent = false;
+      } else {
+        try {
+          const svc = getEmailService();
+          await svc?.sendVerificationEmail(user);
+        } catch (emailError) {
+          logger.error('EMAIL_SEND_ERROR:', emailError);
+          // Nie usuwaj konta przy błędzie maila - użytkownik może ponowić wysyłkę.
+          verificationEmailSent = false;
+        }
       }
     }
     
@@ -530,7 +539,7 @@ router.post('/register', validate('register'), validateRegistration, async (req,
     const freshUser = await User.findById(user._id).select('name email phone role isB2B onboardingCompleted company roleInCompany');
     
     // W trybie deweloperskim zwróć token, w produkcji komunikat o weryfikacji
-    if (process.env.NODE_ENV === 'development' || !process.env.SMTP_HOST) {
+    if (process.env.NODE_ENV === 'development') {
       const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET);
       res.json({ 
         success: true,

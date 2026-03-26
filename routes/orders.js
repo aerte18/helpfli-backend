@@ -421,12 +421,20 @@ router.post("/", auth, async (req, res) => {
       locationObj = {
         lat: locationLat,
         lng: locationLon,
-        address: location || null
+        // Jeśli user kliknął GPS, ale nie wpisał adresu (location=""),
+        // UI ma pokazywać przynajmniej fallback zamiast "Nie podano".
+        address: location || "Do ustalenia"
       };
     } else if (location && typeof location === 'object' && location.lat && location.lng) {
       locationObj = location;
     } else if (location && typeof location === 'string') {
       locationObj = { address: location };
+    }
+
+    // Dodatkowy safety: jeśli z jakiegoś powodu address jest null/undefined,
+    // ustaw fallback.
+    if (locationObj && (!locationObj.address || typeof locationObj.address !== 'string')) {
+      locationObj = { ...locationObj, address: location || "Do ustalenia" };
     }
     
     // Określ początkowy status
