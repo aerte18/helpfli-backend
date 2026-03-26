@@ -33,7 +33,7 @@ router.get("/hint", auth, async (req, res) => {
   try {
     const { orderId } = req.query || {};
     if (!orderId) return res.status(400).json({ message: "Brak orderId" });
-    const order = await Order.findById(orderId).lean();
+    const order = await Order.findById(orderId);
     if (!order) return res.status(404).json({ message: "Zlecenie nie istnieje" });
 
     const service = order.service || "inne";
@@ -60,7 +60,7 @@ router.get("/analyze-order", auth, async (req, res) => {
     const { orderId } = req.query || {};
     if (!orderId) return res.status(400).json({ message: "Brak orderId" });
     
-    const order = await Order.findById(orderId).lean();
+    const order = await Order.findById(orderId);
     if (!order) return res.status(404).json({ message: "Zlecenie nie istnieje" });
     
     const provider = await User.findById(req.user._id).lean();
@@ -292,7 +292,7 @@ router.post("/", auth, async (req, res) => {
       }
     }
     
-    const order = await Order.findById(orderId).lean();
+    const order = await Order.findById(orderId);
     if (!order) return res.status(404).json({ message: "Zlecenie nie istnieje" });
 
     const service = order.service || "inne";
@@ -302,7 +302,7 @@ router.post("/", auth, async (req, res) => {
     const urgency = order.urgency && ["normal", "today", "now"].includes(order.urgency) ? order.urgency : "normal";
 
     const bandsObj = await computePricingBands({ service, city, lat, lng, urgency });
-    const a = Number(amount);
+    const a = Number(finalPrice);
     const adj = bandsObj.stats.adjusted;
     const within = (x, lo, hi) => x >= lo && x <= hi;
 
@@ -483,8 +483,8 @@ router.post("/:id/boost", auth, async (req, res) => {
     }
     
     // Sprawdź czy oferta jest w statusie submitted
-    if (offer.status !== 'submitted') {
-      return res.status(400).json({ error: "Można boostować tylko oferty w statusie 'submitted'" });
+    if (offer.status !== 'submitted' && offer.status !== 'sent') {
+      return res.status(400).json({ error: "Można boostować tylko oferty oczekujące ('sent' lub 'submitted')" });
     }
     
     // Oblicz cenę boosta (10 zł za 24h, proporcjonalnie)

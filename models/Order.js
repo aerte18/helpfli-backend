@@ -61,7 +61,6 @@ const orderSchema = new mongoose.Schema({
     abandonedCartSent: { type: Boolean, default: false },
     abandonedCartSentAt: { type: Date }
   },
-  paymentMethod: { type: String, enum: ['system', 'external'], default: 'system' },
   paymentPreference: { type: String, enum: ['system', 'external', 'both'], default: 'system' }, // Preferencje klienta: Helpfli Protect, płatność poza systemem, lub oba
   requestInvoice: { type: Boolean, default: false }, // Klient prosił o fakturę przy płatności
   priority: { type: String, enum: ['normal', 'priority'], default: 'normal' }, // Nowe pole - priorytet zlecenia

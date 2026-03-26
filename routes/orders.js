@@ -1273,7 +1273,8 @@ router.patch('/:id/payment-method', auth, async (req, res) => {
       return res.status(404).json({ message: 'Zlecenie nie zostało znalezione' });
     }
 
-    order.paymentMethod = paymentMethod;
+    // "system/external" steruje flow i trafia do paymentPreference.
+    order.paymentPreference = paymentMethod;
     await order.save();
 
     res.json({ message: 'Metoda płatności zaktualizowana', order });
@@ -1643,7 +1644,8 @@ router.post('/:id/fund', auth, loadOrderById, async (req, res) => {
     }
     // status przejściowy
     order.status = 'funded';
-    order.paymentStatus = 'requires_capture';
+    // Enum paymentStatus nie zawiera "requires_capture"; używamy stanu przejściowego "processing".
+    order.paymentStatus = 'processing';
     await order.save();
 
     // Emit Socket.IO event do pokoju order
