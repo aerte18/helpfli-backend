@@ -199,6 +199,12 @@ router.get("/", validateSearch, async (req, res) => {
         }
       }
     }
+
+    const { getDemoUserIds } = require('../utils/demoAccounts');
+    if (process.env.HIDE_DEMO_DATA !== '0') {
+      const demoIds = await getDemoUserIds();
+      if (demoIds.length) match._id = { $nin: demoIds };
+    }
     
     let providers = await User.find(match)
       .select("name level location locationCoords price time services provider_status promo badges kyc rankingPoints providerTier isTopProvider hasHelpfliGuarantee b2b company")
@@ -913,6 +919,12 @@ router.get("/providers", async (req, res) => {
     // Filtr faktura VAT
     if (vatInvoice === 'true') {
       match.vatInvoice = true;
+    }
+
+    const { getDemoUserIds: getDemoIdsForCatalog } = require('../utils/demoAccounts');
+    if (process.env.HIDE_DEMO_DATA !== '0') {
+      const demoIds = await getDemoIdsForCatalog();
+      if (demoIds.length) match._id = { $nin: demoIds };
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);

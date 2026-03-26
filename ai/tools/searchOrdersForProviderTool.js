@@ -5,6 +5,7 @@
 
 const Order = require('../../models/Order');
 const User = require('../../models/User');
+const { shouldFilterDemoData, getDemoUserIds } = require('../../utils/demoAccounts');
 
 async function searchOrdersForProviderTool(params, context) {
   const userId = context.userId;
@@ -33,11 +34,21 @@ async function searchOrdersForProviderTool(params, context) {
     if (s && !providerServiceSlugs.includes(s)) providerServiceSlugs.push(s);
   }
 
-  const query = { status: { $in: ['open', 'collecting_offers'] } };
+  let query = { status: { $in: ['open', 'collecting_offers'] } };
+
+  if (shouldFilterDemoData(provider)) {
+    const demoIds = await getDemoUserIds();
+    if (demoIds.length) {
+      query = { $and: [query, { client: { $nin: demoIds } }] };
+    }
+  }
 
   if (sortBy === 'best_match' && providerServiceSlugs.length > 0) {
     const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    query.$or = providerServiceSlugs.map((slug) => ({ service: new RegExp(`^${escapeRegex(slug)}$`, 'i') }));
+    query.$or = providerServiceSlugs.map((slug) => {
+      const part = escapeRegex(slug).replace(/_/g, '[-_]');
+      return { service: new RegExp(`^${part}(-|$)`, 'i') };
+    });
   }
 
   const providerCity = (provider.location || '').trim();
@@ -59,9 +70,16 @@ async function searchOrdersForProviderTool(params, context) {
     orders = orders.sort((a, b) => budgetValue(b) - budgetValue(a));
   } else {
     orders = orders.sort((a, b) => {
-      const scoreA = (providerServiceSlugs.length && providerServiceSlugs.some(s => String(a.service).toLowerCase() === s.toLowerCase()) ? 2 : 0) +
+      const matchSvc = (orderSvc) => {
+        const os = String(orderSvc || '').toLowerCase().replace(/_/g, '-');
+        return providerServiceSlugs.some((s) => {
+          const ps = String(s || '').toLowerCase().replace(/_/g, '-');
+          return ps && (os === ps || os.startsWith(`${ps}-`));
+        });
+      };
+      const scoreA = (providerServiceSlugs.length && matchSvc(a.service) ? 2 : 0) +
         (providerCity && (a.city || a.location?.address || a.location) && String(a.city || a.location?.address || a.location).toLowerCase().includes(providerCity.toLowerCase()) ? 1 : 0);
-      const scoreB = (providerServiceSlugs.length && providerServiceSlugs.some(s => String(b.service).toLowerCase() === s.toLowerCase()) ? 2 : 0) +
+      const scoreB = (providerServiceSlugs.length && matchSvc(b.service) ? 2 : 0) +
         (providerCity && (b.city || b.location?.address || b.location) && String(b.city || b.location?.address || b.location).toLowerCase().includes(providerCity.toLowerCase()) ? 1 : 0);
       if (scoreB !== scoreA) return scoreB - scoreA;
       return budgetValue(b) - budgetValue(a);

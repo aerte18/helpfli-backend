@@ -734,20 +734,29 @@ router.get('/:companyId/orders', auth, requireCompanyAccess, async (req, res) =>
     }
     if (providerId) filter.provider = providerId;
 
+    const { shouldFilterDemoData, getDemoUserIds } = require('../utils/demoAccounts');
+    let orderQuery = filter;
+    if (shouldFilterDemoData(req.user)) {
+      const demoIds = await getDemoUserIds();
+      if (demoIds.length) {
+        orderQuery = { $and: [filter, { client: { $nin: demoIds } }] };
+      }
+    }
+
     const Order = require('../models/Order');
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
     const skip = (pageNum - 1) * limitNum;
 
     const [orders, total] = await Promise.all([
-      Order.find(filter)
+      Order.find(orderQuery)
         .populate('provider', 'name email')
         .populate('client', 'name email')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limitNum)
         .lean(),
-      Order.countDocuments(filter)
+      Order.countDocuments(orderQuery)
     ]);
 
     res.json({

@@ -706,11 +706,13 @@ router.get('/open', auth, async (req, res) => {
         // fallback
         serviceArray = [String(services)];
       }
-      // Case-insensitive matching - użyj $or z regex dla każdej usługi
+      // Dopasowanie: slug z konta może być kategorią (np. hydraulika) a zlecenie — pełnym slugiem (hydraulika-naprawa-…)
+      const escapeRegex = (x) => String(x).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       if (serviceArray.length > 0) {
-        query.$or = serviceArray.map(s => ({
-          service: { $regex: new RegExp(`^${s}$`, 'i') }
-        }));
+        query.$or = serviceArray.map((s) => {
+          const part = escapeRegex(String(s)).replace(/_/g, '[-_]');
+          return { service: { $regex: new RegExp(`^${part}(-|$)`, 'i') } };
+        });
       }
     }
     
@@ -801,6 +803,15 @@ router.get('/open', auth, async (req, res) => {
       }
     }
     
+    // Ukryj zlecenia od kont seed/test (@helpfli.test, @*.local) przed prawdziwymi użytkownikami
+    const { shouldFilterDemoData, getDemoUserIds } = require('../utils/demoAccounts');
+    if (shouldFilterDemoData(req.user)) {
+      const demoIds = await getDemoUserIds();
+      if (demoIds.length) {
+        query = { $and: [query, { client: { $nin: demoIds } }] };
+      }
+    }
+
     // Pobierz zlecenia
     console.log('🔍 GET_OPEN_ORDERS: Query:', JSON.stringify(query, null, 2));
     let orders = await Order.find(query)

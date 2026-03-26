@@ -640,8 +640,15 @@ router.get("/of-order", auth, async (req, res) => {
     const { orderId } = req.query || {};
     if (!orderId) return res.status(400).json({ message: "Brak orderId" });
 
+    const { shouldFilterDemoData, getDemoUserIds } = require("../utils/demoAccounts");
+    const firstMatch = { orderId: new mongoose.Types.ObjectId(orderId) };
+    if (shouldFilterDemoData(req.user)) {
+      const demoIds = await getDemoUserIds();
+      if (demoIds.length) firstMatch.providerId = { $nin: demoIds };
+    }
+
     const items = await Offer.aggregate([
-      { $match: { orderId: new mongoose.Types.ObjectId(orderId) } },
+      { $match: firstMatch },
       // Sortuj: boostowane oferty (z ważnym boostUntil) na górze
       {
         $addFields: {
