@@ -13,6 +13,17 @@ function envInt(name, defaultVal) {
 
 // Helper: no-op middleware
 const passThrough = (req, res, next) => next();
+
+/** GET binarnych załączników zleceń — nie zużywają ogólnego limitu API ani speed limitera (strona z wieloma miniaturami). */
+function isOrderAttachmentBinaryGet(req) {
+  if (req.method !== 'GET') return false;
+  const url = req.originalUrl || req.url || '';
+  return (
+    url.includes('/api/orders/') &&
+    url.includes('/attachments/') &&
+    (url.includes('/file') || url.includes('resolve-file'))
+  );
+}
 const API_LIMIT_SKIP_PATHS = [
   '/api/notifications/unread/count',
   '/api/orders/temp-upload',
@@ -81,6 +92,7 @@ const apiLimiter = DISABLE_LIMITERS ? passThrough : rateLimit({
   skip: (req) => {
     const trustedIPs = process.env.TRUSTED_IPS?.split(',') || [];
     if (trustedIPs.includes(req.ip)) return true;
+    if (isOrderAttachmentBinaryGet(req)) return true;
     const url = req.originalUrl || req.url || '';
     return API_LIMIT_SKIP_PATHS.some((path) => url.startsWith(path));
   }
@@ -129,7 +141,8 @@ const speedLimiter = DISABLE_LIMITERS ? passThrough : slowDown({
   delayMs: () => 500, // dodaje 500ms opóźnienia
   maxDelayMs: 20000, // maksymalne opóźnienie 20 sekund
   skipFailedRequests: false,
-  skipSuccessfulRequests: false
+  skipSuccessfulRequests: false,
+  skip: (req) => isOrderAttachmentBinaryGet(req)
 });
 
 // Rate limiter dla telemetry

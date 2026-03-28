@@ -2,6 +2,10 @@
 const express = require("express");
 const multer = require('multer');
 const path = require('path');
+const UPLOAD_DIR = process.env.UPLOAD_DIR || 'uploads';
+const UPLOAD_DIR_ABS = path.isAbsolute(UPLOAD_DIR)
+  ? UPLOAD_DIR
+  : path.join(__dirname, '..', UPLOAD_DIR);
 const router = express.Router();
 const { authMiddleware: auth } = require("../middleware/authMiddleware");
 const { requireKycVerified } = require("../middleware/kyc");
@@ -32,7 +36,7 @@ function getPostOrderAgent() {
 // Konfiguracja multer dla uploadu plików zleceń
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadPath = path.join(__dirname, '..', process.env.UPLOAD_DIR || 'uploads', 'orders');
+    const uploadPath = path.join(UPLOAD_DIR_ABS, 'orders');
     // Sprawdź czy katalog istnieje, jeśli nie - utwórz go
     const fs = require('fs');
     if (!fs.existsSync(uploadPath)) {
@@ -115,7 +119,7 @@ function resolveOrderAttachmentDiskPath(storedUrl) {
   }
   const basename = path.basename(pathname);
   if (!basename || basename === '.' || basename === '..') return null;
-  const ordersDir = path.join(__dirname, '..', process.env.UPLOAD_DIR || 'uploads', 'orders');
+  const ordersDir = path.join(UPLOAD_DIR_ABS, 'orders');
   const fullPath = path.join(ordersDir, basename);
   const resolved = path.resolve(fullPath);
   const ordersResolved = path.resolve(ordersDir);
@@ -143,7 +147,7 @@ function attachmentStoredUrlsMatch(a, b) {
 // Multer dla faktur (tylko PDF)
 const invoiceStorage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const dir = path.join(__dirname, '..', process.env.UPLOAD_DIR || 'uploads', 'orders', 'invoices');
+    const dir = path.join(UPLOAD_DIR_ABS, 'orders', 'invoices');
     fs.mkdirSync(dir, { recursive: true });
     cb(null, dir);
   },
@@ -1399,12 +1403,14 @@ router.get('/:id/timeline', auth, async (req, res) => {
       return res.status(404).json({ message: 'Zlecenie nie znalezione' });
     }
 
-    // Sprawdź uprawnienia
+    // Sprawdź uprawnienia — spójnie z GET /api/orders/:id (każdy provider może przeglądać zlecenia z rynku)
     const userId = req.user._id;
     const isClient = order.client._id.toString() === userId.toString();
-    const isProvider = order.provider && order.provider._id.toString() === userId.toString();
+    const isAssignedProvider =
+      order.provider && order.provider._id.toString() === userId.toString();
+    const isMarketplaceProvider = req.user.role === 'provider';
     let isCompanyView = false;
-    if (!isClient && !isProvider && req.user.company) {
+    if (!isClient && !isAssignedProvider && !isMarketplaceProvider && req.user.company) {
       const Company = require('../models/Company');
       const company = await Company.findById(req.user.company).lean();
       if (company) {
@@ -1413,7 +1419,13 @@ router.get('/:id/timeline', auth, async (req, res) => {
         if (providerId && memberIds.includes(providerId)) isCompanyView = true;
       }
     }
-    if (!isClient && !isProvider && !isCompanyView && req.user.role !== 'admin') {
+    if (
+      !isClient &&
+      !isAssignedProvider &&
+      !isMarketplaceProvider &&
+      !isCompanyView &&
+      req.user.role !== 'admin'
+    ) {
       return res.status(403).json({ message: 'Brak uprawnień' });
     }
 
@@ -2236,7 +2248,7 @@ router.delete('/:id/attachments/:attachmentId', auth, async (req, res) => {
     
     // Usuń plik z dysku
     const fs = require('fs');
-    const filePath = path.join(__dirname, '..', process.env.UPLOAD_DIR || 'uploads', 'orders', path.basename(attachment.url));
+    const filePath = path.join(UPLOAD_DIR_ABS, 'orders', path.basename(attachment.url));
     fs.unlink(filePath, (err) => {
       if (err) console.error('Error deleting file:', err);
     });
