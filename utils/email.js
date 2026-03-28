@@ -21,19 +21,38 @@ function getTransporter() {
   return transporter;
 }
 
-async function sendMail({ to, subject, html, attachments=[] }) {
-  // Prefer Resend in production setup.
+async function sendMail({ to, subject, html, attachments = [] }) {
+  // Prefer Resend when RESEND_API_KEY is set (ignore SMTP_* for sending).
   if (process.env.RESEND_API_KEY) {
-    if (!Resend) return { ok: false, reason: 'resend_sdk_missing' };
-    const client = new Resend(process.env.RESEND_API_KEY);
-    const from = process.env.EMAIL_FROM || 'Helpfli <noreply@helpfli.pl>';
-    const result = await client.emails.send({
-      from,
-      to: Array.isArray(to) ? to : [to],
-      subject,
-      html
-    });
-    return { ok: true, id: result?.data?.id || result?.id };
+    if (!Resend) return { ok: false, reason: "resend_sdk_missing" };
+    try {
+      const client = new Resend(process.env.RESEND_API_KEY);
+      const from =
+        process.env.EMAIL_FROM || "Helpfli <noreply@helpfli.pl>";
+      const payload = {
+        from,
+        to: Array.isArray(to) ? to : [to],
+        subject,
+        html,
+      };
+      if (attachments && attachments.length > 0) {
+        payload.attachments = attachments.map((a) => ({
+          filename: a.filename || "attachment",
+          content: Buffer.isBuffer(a.content)
+            ? a.content.toString("base64")
+            : typeof a.content === "string"
+              ? a.content
+              : Buffer.from(a.content || "").toString("base64"),
+        }));
+      }
+      const result = await client.emails.send(payload);
+      return { ok: true, id: result?.data?.id || result?.id };
+    } catch (e) {
+      return {
+        ok: false,
+        reason: e?.message || "resend_send_failed",
+      };
+    }
   }
 
   const t = getTransporter();

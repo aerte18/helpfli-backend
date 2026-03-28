@@ -7,18 +7,7 @@
  */
 
 const SponsorAd = require('../models/SponsorAd');
-const nodemailer = require('nodemailer');
-
-// Konfiguracja email (użyj istniejącej konfiguracji)
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: process.env.SMTP_PORT,
-  secure: process.env.SMTP_SECURE === 'true',
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
+const { sendMail } = require('../utils/mailer');
 
 /**
  * Sprawdź i zaktualizuj status reklam
@@ -165,8 +154,7 @@ async function sendExpirationEmail(ad, reason) {
       ? 'Data końca kampanii minęła' 
       : 'Budżet kampanii został wyczerpany';
 
-    await transporter.sendMail({
-      from: process.env.SMTP_FROM || 'noreply@helpfli.pl',
+    await sendMail({
       to: ad.advertiser.email,
       subject: `Reklama "${ad.title}" została wygaszona`,
       html: `
@@ -197,8 +185,7 @@ async function sendExpirationWarningEmail(ad) {
   try {
     const daysLeft = Math.ceil((ad.campaign.endDate - new Date()) / (1000 * 60 * 60 * 24));
 
-    await transporter.sendMail({
-      from: process.env.SMTP_FROM || 'noreply@helpfli.pl',
+    await sendMail({
       to: ad.advertiser.email,
       subject: `Reklama "${ad.title}" kończy się za ${daysLeft} ${daysLeft === 1 ? 'dzień' : 'dni'}`,
       html: `
@@ -224,8 +211,7 @@ async function sendFreeTrialConversionOffer(ad) {
     const daysLeft = Math.ceil((ad.freeTrial.trialEndDate - new Date()) / (1000 * 60 * 60 * 24));
     const impressionsLeft = ad.freeTrial.trialImpressionsLimit - ad.freeTrial.trialImpressionsUsed;
 
-    await transporter.sendMail({
-      from: process.env.SMTP_FROM || 'noreply@helpfli.pl',
+    await sendMail({
       to: ad.advertiser.email,
       subject: `🎁 Specjalna oferta: 20% zniżki na pakiet reklamowy!`,
       html: `
@@ -262,8 +248,7 @@ async function sendFreeTrialConversionOffer(ad) {
  */
 async function sendFreeTrialExpiredEmail(ad) {
   try {
-    await transporter.sendMail({
-      from: process.env.SMTP_FROM || 'noreply@helpfli.pl',
+    await sendMail({
       to: ad.advertiser.email,
       subject: `Twoja darmowa próba dobiegła końca`,
       html: `
@@ -290,8 +275,7 @@ async function sendFreeTrialExpiredEmail(ad) {
  */
 async function sendAutoRenewalEmail(ad, renewalPeriod) {
   try {
-    await transporter.sendMail({
-      from: process.env.SMTP_FROM || 'noreply@helpfli.pl',
+    await sendMail({
       to: ad.advertiser.email,
       subject: `✅ Kampania "${ad.title}" została automatycznie przedłużona`,
       html: `
@@ -321,8 +305,7 @@ async function sendAutoRenewalEmail(ad, renewalPeriod) {
  */
 async function sendAutoRenewalFailedEmail(ad) {
   try {
-    await transporter.sendMail({
-      from: process.env.SMTP_FROM || 'noreply@helpfli.pl',
+    await sendMail({
       to: ad.advertiser.email,
       subject: `⚠️ Nie udało się przedłużyć kampanii "${ad.title}"`,
       html: `

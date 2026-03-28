@@ -1,46 +1,23 @@
-﻿const nodemailer = require("nodemailer");
+/**
+ * Cienka warstwa nad utils/email.js — ta sama logika co Resend → SMTP.
+ * Historycznie wiele modułów importowało mailer (tylko nodemailer); teraz
+ * przy RESEND_API_KEY idzie przez Resend, SMTP tylko gdy brak klucza.
+ */
+const email = require("./email");
 
-function makeTransport() {
-  // Ustaw dane w .env:
-  // SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM
-  return nodemailer.createTransport({
-    host: process.env.SMTP_HOST || "smtp.gmail.com",
-    port: Number(process.env.SMTP_PORT || 587),
-    secure: Number(process.env.SMTP_PORT || 587) === 465,
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  });
+async function sendMail(opts) {
+  const result = await email.sendMail(opts);
+  if (!result.ok) {
+    const err = new Error(result.reason || "mail_send_failed");
+    err.mailResult = result;
+    throw err;
+  }
+  return result;
 }
 
-async function sendMail({ to, subject, html }) {
-  const transporter = makeTransport();
-  const from = process.env.SMTP_FROM || "Helpfli <no-reply@helpfli.app>";
-  await transporter.sendMail({ from, to, subject, html });
+/** @deprecated Zostawione dla kompatybilności; nie używaj przy wysyłce — użyj sendMail. */
+function makeTransport() {
+  return null;
 }
 
 module.exports = { makeTransport, sendMail };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

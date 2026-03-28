@@ -1,14 +1,7 @@
 const cron = require("node-cron");
-const nodemailer = require("nodemailer");
 const User = require("../models/User");
 const { sendPushToUser } = require("../utils/webpush");
-
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT || 587),
-  secure: false,
-  auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-});
+const { sendMail } = require("../utils/email");
 
 function leftDays(until) {
   if (!until) return Infinity;
@@ -31,13 +24,12 @@ async function notify(user, kind, until) {
   `;
   
   try {
-    await transporter.sendMail({ 
-      from: process.env.FROM_EMAIL, 
-      to, 
-      subject, 
-      html 
-    });
-    console.log(`Email sent to ${to} about ${kind} expiring in ${days} days`);
+    const result = await sendMail({ to, subject, html });
+    if (!result.ok) {
+      console.error(`Email error for ${to}:`, result.reason);
+    } else {
+      console.log(`Email sent to ${to} about ${kind} expiring in ${days} days`);
+    }
   } catch (err) {
     console.error(`Email error for ${to}:`, err);
   }
