@@ -123,6 +123,23 @@ function resolveOrderAttachmentDiskPath(storedUrl) {
   return resolved;
 }
 
+/** Porównanie zapisanych URL-i załącznika (względny vs pełny z SERVER_URL). */
+function attachmentStoredUrlsMatch(a, b) {
+  if (!a || !b) return false;
+  const s1 = String(a).trim();
+  const s2 = String(b).trim();
+  if (s1 === s2) return true;
+  const pathname = (s) => {
+    try {
+      if (/^https?:\/\//i.test(s)) return new URL(s).pathname || s;
+    } catch (_e) {
+      /* ignore */
+    }
+    return s.startsWith('/') ? s : `/${s}`;
+  };
+  return pathname(s1) === pathname(s2);
+}
+
 // Multer dla faktur (tylko PDF)
 const invoiceStorage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -1505,6 +1522,68 @@ router.get('/:id/timeline', auth, async (req, res) => {
   }
 });
 
+// GET /api/orders/:orderId/attachments/resolve-file?url=... — gdy frontend nie ma subdoc _id (np. stary zapis), dopasowanie po zapisanym url
+// MUSI być przed /:attachmentId/file
+router.get('/:orderId/attachments/resolve-file', auth, async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const storedUrl = req.query.url;
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({ message: 'Nieprawidłowy identyfikator zlecenia' });
+    }
+    if (!storedUrl || typeof storedUrl !== 'string' || storedUrl.length > 2048) {
+      return res.status(400).json({ message: 'Brak lub nieprawidłowy parametr url' });
+    }
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: 'Zlecenie nie znalezione' });
+
+    const userId = req.user._id.toString();
+    const isOwner = order.client.toString() === userId;
+    const isProviderUser = req.user.role === 'provider';
+    const isAdmin = req.user.role === 'admin';
+
+    let isCompanyView = false;
+    if (!isOwner && !isProviderUser && !isAdmin && req.user.company) {
+      const Company = require('../models/Company');
+      const company = await Company.findById(req.user.company).lean();
+      if (company) {
+        const providerId = order.provider?.toString();
+        const memberIds = [
+          company.owner?.toString(),
+          ...(company.managers || []).map((m) => m.toString()),
+          ...(company.providers || []).map((p) => p.toString()),
+        ].filter(Boolean);
+        if (providerId && memberIds.includes(providerId)) isCompanyView = true;
+      }
+    }
+
+    if (!isOwner && !isProviderUser && !isAdmin && !isCompanyView) {
+      return res.status(403).json({ message: 'Brak dostępu' });
+    }
+
+    const att = (order.attachments || []).find((a) => a && attachmentStoredUrlsMatch(a.url, storedUrl));
+    if (!att) return res.status(404).json({ message: 'Załącznik nie znaleziony' });
+
+    const diskPath = resolveOrderAttachmentDiskPath(att.url);
+    if (!diskPath || !fs.existsSync(diskPath)) {
+      return res.status(404).json({ message: 'Plik nie istnieje na serwerze' });
+    }
+
+    const mime = att.mimeType || 'application/octet-stream';
+    res.setHeader('Content-Type', mime);
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    return res.sendFile(diskPath, (err) => {
+      if (err && !res.headersSent) {
+        res.status(500).json({ message: 'Błąd wysyłania pliku' });
+      }
+    });
+  } catch (e) {
+    console.error('GET /orders/.../attachments/resolve-file', e);
+    res.status(500).json({ message: 'Błąd pobierania pliku' });
+  }
+});
+
 // GET /api/orders/:orderId/attachments/:attachmentId/file — pobranie pliku z JWT ( <img> nie wysyła Bearer na /uploads )
 // MUSI być przed GET /:id
 router.get('/:orderId/attachments/:attachmentId/file', auth, async (req, res) => {
@@ -1520,9 +1599,10 @@ router.get('/:orderId/attachments/:attachmentId/file', auth, async (req, res) =>
     const userId = req.user._id.toString();
     const isOwner = order.client.toString() === userId;
     const isProviderUser = req.user.role === 'provider';
+    const isAdmin = req.user.role === 'admin';
 
     let isCompanyView = false;
-    if (!isOwner && !isProviderUser && req.user.company) {
+    if (!isOwner && !isProviderUser && !isAdmin && req.user.company) {
       const Company = require('../models/Company');
       const company = await Company.findById(req.user.company).lean();
       if (company) {
@@ -1536,7 +1616,7 @@ router.get('/:orderId/attachments/:attachmentId/file', auth, async (req, res) =>
       }
     }
 
-    if (!isOwner && !isProviderUser && !isCompanyView) {
+    if (!isOwner && !isProviderUser && !isAdmin && !isCompanyView) {
       return res.status(403).json({ message: 'Brak dostępu' });
     }
 
