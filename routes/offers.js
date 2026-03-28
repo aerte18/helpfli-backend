@@ -830,6 +830,10 @@ router.post("/:id/accept", auth, async (req, res) => {
     
     const total = baseAmount + platformFee + guaranteeFee;
 
+    // Kwoty w groszach (Stripe / create-intent) — bez tego amountTotal zostaje 0 i płatność kończy się 500
+    order.amountTotal = Math.round(Number(total) * 100);
+    order.platformFeeAmount = Math.round(Number(platformFee) * 100);
+
     // Zaktualizuj zlecenie: przypisz wykonawcę, ustaw status i finalną cenę
     order.provider = offer.providerId;
     order.status = "accepted"; // MVP status

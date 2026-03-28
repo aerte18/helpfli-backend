@@ -14,6 +14,11 @@ class NotificationService {
     return `${this.frontendUrl}/orders/${orderId}`;
   }
 
+  /** Tylko ścieżka — do zapisu w DB (klik w aplikacji) */
+  getOrderPath(orderId) {
+    return `/orders/${orderId}`;
+  }
+
   getProfileLink(userId) {
     return `${this.frontendUrl}/profile/${userId}`;
   }
@@ -335,7 +340,11 @@ class NotificationService {
           type,
           title: pushTemplate.title,
           message: pushTemplate.message,
-          link: data.orderId ? this.getOrderLink(data.orderId) : (type === 'company_created' ? this.getCompanyLink() : null),
+          link: data.orderId
+            ? this.getOrderPath(data.orderId)
+            : type === 'company_created'
+              ? '/account/company'
+              : null,
           metadata: Object.keys(metadata).length > 0 ? metadata : {}
         });
       } catch (error) {

@@ -231,8 +231,11 @@ router.get('/config', (req, res) => {
 // body: { orderId, methodHint: 'card'|'p24'|'blik', requestInvoice?: boolean }
 router.post('/create-intent', authMiddleware, async (req, res) => {
   try {
+    if (!stripe) {
+      return res.status(503).json({ message: 'Płatności są chwilowo niedostępne (brak konfiguracji Stripe).' });
+    }
     const { orderId, methodHint = 'card', requestInvoice } = req.body;
-    const order = await Order.findById(orderId).populate('client serviceProvider');
+    const order = await Order.findById(orderId).populate('client').populate('provider');
     if (!order) return res.status(404).json({ message: 'Nie znaleziono zlecenia' });
 
     if (String(order.client) !== String(req.user._id)) {
@@ -247,26 +250,57 @@ router.post('/create-intent', authMiddleware, async (req, res) => {
       order.requestInvoice = requestInvoice;
     }
 
-  // Kwota którą płaci klient (może być mniejsza jeśli użył punktów)
-  const amount = order.amountTotal;
-  
-  // WAŻNE: PlatformFee obliczane od kwoty bazowej PRZED zniżkami z punktów
-  // To zapewnia, że provider otrzymuje pełną kwotę (baseAmount + extrasCost - platformFee)
-  // Zniżka z punktów jest pokrywana przez platformę jako koszt marketingowy
-  const baseAmount = order.pricing?.baseAmount || order.amountTotal;
-  const platformFeeAmount = Math.round(baseAmount * (order.platformFeePercent || PLATFORM_FEE_PERCENT));
-  
-  // Jeśli są zniżki z punktów, platforma pokrywa różnicę jako koszt marketingowy
+  // Kwota w groszach: schema Order.amountTotal = grosze; po akceptacji oferty często było tylko pricing.total (PLN)
+  let amount = order.amountTotal;
+  if (!amount || amount <= 0) {
+    const totalPln = order.pricing?.total;
+    if (totalPln != null && Number(totalPln) > 0) {
+      amount = Math.round(Number(totalPln) * 100);
+    }
+  }
+
+  let platformFeeAmount = order.platformFeeAmount;
+  if (!platformFeeAmount || platformFeeAmount <= 0) {
+    const pfPln = order.pricing?.platformFee;
+    if (pfPln != null && Number(pfPln) >= 0) {
+      platformFeeAmount = Math.round(Number(pfPln) * 100);
+    } else {
+      const basePln = order.pricing?.baseAmount;
+      const pct = order.platformFeePercent != null ? Number(order.platformFeePercent) : PLATFORM_FEE_PERCENT;
+      if (basePln != null && Number(basePln) > 0) {
+        platformFeeAmount = Math.round(Number(basePln) * 100 * pct);
+      } else {
+        platformFeeAmount = 0;
+      }
+    }
+  }
+
   const pointsDiscount = order.pricing?.discountPoints || 0;
 
-  // Jeżeli Stripe Connect jest wymagany dla płatności systemowych – upewnij się, że provider ma aktywne konto
-  if (ENABLE_STRIPE_CONNECT && order.paymentMethod === 'system') {
-    const provider = await User.findById(order.serviceProvider || order.provider).lean();
-    if (!provider || !provider.stripeAccountId || !provider.stripeConnectStatus?.payoutsEnabled) {
+  const providerId = order.provider?._id || order.provider;
+  const providerForConnect = providerId
+    ? await User.findById(providerId)
+        .select('stripeAccountId stripeConnectStatus name')
+        .lean()
+    : null;
+
+  const paysThroughHelpfli =
+    order.paymentPreference === 'system' || order.paymentPreference === 'both';
+
+  if (ENABLE_STRIPE_CONNECT && paysThroughHelpfli) {
+    if (!providerForConnect?.stripeAccountId || !providerForConnect.stripeConnectStatus?.payoutsEnabled) {
       return res.status(400).json({
-        message: 'Ten wykonawca nie ma jeszcze aktywowanych wypłat Stripe. Wybierz płatność poza systemem.'
+        message:
+          'Ten wykonawca nie ma jeszcze aktywowanych wypłat Stripe. Wybierz płatność poza systemem albo poproś wykonawcę o dokończenie onboardingu Stripe.',
       });
     }
+  }
+
+  if (!amount || amount < 50) {
+    return res.status(400).json({
+      message:
+        'Brak poprawnej kwoty do zapłaty. Odśwież stronę zlecenia lub skontaktuj się z pomocą.',
+    });
   }
 
   // Stripe PaymentIntent
@@ -291,7 +325,7 @@ router.post('/create-intent', authMiddleware, async (req, res) => {
     metadata: {
       orderId: String(order._id),
       clientId: String(order.client),
-      providerId: String(order.serviceProvider),
+      providerId: String(providerId || ''),
       platformFeeAmount: String(platformFeeAmount),
       pointsDiscount: String(pointsDiscount),
       clientPaidAmount: String(amount), // Rzeczywista kwota którą zapłacił klient
@@ -299,15 +333,16 @@ router.post('/create-intent', authMiddleware, async (req, res) => {
     statement_descriptor: 'HELPFLI',
   };
 
-  if (ENABLE_STRIPE_CONNECT && order.serviceProvider && order.serviceProvider.stripeAccountId) {
-    // Provider otrzyma: stripeAmount - platformFeeAmount = pełna kwota minus platformFee
-    // Przykład: klient płaci 1250 zł, pointsDiscount = 50 zł, stripeAmount = 1300 zł
-    // Provider otrzyma: 1300 - 100 = 1200 zł (baseAmount + extrasCost - platformFee)
+  if (
+    ENABLE_STRIPE_CONNECT &&
+    paysThroughHelpfli &&
+    providerForConnect?.stripeAccountId
+  ) {
     intentPayload = {
       ...intentPayload,
-      application_fee_amount: platformFeeAmount,
+      application_fee_amount: Math.min(platformFeeAmount, stripeAmount),
       transfer_data: {
-        destination: order.serviceProvider.stripeAccountId,
+        destination: providerForConnect.stripeAccountId,
       },
     };
   }
@@ -317,9 +352,9 @@ router.post('/create-intent', authMiddleware, async (req, res) => {
     // Zapis w Payment (status wstępny)
     const payment = await Payment.create({
       order: order._id,
-      provider: order.serviceProvider,
+      provider: providerId || null,
       client: order.client,
-      providerName: order.serviceProvider?.name || '',
+      providerName: providerForConnect?.name || '',
       clientName: order.client?.name || '',
       stripePaymentIntentId: intent.id,
       amount,

@@ -2816,6 +2816,7 @@ router.post('/:id/refund-request', auth, loadOrderById, async (req, res) => {
 });
 
 // POST /api/orders/:id/cancel - anulowanie zlecenia przez klienta
+// Dozwolone tylko przed wyborem oferty / płatnością: open, collecting_offers, draft
 router.post('/:id/cancel', auth, async (req, res) => {
   try {
     const order = await Order.findById(req.params.id);
@@ -2827,24 +2828,40 @@ router.post('/:id/cancel', auth, async (req, res) => {
     if (String(order.client) !== String(req.user._id)) {
       return res.status(403).json({ message: 'Brak uprawnień do anulowania tego zlecenia' });
     }
-    
-    // Sprawdź czy zlecenie może być anulowane (tylko status "open")
-    if (order.status !== 'open') {
-      return res.status(400).json({ 
-        message: `Nie można anulować zlecenia ze statusem: ${order.status}. Można anulować tylko zlecenia otwarte.` 
+
+    if (order.status === 'cancelled') {
+      return res.status(400).json({ message: 'To zlecenie jest już anulowane.' });
+    }
+
+    const allowedStatuses = ['open', 'collecting_offers', 'draft'];
+    if (!allowedStatuses.includes(order.status)) {
+      return res.status(400).json({
+        message:
+          'Możesz anulować zlecenie tylko zanim wybierzesz ofertę i opłacisz zlecenie. Po akceptacji oferty skontaktuj się z pomocą lub użyj opcji sporu / zwrotu, jeśli dotyczy.',
+      });
+    }
+
+    if (order.paymentStatus === 'succeeded' || order.paidInSystem) {
+      return res.status(400).json({
+        message: 'Nie można anulować opłaconego zlecenia.',
+      });
+    }
+
+    if (order.acceptedOfferId) {
+      return res.status(400).json({
+        message: 'Nie można anulować zlecenia z wybraną ofertą.',
       });
     }
     
-    // Sprawdź czy nie ma już zaakceptowanych ofert
     const Offer = require('../models/Offer');
-    const acceptedOffer = await Offer.findOne({ 
-      orderId: order._id, 
-      status: 'accepted' 
+    const acceptedOffer = await Offer.findOne({
+      orderId: order._id,
+      status: 'accepted',
     });
-    
+
     if (acceptedOffer) {
-      return res.status(400).json({ 
-        message: 'Nie można anulować zlecenia z zaakceptowaną ofertą' 
+      return res.status(400).json({
+        message: 'Nie można anulować zlecenia z zaakceptowaną ofertą.',
       });
     }
     
@@ -2852,10 +2869,10 @@ router.post('/:id/cancel', auth, async (req, res) => {
     order.status = 'cancelled';
     await order.save();
     
-    // Odrzuć wszystkie oferty dla tego zlecenia
+    // Odrzuć oczekujące oferty (status sent / submitted w zależności od wersji danych)
     await Offer.updateMany(
-      { orderId: order._id, status: 'submitted' },
-      { $set: { status: 'rejected' } }
+      { orderId: order._id, status: { $in: ['submitted', 'sent'] } },
+      { $set: { status: 'rejected', rejectedAt: new Date() } }
     );
     
     // Powiadom providerów o anulowaniu (opcjonalnie)

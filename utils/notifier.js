@@ -6,9 +6,20 @@ const { sendMail } = require("./mailer");
 const { sendPushToUser } = require("./webpush");
 const { tplOfferNew, tplOfferAccepted } = require("./emailTemplates");
 
+const FRONTEND_BASE = (
+  process.env.FRONTEND_URL ||
+  process.env.APP_URL ||
+  "http://localhost:5173"
+).replace(/\/$/, "");
+
+/** Ścieżka w SPA (zapis w Notification.link) */
+function orderInAppPath(orderId) {
+  return `/orders/${orderId}`;
+}
+
+/** Pełny URL do maili i push */
 function orderLink(orderId) {
-  // Podmień na właściwy frontend URL
-  return `http://localhost:5173/orders/${orderId}`;
+  return `${FRONTEND_BASE}${orderInAppPath(orderId)}`;
 }
 
 async function notifyOfferNew({ app, orderId, offerId }) {
@@ -28,7 +39,7 @@ async function notifyOfferNew({ app, orderId, offerId }) {
       type: 'new_offer',
       title: 'Nowa oferta',
       message: `Otrzymałeś nową ofertę: ${offer.price || offer.amount} zł od ${offer.providerId?.name || 'wykonawcy'}`,
-      link: orderLink(orderId),
+      link: orderInAppPath(orderId),
       metadata: {
         orderId: orderId.toString(),
         offerId: offerId.toString(),
@@ -283,7 +294,7 @@ async function notifyOrderNew({ app, orderId, providerIds = [] }) {
         type: 'new_order',
         title: 'Nowe zlecenie',
         message: `Nowe zlecenie: ${order.service} w ${order.location?.city || 'Twojej okolicy'}`,
-        link: orderLink(orderId),
+        link: orderInAppPath(orderId),
         metadata: {
           orderId: orderId.toString(),
           service: order.service,
@@ -331,7 +342,7 @@ async function notifyOrderUpdated({ app, orderId, changes, recipientIds = [] }) 
         type: 'order_updated',
         title: 'Zmiany w zleceniu',
         message: `Zlecenie zostało zaktualizowane: ${changeDescription}`,
-        link: orderLink(orderId),
+        link: orderInAppPath(orderId),
         metadata: {
           orderId: orderId.toString(),
           changes: changes
@@ -367,6 +378,13 @@ async function notifyChatMessage({ io, conversationId, messageId, senderId, reci
       .filter(p => p !== senderId.toString());
   }
 
+  const orderRef = conversation.order
+    ? String(conversation.order)
+    : null;
+  const chatLink = orderRef
+    ? `/orders/${orderRef}/chat`
+    : "/messages";
+
   // Utwórz powiadomienia dla każdego odbiorcy
   for (const recipientId of recipients) {
     try {
@@ -375,11 +393,12 @@ async function notifyChatMessage({ io, conversationId, messageId, senderId, reci
         type: 'chat_message',
         title: `Nowa wiadomość od ${message.sender?.name || 'użytkownika'}`,
         message: message.text?.substring(0, 100) || 'Nowa wiadomość',
-        link: `/chat/${conversationId}`,
+        link: chatLink,
         metadata: {
           conversationId: conversationId.toString(),
           messageId: messageId.toString(),
-          senderId: senderId.toString()
+          senderId: senderId.toString(),
+          ...(orderRef ? { orderId: orderRef } : {}),
         }
       });
     } catch (error) {
