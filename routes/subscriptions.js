@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { defaultSubscriptionPlans } = require('../data/defaultSubscriptionPlans');
 const SubscriptionPlan = require('../models/SubscriptionPlan');
 const UserSubscription = require('../models/UserSubscription');
 const User = require('../models/User');
@@ -11,11 +12,32 @@ const Stripe = require('stripe');
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 const CURRENCY = process.env.CURRENCY || 'pln';
 
+/** Gdy kolekcja jest pusta (np. produkcja bez seeda), wstaw domyślne plany — inaczej UI i /subscribe nie działają. */
+async function ensureDefaultPlansInDb() {
+  const n = await SubscriptionPlan.countDocuments();
+  if (n > 0) return;
+  try {
+    await SubscriptionPlan.insertMany(defaultSubscriptionPlans);
+  } catch (e) {
+    const dup =
+      e.code === 11000 ||
+      (e.writeErrors && e.writeErrors.some((w) => w.code === 11000)) ||
+      /duplicate/i.test(String(e.message));
+    if (!dup) console.error('ensureDefaultPlansInDb:', e);
+  }
+}
+
 router.get('/plans', async (req, res) => {
+  try {
+    await ensureDefaultPlansInDb();
+  } catch (e) {
+    console.error('GET /plans ensureDefaultPlansInDb:', e);
+  }
+
   const { audience } = req.query;
-  
+
   let filter = { active: true };
-  
+
   // Filtruj plany po audience (client/provider/business)
   if (audience === 'client') {
     filter.key = { $regex: /^CLIENT_/ };
@@ -25,7 +47,7 @@ router.get('/plans', async (req, res) => {
     filter.key = { $regex: /^BUSINESS_/ };
   }
   // Jeśli brak audience, zwróć wszystkie plany (dla kompatybilności wstecznej)
-  
+
   const plans = await SubscriptionPlan.find(filter).sort({ priceMonthly: 1 });
   res.json(plans);
 });
