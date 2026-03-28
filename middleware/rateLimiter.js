@@ -4,21 +4,37 @@ const slowDown = require('express-slow-down');
 // In development, disable all rate limiters unless explicitly enabled
 const DISABLE_LIMITERS = (process.env.ENABLE_RATE_LIMIT !== '1') && (process.env.NODE_ENV !== 'production');
 
+function envInt(name, defaultVal) {
+  const v = process.env[name];
+  if (v === undefined || v === '') return defaultVal;
+  const n = parseInt(String(v), 10);
+  return Number.isFinite(n) && n > 0 ? n : defaultVal;
+}
+
 // Helper: no-op middleware
 const passThrough = (req, res, next) => next();
 const API_LIMIT_SKIP_PATHS = [
   '/api/notifications/unread/count',
-  '/api/orders/temp-upload'
+  '/api/orders/temp-upload',
+  // Własne limitery (auth/register) — nie podwajać naliczania ogólnym apiLimiter
+  '/api/auth/login',
+  '/api/auth/register'
 ];
+
+const AUTH_WINDOW_MS = envInt('AUTH_RATE_LIMIT_WINDOW_MS', 15 * 60 * 1000);
+const AUTH_MAX = envInt(
+  'AUTH_RATE_LIMIT_MAX',
+  process.env.NODE_ENV === 'development' ? 500 : 30
+);
+const authRetryMinutes = Math.max(1, Math.round(AUTH_WINDOW_MS / 60000));
 
 // Rate limiter dla autentykacji
 const authLimiter = DISABLE_LIMITERS ? passThrough : rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minut
-  max: process.env.NODE_ENV === 'development' ? 500 : 5, // 500 prób w dev, 5 w prod
-  message: {
-    error: 'Zbyt wiele prób logowania. Spróbuj ponownie za 15 minut.',
-    retryAfter: 15 * 60
-  },
+  windowMs: AUTH_WINDOW_MS,
+  max: AUTH_MAX,
+  // Udane logowania (2xx) nie zużywają limitu — zostaje ochrona przed brute-force na złe hasło
+  skipSuccessfulRequests: true,
+  message: `Zbyt wiele prób logowania. Spróbuj ponownie za ${authRetryMinutes} minut.`,
   standardHeaders: true,
   legacyHeaders: false,
   // Pomiń dla zaufanych IP (opcjonalnie)
@@ -28,25 +44,37 @@ const authLimiter = DISABLE_LIMITERS ? passThrough : rateLimit({
   }
 });
 
+const REGISTER_WINDOW_MS = envInt('REGISTER_RATE_LIMIT_WINDOW_MS', 60 * 60 * 1000);
+const REGISTER_MAX = envInt(
+  'REGISTER_RATE_LIMIT_MAX',
+  process.env.NODE_ENV === 'development' ? 20 : 10
+);
+
 // Rate limiter dla rejestracji
 const registerLimiter = DISABLE_LIMITERS ? passThrough : rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 godzina
-  max: process.env.NODE_ENV === 'development' ? 20 : 3, // 20 w dev, 3 w prod
+  windowMs: REGISTER_WINDOW_MS,
+  max: REGISTER_MAX,
   message: {
     error: 'Zbyt wiele prób rejestracji. Spróbuj ponownie za godzinę.',
-    retryAfter: 60 * 60
+    retryAfter: Math.floor(REGISTER_WINDOW_MS / 1000)
   },
   standardHeaders: true,
   legacyHeaders: false
 });
 
+const API_WINDOW_MS = envInt('API_RATE_LIMIT_WINDOW_MS', 15 * 60 * 1000);
+const API_MAX = envInt(
+  'API_RATE_LIMIT_MAX',
+  process.env.NODE_ENV === 'development' ? 5000 : 400
+);
+
 // Rate limiter dla API
 const apiLimiter = DISABLE_LIMITERS ? passThrough : rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minut
-  max: process.env.NODE_ENV === 'development' ? 5000 : 100, // 5000 w dev, 100 w prod
+  windowMs: API_WINDOW_MS,
+  max: API_MAX,
   message: {
     error: 'Zbyt wiele requestów. Spróbuj ponownie za chwilę.',
-    retryAfter: 15 * 60
+    retryAfter: Math.floor(API_WINDOW_MS / 1000)
   },
   standardHeaders: true,
   legacyHeaders: false,
