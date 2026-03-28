@@ -354,9 +354,12 @@ const path = require('path');
 const fs = require('fs');
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || 'uploads';
-if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-for (const sub of ['kyc', 'drafts']) {
-  const p = path.join(UPLOAD_DIR, sub);
+const UPLOAD_DIR_ABS = path.isAbsolute(UPLOAD_DIR)
+  ? UPLOAD_DIR
+  : path.join(__dirname, UPLOAD_DIR);
+if (!fs.existsSync(UPLOAD_DIR_ABS)) fs.mkdirSync(UPLOAD_DIR_ABS, { recursive: true });
+for (const sub of ['kyc', 'drafts', 'orders', 'orders/invoices', 'chat']) {
+  const p = path.join(UPLOAD_DIR_ABS, sub);
   if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
 }
 
@@ -369,7 +372,7 @@ app.use("/uploads", (req, res, next) => {
     res.setHeader('Vary', 'Origin');
   }
   next();
-}, express.static(path.join(__dirname, UPLOAD_DIR)));
+}, express.static(UPLOAD_DIR_ABS));
 
 // ---------- Socket.IO (musi być PRZED trasą /api/chat) ----------
 let io = null;

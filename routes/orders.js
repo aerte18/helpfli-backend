@@ -100,6 +100,28 @@ const withServerOrigin = (relativePath) => {
 const toPublicUrl = (filename) => withServerOrigin(`/uploads/orders/${filename}`);
 const toInvoiceUrl = (filename) => withServerOrigin(`/uploads/orders/invoices/${filename}`);
 const fs = require('fs');
+const mongoose = require('mongoose');
+
+/** Ścieżka absolutna do pliku załącznika (tylko podkatalog `orders/`, ochrona przed path traversal). */
+function resolveOrderAttachmentDiskPath(storedUrl) {
+  if (!storedUrl || typeof storedUrl !== 'string') return null;
+  let pathname = storedUrl.trim();
+  try {
+    if (/^https?:\/\//i.test(pathname)) {
+      pathname = new URL(pathname).pathname;
+    }
+  } catch (_e) {
+    return null;
+  }
+  const basename = path.basename(pathname);
+  if (!basename || basename === '.' || basename === '..') return null;
+  const ordersDir = path.join(__dirname, '..', process.env.UPLOAD_DIR || 'uploads', 'orders');
+  const fullPath = path.join(ordersDir, basename);
+  const resolved = path.resolve(fullPath);
+  const ordersResolved = path.resolve(ordersDir);
+  if (!resolved.startsWith(ordersResolved + path.sep) && resolved !== ordersResolved) return null;
+  return resolved;
+}
 
 // Multer dla faktur (tylko PDF)
 const invoiceStorage = multer.diskStorage({
@@ -1480,6 +1502,63 @@ router.get('/:id/timeline', auth, async (req, res) => {
   } catch (error) {
     console.error('Timeline error:', error);
     res.status(500).json({ message: 'Błąd pobierania timeline', error: error.message });
+  }
+});
+
+// GET /api/orders/:orderId/attachments/:attachmentId/file — pobranie pliku z JWT ( <img> nie wysyła Bearer na /uploads )
+// MUSI być przed GET /:id
+router.get('/:orderId/attachments/:attachmentId/file', auth, async (req, res) => {
+  try {
+    const { orderId, attachmentId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(orderId) || !mongoose.Types.ObjectId.isValid(attachmentId)) {
+      return res.status(400).json({ message: 'Nieprawidłowy identyfikator' });
+    }
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: 'Zlecenie nie znalezione' });
+
+    const userId = req.user._id.toString();
+    const isOwner = order.client.toString() === userId;
+    const isProviderUser = req.user.role === 'provider';
+
+    let isCompanyView = false;
+    if (!isOwner && !isProviderUser && req.user.company) {
+      const Company = require('../models/Company');
+      const company = await Company.findById(req.user.company).lean();
+      if (company) {
+        const providerId = order.provider?.toString();
+        const memberIds = [
+          company.owner?.toString(),
+          ...(company.managers || []).map((m) => m.toString()),
+          ...(company.providers || []).map((p) => p.toString()),
+        ].filter(Boolean);
+        if (providerId && memberIds.includes(providerId)) isCompanyView = true;
+      }
+    }
+
+    if (!isOwner && !isProviderUser && !isCompanyView) {
+      return res.status(403).json({ message: 'Brak dostępu' });
+    }
+
+    const att = order.attachments.id(attachmentId);
+    if (!att) return res.status(404).json({ message: 'Załącznik nie znaleziony' });
+
+    const diskPath = resolveOrderAttachmentDiskPath(att.url);
+    if (!diskPath || !fs.existsSync(diskPath)) {
+      return res.status(404).json({ message: 'Plik nie istnieje na serwerze' });
+    }
+
+    const mime = att.mimeType || 'application/octet-stream';
+    res.setHeader('Content-Type', mime);
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    return res.sendFile(diskPath, (err) => {
+      if (err && !res.headersSent) {
+        res.status(500).json({ message: 'Błąd wysyłania pliku' });
+      }
+    });
+  } catch (e) {
+    console.error('GET /orders/.../attachments/.../file', e);
+    res.status(500).json({ message: 'Błąd pobierania pliku' });
   }
 });
 
