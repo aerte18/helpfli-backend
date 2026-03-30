@@ -728,7 +728,9 @@ router.get('/open', auth, async (req, res) => {
     // wymagałby dokładnego pola + $or → puste wyniki). Gdy jest lista usług providera, filtr kategorii
     // zostaje po stronie klienta (ProviderHome i tak filtruje listę).
     if (service && service !== 'any' && !services) {
-      query.service = service;
+      // Spójnie z filtrem `services`: obsłuż slugi z '-' i '_' oraz match po gałęzi kategorii.
+      const re = buildServiceSlugPrefixRegex(service);
+      if (re) query.service = { $regex: re };
     }
     
     // Filtrowanie po usługach (array)
