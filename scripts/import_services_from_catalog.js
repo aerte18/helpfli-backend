@@ -20,10 +20,12 @@ async function run() {
   const uri = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/helpfli';
   await mongoose.connect(uri);
   console.log('🔌 Połączono z MongoDB');
+  console.log(`📦 Katalog statyczny: ${catalog.length} rekordów`);
 
   const activeSlugs = new Set();
   let inserted = 0;
   let updated = 0;
+  let unchanged = 0;
 
   for (const item of catalog) {
     const parent = normalizeSlug(item.parent_slug || item.parent || item.id);
@@ -53,11 +55,23 @@ async function run() {
       updated_at: new Date()
     };
 
-    const res = await Service.updateOne(
-      { slug },
-      { $set: payload },
-      { upsert: true }
-    );
+    const existing = await Service.findOne({ slug }).select('_id parent_slug slug name_pl name_en service_kind is_top urgency_level seasonal').lean();
+    if (existing) {
+      const same =
+        String(existing.parent_slug || '') === String(payload.parent_slug || '') &&
+        String(existing.slug || '') === String(payload.slug || '') &&
+        String(existing.name_pl || '') === String(payload.name_pl || '') &&
+        String(existing.name_en || '') === String(payload.name_en || '') &&
+        String(existing.service_kind || '') === String(payload.service_kind || '') &&
+        Number(existing.is_top || 0) === Number(payload.is_top || 0) &&
+        Number(existing.urgency_level || 0) === Number(payload.urgency_level || 0) &&
+        String(existing.seasonal || '') === String(payload.seasonal || '');
+      if (same) {
+        unchanged += 1;
+      }
+    }
+
+    const res = await Service.updateOne({ slug }, { $set: payload }, { upsert: true });
 
     if (res.upsertedCount > 0) {
       inserted += 1;
@@ -66,12 +80,20 @@ async function run() {
     }
   }
 
-  const removal = await Service.deleteMany({ slug: { $nin: Array.from(activeSlugs) } });
+  let removed = 0;
+  const shouldPrune = process.argv.includes('--prune');
+  if (shouldPrune) {
+    const removal = await Service.deleteMany({ slug: { $nin: Array.from(activeSlugs) } });
+    removed = removal.deletedCount || 0;
+  }
 
   console.log('✅ Import zakończony');
   console.log(`   ➕ Dodano: ${inserted}`);
   console.log(`   ♻️ Zaktualizowano: ${updated}`);
-  console.log(`   ➖ Usunięto: ${removal.deletedCount}`);
+  console.log(`   🟰 Bez zmian: ${unchanged}`);
+  console.log(`   ➖ Usunięto: ${removed}${shouldPrune ? '' : ' (pominięto, użyj --prune)'}`);
+  const total = await Service.countDocuments({});
+  console.log(`   📚 Łącznie rekordów w Service: ${total}`);
 
   await mongoose.disconnect();
   console.log('🔌 Rozłączono z MongoDB');

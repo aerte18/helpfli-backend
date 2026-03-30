@@ -26,6 +26,8 @@
     "test:api:admin": "cross-env TEST_EMAIL=test+admin@helpfli.pl TEST_PASSWORD=Test123! CLEANUP_AFTER=1 node scripts/test_api.js",
     "test:api:client": "cross-env TEST_EMAIL=test+client@helpfli.pl TEST_PASSWORD=Test123! CLEANUP_AFTER=1 node scripts/test_api.js",
     "build:services": "node scripts/build_servicecatalog.js",
+    "seed:services:catalog": "node scripts/import_services_from_catalog.js",
+    "seed:services:catalog:prune": "node scripts/import_services_from_catalog.js --prune",
     "db:indexes": "node scripts/add_indexes_optimization.js",
     "test:load": "node scripts/load_test.js",
     "test:load:match-top": "cross-env ENDPOINT=/api/providers/match-top?serviceCode=hydraulik&lat=52.2297&lng=21.0122 node scripts/load_test.js",

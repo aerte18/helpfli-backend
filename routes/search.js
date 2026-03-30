@@ -179,10 +179,13 @@ router.get("/", validateSearch, async (req, res) => {
           match.services = { $in: serviceList };
         }
       } else {
-        // Wyszukiwanie po kategoriach - znajdź wszystkie usługi z danej kategorii
-        console.log("🔍 SEARCH: Looking for services with parent_slug:", serviceList);
+        // Wyszukiwanie po kategoriach lub konkretnych slugach usług
+        console.log("🔍 SEARCH: Looking for services with parent_slug/slug:", serviceList);
         const categoryServices = await Service.find({ 
-          parent_slug: { $in: serviceList }
+          $or: [
+            { parent_slug: { $in: serviceList } },
+            { slug: { $in: serviceList } }
+          ]
         }).select('_id parent_slug name_pl');
         
         console.log("🔍 SEARCH: Found", categoryServices.length, "services with matching parent_slug");
@@ -857,9 +860,12 @@ router.get("/providers", async (req, res) => {
           match.services = { $in: serviceList };
         }
       } else {
-        // Wyszukiwanie po kategoriach - znajdź wszystkie usługi z danej kategorii
+        // Wyszukiwanie po kategoriach lub konkretnych slugach usług
         const categoryServices = await Service.find({ 
-          parent_slug: { $in: serviceList }
+          $or: [
+            { parent_slug: { $in: serviceList } },
+            { slug: { $in: serviceList } }
+          ]
         }).select('_id');
         
         const serviceIds = categoryServices.map(s => s._id);
