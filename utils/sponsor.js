@@ -40,6 +40,7 @@ exports.injectSponsored = ({ list, campaigns }) => {
 	}
 	const out = [...list];
 	Object.entries(byPos).forEach(([p, camp]) => {
+		if (!camp.provider || !camp.provider._id) return;
 		const idx = Math.max(0, Math.min(out.length, Number(p) - 1));
 		const without = out.filter((x) => String(x._id) !== String(camp.provider._id));
 		const item = { ...camp.provider, _sponsored: true, _campaignId: camp._id };

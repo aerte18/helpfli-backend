@@ -1,5 +1,9 @@
 const Service = require("../models/Service");
 
+function escapeRegex(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /**
  * Warianty slugów: pełny slug + sufiksy po "ucięciu" prefiksu kategorii
  * (np. agd-rtv-naprawa-agd → naprawa-agd).
@@ -60,9 +64,16 @@ async function resolveServicesForSearchFilter(serviceParam) {
     return { ids: [], docs: [], hadServiceTokens: true };
   }
 
-  const docs = await Service.find({ $or: orConditions })
+  let docs = await Service.find({ $or: orConditions })
     .select("_id parent_slug slug name_pl name_en")
     .lean();
+
+  // Gdy frontend wysłał skrócony / „obcięty” slug (np. agd-instalacja-okapu zamiast
+  // agd-rtv-instalacja-okapu-zabudowa-agd), dopasuj po kolejnych tokenach w polu slug.
+  if (!docs.length && slugList.length) {
+    const fallback = await findServicesBySlugFragmentPattern(slugList);
+    docs = fallback;
+  }
 
   const seen = new Map();
   for (const d of docs) {
@@ -72,6 +83,31 @@ async function resolveServicesForSearchFilter(serviceParam) {
   const ids = uniqueDocs.map((d) => d._id);
 
   return { ids, docs: uniqueDocs, hadServiceTokens: true };
+}
+
+/**
+ * Dopasowanie po ≥2 tokenach (min. 4 znaki), kolejność w slug: token1…token2
+ * (np. instalacja + okapu → trafi w agd-rtv-instalacja-okapu-zabudowa-agd).
+ */
+async function findServicesBySlugFragmentPattern(slugList) {
+  const out = [];
+  for (const slug of slugList) {
+    const raw = String(slug).trim().toLowerCase().replace(/_/g, "-");
+    const parts = raw.split("-").filter((p) => p.length >= 4);
+    if (parts.length >= 2) {
+      const pattern = parts.map(escapeRegex).join(".*");
+      const found = await Service.find({ slug: { $regex: pattern, $options: "i" } })
+        .select("_id parent_slug slug name_pl name_en")
+        .limit(40)
+        .lean();
+      out.push(...found);
+    }
+  }
+  const seen = new Map();
+  for (const d of out) {
+    if (!seen.has(String(d._id))) seen.set(String(d._id), d);
+  }
+  return [...seen.values()];
 }
 
 module.exports = {

@@ -17,7 +17,8 @@ const router = express.Router();
 // Szukaj usługodawców po usłudze i lokalizacji
 router.get("/", validateSearch, async (req, res) => {
   const { 
-    service, 
+    service,
+    category: categoryParam,
     location, 
     lat,              // MVP: latitude for geo search
     lng,              // MVP: longitude for geo search
@@ -165,13 +166,15 @@ router.get("/", validateSearch, async (req, res) => {
       if (budgetMaxNum) match.price.$lte = budgetMaxNum;
     }
     
-    // Obsługa wielu usług (service=ObjectId lub slug kategorii / konkretnej usługi z katalogu)
+    // Obsługa wielu usług: service=… lub category=… (np. kategoria agd-rtv)
     let resolvedServiceDocs = [];
-    if (service) {
-      const { ids: serviceIds, docs, hadServiceTokens } = await resolveServicesForSearchFilter(service);
+    const serviceParam = (service && String(service).trim()) || (categoryParam && String(categoryParam).trim()) || "";
+    if (serviceParam) {
+      const { ids: serviceIds, docs, hadServiceTokens } =
+        await resolveServicesForSearchFilter(serviceParam);
       resolvedServiceDocs = docs || [];
       console.log("🔍 SEARCH: resolve services", {
-        param: service,
+        param: serviceParam,
         matchedCount: serviceIds.length,
         hadServiceTokens,
       });
@@ -179,15 +182,19 @@ router.get("/", validateSearch, async (req, res) => {
         if (serviceIds.length > 0) {
           match.services = { $in: serviceIds };
         } else {
-          // Nie zwracaj wszystkich providerów przy nieznanym slugu — pusty wynik
-          console.warn("⚠️ SEARCH: Brak rekordów Service dla parametru service — zwracam 0 wyników");
+          console.warn("⚠️ SEARCH: Brak rekordów Service dla parametru — zwracam 0 wyników");
           match._id = { $in: [] };
         }
       }
     }
 
     const { getDemoUserIds } = require('../utils/demoAccounts');
-    if (process.env.HIDE_DEMO_DATA !== '0') {
+    const forceEmptyResults =
+      match._id &&
+      match._id.$in &&
+      Array.isArray(match._id.$in) &&
+      match._id.$in.length === 0;
+    if (process.env.HIDE_DEMO_DATA !== "0" && !forceEmptyResults) {
       const demoIds = await getDemoUserIds();
       if (demoIds.length) match._id = { $nin: demoIds };
     }
@@ -353,7 +360,7 @@ router.get("/", validateSearch, async (req, res) => {
     // Nazwy dopasowanych usług (bez CastError przy slugach zamiast ObjectId)
     let namesById = {};
     let matchedServiceNames = [];
-    if (service && resolvedServiceDocs.length) {
+    if (serviceParam && resolvedServiceDocs.length) {
       namesById = Object.fromEntries(
         resolvedServiceDocs.map((s) => [String(s._id), s.name_pl || s.name_en])
       );
@@ -452,7 +459,7 @@ router.get("/", validateSearch, async (req, res) => {
           ratingCount: ratings.length,
           matchedServiceName: matchedServiceNames[0] || null, // pierwsza dopasowana usługa
           matchedServiceNames, // wszystkie dopasowane usługi
-          matchedServices: service ? String(service).split(",").filter(Boolean) : [], // ID dopasowanych usług
+          matchedServices: serviceParam ? resolvedServiceDocs.map((d) => String(d._id)) : [],
           provider_status: {
             ...(p.provider_status || { isOnline: false }),
             isOnline: availableNow, // Nadpisz isOnline dostępnością z harmonogramu
@@ -552,7 +559,7 @@ router.get("/", validateSearch, async (req, res) => {
 
     // sponsorowane sloty
     try {
-      const campaigns = await fetchActiveCampaigns({ service, city: location });
+      const campaigns = await fetchActiveCampaigns({ service: serviceParam || service, city: location });
       const allowed = await capForUser({ campaigns, userId: req.user?._id });
       const injected = injectSponsored({ list: results, campaigns: allowed });
       console.log("🔍 SEARCH RESULTS:", { count: injected.length, firstResult: injected[0]?.name });
@@ -567,11 +574,8 @@ router.get("/", validateSearch, async (req, res) => {
   } catch (err) {
     console.error("❌ Błąd w /api/search:", err);
     console.error("❌ Stack trace:", err.stack);
-    res.status(500).json({ 
-      message: "Błąd wyszukiwania wykonawców",
-      error: process.env.NODE_ENV === 'development' ? err.message : undefined,
-      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
-    });
+    // Zwróć pustą listę zamiast 500 — UI nie powinno się wywalać; szczegóły w logach
+    return res.status(200).json([]);
   }
 });
 
@@ -796,7 +800,8 @@ router.get("/top", async (req, res) => {
 // Endpoint dla katalogu providerów z zaawansowanymi filtrami
 router.get("/providers", async (req, res) => {
   const { 
-    service, 
+    service,
+    category: categoryCatalog,
     city, 
     radius = 50, 
     availableNow, 
@@ -828,9 +833,12 @@ router.get("/providers", async (req, res) => {
       role: "provider",
     };
     
-    // Filtr usługi - ta sama logika co GET /api/search (slug + warianty sufiksów)
-    if (service) {
-      const { ids: serviceIds, hadServiceTokens } = await resolveServicesForSearchFilter(service);
+    // Filtr usługi - ta sama logika co GET /api/search
+    const catalogServiceParam =
+      (service && String(service).trim()) || (categoryCatalog && String(categoryCatalog).trim()) || "";
+    if (catalogServiceParam) {
+      const { ids: serviceIds, hadServiceTokens } =
+        await resolveServicesForSearchFilter(catalogServiceParam);
       if (hadServiceTokens) {
         if (serviceIds.length > 0) {
           match.services = { $in: serviceIds };
@@ -893,7 +901,12 @@ router.get("/providers", async (req, res) => {
     }
 
     const { getDemoUserIds: getDemoIdsForCatalog } = require('../utils/demoAccounts');
-    if (process.env.HIDE_DEMO_DATA !== '0') {
+    const catalogForceEmpty =
+      match._id &&
+      match._id.$in &&
+      Array.isArray(match._id.$in) &&
+      match._id.$in.length === 0;
+    if (process.env.HIDE_DEMO_DATA !== "0" && !catalogForceEmpty) {
       const demoIds = await getDemoIdsForCatalog();
       if (demoIds.length) match._id = { $nin: demoIds };
     }

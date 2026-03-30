@@ -107,8 +107,14 @@ const validateSearch = [
   query('service')
     .optional()
     .trim()
+    .isLength({ min: 1, max: 200 })
+    .withMessage('Parametr service jest zbyt długi'),
+
+  query('category')
+    .optional()
+    .trim()
     .isLength({ min: 1, max: 100 })
-    .withMessage('Nazwa usługi jest zbyt długa'),
+    .withMessage('Parametr category jest zbyt długi'),
   
   query('minRating')
     .optional()
@@ -129,6 +135,7 @@ const validateSearch = [
   query('city').optional().trim(),
   query('location').optional().trim(),
   query('service').optional().trim(),
+  query('category').optional().trim(),
   
   validateRequest
 ];
