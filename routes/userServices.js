@@ -67,6 +67,16 @@ function normalizeSlug(v = '') {
   return String(v).trim().toLowerCase().replace(/_/g, '-');
 }
 
+function buildSlugSuffixes(slug = '') {
+  const parts = String(slug).split('-').filter(Boolean);
+  const out = [];
+  for (let i = 1; i < parts.length; i += 1) {
+    const s = parts.slice(i).join('-');
+    if (s) out.push(s);
+  }
+  return out;
+}
+
 async function resolveServiceByIdOrSlug(value) {
   const raw = String(value || '').trim();
   if (!raw) return null;
@@ -78,10 +88,23 @@ async function resolveServiceByIdOrSlug(value) {
   }
 
   const normalized = normalizeSlug(raw);
-  const underscored = normalized.replace(/-/g, '_');
-  const variants = [...new Set([raw, raw.toLowerCase(), normalized, underscored])].filter(Boolean);
+  const suffixes = buildSlugSuffixes(normalized);
+  const variants = [
+    raw,
+    raw.toLowerCase(),
+    normalized,
+    normalized.replace(/-/g, '_'),
+    ...suffixes,
+    ...suffixes.map((s) => s.replace(/-/g, '_')),
+  ];
+  const uniqueVariants = [...new Set(variants)].filter(Boolean);
+  console.log('SERVICE RESOLVE:', {
+    input: value,
+    variants: uniqueVariants.slice(0, 20),
+    variantsCount: uniqueVariants.length,
+  });
 
-  let doc = await Service.findOne({ slug: { $in: variants } });
+  let doc = await Service.findOne({ slug: { $in: uniqueVariants } });
   if (doc) return doc;
 
   // Fallback po nazwie (legacy wpisy)
@@ -92,7 +115,7 @@ async function resolveServiceByIdOrSlug(value) {
 
   // Fallback: jeśli slug istnieje tylko w statycznym katalogu, utwórz rekord w DB.
   if (Array.isArray(STATIC_CATALOG) && STATIC_CATALOG.length > 0) {
-    const normalizedSet = new Set(variants.map((v) => normalizeSlug(v)));
+    const normalizedSet = new Set(uniqueVariants.map((v) => normalizeSlug(v)));
     const staticHit = STATIC_CATALOG.find((s) => {
       const sSlug = normalizeSlug(s?.slug || '');
       if (sSlug && normalizedSet.has(sSlug)) return true;
