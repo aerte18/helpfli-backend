@@ -769,6 +769,40 @@ router.get('/open', auth, async (req, res) => {
           return out.length ? out : [x];
         });
       }
+      // Rozwiąż nazwy usług (name_pl/name_en) na slugi, bo starsze payloady potrafią wysyłać etykiety display.
+      const maybeNames = serviceArray.filter((x) => {
+        const s = String(x || '').trim();
+        if (!s) return false;
+        if (/^[a-f0-9]{24}$/i.test(s)) return false; // ObjectId
+        if (/^[a-z0-9_-]+$/i.test(s)) return false; // już wygląda na slug/kod
+        return true;
+      });
+      if (maybeNames.length) {
+        const escapedNames = maybeNames
+          .map((n) => String(n).trim())
+          .filter(Boolean)
+          .map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+        const byNameDocs = await Service.find({
+          $or: [
+            { name_pl: { $in: escapedNames.map((n) => new RegExp(`^${n}$`, 'i')) } },
+            { name_en: { $in: escapedNames.map((n) => new RegExp(`^${n}$`, 'i')) } },
+          ],
+        }).select('slug parent_slug name_pl name_en').lean();
+        const byName = new Map();
+        byNameDocs.forEach((d) => {
+          if (d.name_pl) byName.set(String(d.name_pl).toLowerCase(), d);
+          if (d.name_en) byName.set(String(d.name_en).toLowerCase(), d);
+        });
+        serviceArray = serviceArray.flatMap((x) => {
+          const key = String(x || '').trim().toLowerCase();
+          const d = byName.get(key);
+          if (!d) return [x];
+          const out = [];
+          if (d.slug) out.push(d.slug);
+          if (d.parent_slug && d.parent_slug !== d.slug) out.push(d.parent_slug);
+          return out.length ? out : [x];
+        });
+      }
       if (serviceArray.length > 0) {
         const orBranches = serviceArray
           .map((s) => buildServiceSlugPrefixRegex(s))
