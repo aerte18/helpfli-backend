@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const Service = require('../models/Service');
 const path = require('path');
+const TOP_SERVICE_SLUGS = require('../constants/topServiceSlugs');
 
 // Static fallback (serverless/no-DB mode)
 let STATIC_CATALOG = [];
@@ -50,6 +51,10 @@ function normalizeItems(items) {
   return (items || []).map(it => ({ ...it, slug: normalizeSlug(it) }));
 }
 
+function normalizeSlugText(v = '') {
+  return String(v).trim().toLowerCase().replace(/_/g, '-');
+}
+
 function filterStaticServices({ parent_slug, is_top, kind, seasonal, q, slug, limit = 50, skip = 0 }) {
   let items = STATIC_CATALOG || [];
   if (parent_slug) items = items.filter(s => String(s.parent_slug || '').toLowerCase() === String(parent_slug).toLowerCase());
@@ -63,7 +68,31 @@ function filterStaticServices({ parent_slug, is_top, kind, seasonal, q, slug, li
   }
   const start = Number(skip) || 0;
   const end = start + Math.min(Number(limit) || 50, 100);
-  const sliced = items.slice(start, end);
+  let sliced = items.slice(start, end);
+
+  // Statyczny fallback top usług, gdy oznaczeń is_top jest za mało.
+  if (
+    is_top &&
+    !parent_slug &&
+    !kind &&
+    !q &&
+    !slug &&
+    (!seasonal || seasonal === 'auto') &&
+    sliced.length < Math.min(Number(limit) || 50, 8)
+  ) {
+    const have = new Set(sliced.map((s) => normalizeSlugText(s.slug)));
+    const fromPopular = (STATIC_CATALOG || []).filter((s) =>
+      TOP_SERVICE_SLUGS.map(normalizeSlugText).includes(normalizeSlugText(s.slug))
+    );
+    for (const candidate of fromPopular) {
+      const n = normalizeSlugText(candidate.slug);
+      if (have.has(n)) continue;
+      sliced.push(candidate);
+      have.add(n);
+      if (sliced.length >= Math.min(Number(limit) || 50, 8)) break;
+    }
+  }
+
   const normalized = normalizeItems(sliced);
   return {
     items: normalized,
@@ -126,6 +155,33 @@ router.get('/', async (req, res) => {
       .limit(requestedLimit)
       .lean();
 
+    // Fallback dla sekcji "Popularne usługi":
+    // gdy is_top=1 ma za mało rekordów, dopełnij z listy popularnych slugów.
+    if (
+      is_top &&
+      !parent_slug &&
+      !kind &&
+      !q &&
+      !slug &&
+      (!seasonal || seasonal === 'auto')
+    ) {
+      const minWanted = Math.min(requestedLimit, 8);
+      if (items.length < minWanted) {
+        const existing = new Set(items.map((x) => normalizeSlugText(x.slug)));
+        const candidateSlugs = TOP_SERVICE_SLUGS
+          .map(normalizeSlugText)
+          .filter((s) => !existing.has(s));
+        if (candidateSlugs.length > 0) {
+          const needed = minWanted - items.length;
+          const topFallback = await Service.find({ slug: { $in: candidateSlugs } })
+            .sort({ is_top: -1, urgency_level: -1, name_pl: 1, name: 1 })
+            .limit(needed)
+            .lean();
+          items.push(...topFallback);
+        }
+      }
+    }
+
     // Jeśli baza jest pusta (częste na świeżym deployu), użyj statycznego katalogu,
     // żeby onboarding i formularze zawsze miały listę usług.
     if (items.length === 0 && Array.isArray(STATIC_CATALOG) && STATIC_CATALOG.length > 0) {
@@ -148,11 +204,11 @@ router.get('/', async (req, res) => {
       sample: items.slice(0, 3).map(s => ({ name: s.name_pl || s.name, is_top: s.is_top }))
     });
 
-    res.json({ 
+    res.json({
       items,
       total: items.length,
       count: items.length,
-      hasMore: items.length === requestedLimit
+      hasMore: items.length >= requestedLimit
     });
 
   } catch (error) {

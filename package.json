@@ -28,6 +28,8 @@
     "build:services": "node scripts/build_servicecatalog.js",
     "seed:services:catalog": "node scripts/import_services_from_catalog.js",
     "seed:services:catalog:prune": "node scripts/import_services_from_catalog.js --prune",
+    "seed:services:top": "node scripts/seed_top_services.js",
+    "seed:services:top:reset": "node scripts/seed_top_services.js --reset",
     "db:indexes": "node scripts/add_indexes_optimization.js",
     "test:load": "node scripts/load_test.js",
     "test:load:match-top": "cross-env ENDPOINT=/api/providers/match-top?serviceCode=hydraulik&lat=52.2297&lng=21.0122 node scripts/load_test.js",
