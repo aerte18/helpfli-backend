@@ -723,8 +723,10 @@ router.get('/open', auth, async (req, res) => {
       }
     }
     
-    // Filtry opcjonalne
-    if (service && service !== 'any') {
+    // Filtry opcjonalne — pojedynczy `service` z toolbara koliduje z tablicą `services` (AND w MongoDB
+    // wymagałby dokładnego pola + $or → puste wyniki). Gdy jest lista usług providera, filtr kategorii
+    // zostaje po stronie klienta (ProviderHome i tak filtruje listę).
+    if (service && service !== 'any' && !services) {
       query.service = service;
     }
     
@@ -749,13 +751,37 @@ router.get('/open', auth, async (req, res) => {
         // fallback
         serviceArray = [String(services)];
       }
-      // Dopasowanie: slug z konta może być kategorią (np. hydraulika) a zlecenie — pełnym slugiem (hydraulika-naprawa-…)
-      const escapeRegex = (x) => String(x).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      if (serviceArray.length > 0) {
-        query.$or = serviceArray.map((s) => {
-          const part = escapeRegex(String(s)).replace(/_/g, '[-_]');
-          return { service: { $regex: new RegExp(`^${part}(-|$)`, 'i') } };
+      // Rozwiąż 24-znakowe ObjectId do slugów (gdy frontend wysłał sam id zamiast populate)
+      const oidStrings = serviceArray.filter((x) => typeof x === 'string' && /^[a-f0-9]{24}$/i.test(String(x).trim()));
+      if (oidStrings.length) {
+        const oidDocs = await Service.find({ _id: { $in: oidStrings } }).select('slug parent_slug').lean();
+        const byId = new Map(oidDocs.map((d) => [String(d._id), d]));
+        serviceArray = serviceArray.flatMap((x) => {
+          if (typeof x !== 'string' || !/^[a-f0-9]{24}$/i.test(String(x).trim())) return [x];
+          const d = byId.get(String(x).trim());
+          if (!d) return [x];
+          const out = [];
+          if (d.slug) out.push(d.slug);
+          if (d.parent_slug && d.parent_slug !== d.slug) out.push(d.parent_slug);
+          return out.length ? out : [x];
         });
+      }
+      // Dopasowanie: slug w zleceniu może używać myślników lub podkreśleń; katalog — myślników.
+      const escapeRegex = (x) => String(x).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const buildServiceSlugPrefixRegex = (raw) => {
+        const norm = String(raw || '').trim().replace(/_/g, '-');
+        if (!norm) return null;
+        const part = escapeRegex(norm).replace(/-/g, '[-_]');
+        return new RegExp(`^${part}(-|$)`, 'i');
+      };
+      if (serviceArray.length > 0) {
+        const orBranches = serviceArray
+          .map((s) => buildServiceSlugPrefixRegex(s))
+          .filter(Boolean)
+          .map((re) => ({ service: { $regex: re } }));
+        if (orBranches.length > 0) {
+          query.$or = orBranches;
+        }
       }
     }
     
