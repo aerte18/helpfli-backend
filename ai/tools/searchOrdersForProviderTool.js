@@ -34,7 +34,9 @@ async function searchOrdersForProviderTool(params, context) {
       }
     });
   }
-  if (provider.service && typeof provider.service === 'string') {
+  // Legacy `provider.service` uwzględniaj tylko gdy konto nie ma nowej tablicy `services`.
+  // Inaczej potrafi mieszać stare branże (np. IT) z aktualnym profilem.
+  if ((!provider.services || provider.services.length === 0) && provider.service && typeof provider.service === 'string') {
     const s = provider.service.trim().toLowerCase();
     if (s && !providerServiceSlugs.includes(s)) providerServiceSlugs.push(s);
   }
