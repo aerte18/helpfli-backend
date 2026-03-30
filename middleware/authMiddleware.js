@@ -7,7 +7,10 @@ const authMiddleware = async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token.replace('Bearer ', ''), process.env.JWT_SECRET);
-    req.user = await User.findById(decoded.id).select('-password').populate('services', 'name');
+    // Te same pola co w /api/users/me — slug potrzebny do panelu providera (filtry zleceń, dopasowanie do katalogu)
+    req.user = await User.findById(decoded.id)
+      .select('-password')
+      .populate('services', 'name_pl name_en parent_slug slug code icon');
     if (!req.user) throw new Error();
     
     // Aktualizuj lastSeenAt przy każdym żądaniu (tylko dla providerów)
