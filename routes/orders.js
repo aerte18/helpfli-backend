@@ -12,7 +12,7 @@ const { requireKycVerified } = require("../middleware/kyc");
 const Order = require("../models/Order");
 const User = require("../models/User");
 const Service = require("../models/Service");
-const { buildServiceSlugPrefixRegex } = require("../utils/serviceSlugRegex");
+const { buildServiceSlugPrefixRegex, escapeRegex } = require("../utils/serviceSlugRegex");
 const Revenue = require("../models/Revenue");
 const NotificationService = require("../services/NotificationService");
 const Payment = require("../models/Payment");
@@ -808,6 +808,27 @@ router.get('/open', auth, async (req, res) => {
           .map((s) => buildServiceSlugPrefixRegex(s))
           .filter(Boolean)
           .map((re) => ({ service: { $regex: re } }));
+
+        // Wiele zleceń ma order.service = etykieta z katalogu (name_pl), a nie slug — sam regex od slugów daje 0 wyników.
+        const slugKeys = [...new Set(serviceArray.map((s) => String(s || '').trim()).filter(Boolean))];
+        try {
+          const catalogDocs = await Service.find({ slug: { $in: slugKeys } })
+            .select('name_pl name_en')
+            .lean();
+          for (const c of catalogDocs) {
+            if (c.name_pl && String(c.name_pl).trim()) {
+              const nm = String(c.name_pl).trim();
+              orBranches.push({ service: { $regex: new RegExp(`^${escapeRegex(nm)}$`, 'i') } });
+            }
+            if (c.name_en && String(c.name_en).trim() && c.name_en !== c.name_pl) {
+              const nm = String(c.name_en).trim();
+              orBranches.push({ service: { $regex: new RegExp(`^${escapeRegex(nm)}$`, 'i') } });
+            }
+          }
+        } catch (e) {
+          console.warn('GET_OPEN_ORDERS: catalog name_pl/name_en enrich failed', e.message);
+        }
+
         if (orBranches.length > 0) {
           query.$or = orBranches;
         }
