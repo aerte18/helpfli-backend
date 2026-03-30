@@ -6,18 +6,31 @@ const router = express.Router();
 // GET /api/providers - lista wszystkich usługodawców z opcjonalnym wyszukiwaniem
 router.get('/', async (req, res) => {
   try {
-    const { search, level, rating, available } = req.query;
+    const { search, q, service, level, rating, available } = req.query;
+    const { resolveServicesForSearchFilter } = require('../utils/resolveServiceSearch');
     
     // Buduj query
     let query = { role: 'provider' };
     
-    if (search && search.trim()) {
-      const searchRegex = new RegExp(search.trim(), 'i');
+    const searchTerm = (search && search.trim()) || (q && String(q).trim()) || '';
+    if (searchTerm) {
+      const searchRegex = new RegExp(searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
       query.$or = [
         { name: searchRegex },
         { email: searchRegex },
         { 'services.name': searchRegex }
       ];
+    }
+
+    if (service && String(service).trim()) {
+      const { ids: serviceIds, hadServiceTokens } = await resolveServicesForSearchFilter(service);
+      if (hadServiceTokens) {
+        if (serviceIds.length > 0) {
+          query.services = { $in: serviceIds };
+        } else {
+          return res.json({ items: [] });
+        }
+      }
     }
     
     if (level && level !== 'all') {

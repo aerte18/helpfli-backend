@@ -11,6 +11,7 @@ const { computeProviderRankScore } = require("../utils/billingUtils");
 const { fetchActiveCampaigns, capForUser, injectSponsored } = require("../utils/sponsor");
 const { validateSearch } = require("../middleware/inputValidator");
 const { calculateDistance, estimateETA } = require("../utils/geo");
+const { resolveServicesForSearchFilter } = require("../utils/resolveServiceSearch");
 const router = express.Router();
 
 // Szukaj usługodawców po usłudze i lokalizacji
@@ -164,41 +165,23 @@ router.get("/", validateSearch, async (req, res) => {
       if (budgetMaxNum) match.price.$lte = budgetMaxNum;
     }
     
-    // Obsługa wielu usług (service="id1,id2,id3" lub category="hydraulika,elektryka")
+    // Obsługa wielu usług (service=ObjectId lub slug kategorii / konkretnej usługi z katalogu)
+    let resolvedServiceDocs = [];
     if (service) {
-      const serviceList = String(service).split(",").filter(Boolean);
-      
-      // Sprawdź czy to są ID usług czy nazwy kategorii
-      const isServiceId = serviceList[0].length === 24; // ObjectId ma 24 znaki
-      
-      if (isServiceId) {
-        // Tradycyjne wyszukiwanie po ID usług
-        if (serviceList.length === 1) {
-          match.services = serviceList[0];
-        } else {
-          match.services = { $in: serviceList };
-        }
-      } else {
-        // Wyszukiwanie po kategoriach lub konkretnych slugach usług
-        console.log("🔍 SEARCH: Looking for services with parent_slug/slug:", serviceList);
-        const categoryServices = await Service.find({ 
-          $or: [
-            { parent_slug: { $in: serviceList } },
-            { slug: { $in: serviceList } }
-          ]
-        }).select('_id parent_slug name_pl');
-        
-        console.log("🔍 SEARCH: Found", categoryServices.length, "services with matching parent_slug");
-        if (categoryServices.length > 0) {
-          console.log("🔍 SEARCH: Sample services:", categoryServices.slice(0, 3).map(s => ({ id: s._id, parent_slug: s.parent_slug, name: s.name_pl })));
-        }
-        
-        const serviceIds = categoryServices.map(s => s._id);
+      const { ids: serviceIds, docs, hadServiceTokens } = await resolveServicesForSearchFilter(service);
+      resolvedServiceDocs = docs || [];
+      console.log("🔍 SEARCH: resolve services", {
+        param: service,
+        matchedCount: serviceIds.length,
+        hadServiceTokens,
+      });
+      if (hadServiceTokens) {
         if (serviceIds.length > 0) {
           match.services = { $in: serviceIds };
-          console.log("🔍 SEARCH: Filtering providers by service IDs:", serviceIds.length, "services");
         } else {
-          console.warn("⚠️ SEARCH: No services found for parent_slug:", serviceList);
+          // Nie zwracaj wszystkich providerów przy nieznanym slugu — pusty wynik
+          console.warn("⚠️ SEARCH: Brak rekordów Service dla parametru service — zwracam 0 wyników");
+          match._id = { $in: [] };
         }
       }
     }
@@ -367,14 +350,14 @@ router.get("/", validateSearch, async (req, res) => {
       providers = filteredProviders;
     }
     
-    // Pobierz nazwy dopasowanych usług
+    // Nazwy dopasowanych usług (bez CastError przy slugach zamiast ObjectId)
     let namesById = {};
     let matchedServiceNames = [];
-    if (service) {
-      const serviceList = String(service).split(",").filter(Boolean);
-      const found = await Service.find({ _id: { $in: serviceList } }).lean();
-      namesById = Object.fromEntries(found.map(s => [String(s._id), s.name_pl || s.name_en]));
-      matchedServiceNames = serviceList.map(id => namesById[id]).filter(Boolean);
+    if (service && resolvedServiceDocs.length) {
+      namesById = Object.fromEntries(
+        resolvedServiceDocs.map((s) => [String(s._id), s.name_pl || s.name_en])
+      );
+      matchedServiceNames = resolvedServiceDocs.map((s) => s.name_pl || s.name_en).filter(Boolean);
     }
     
     // Pobierz nazwy wszystkich usług (dla wszystkich providerów)
@@ -845,32 +828,14 @@ router.get("/providers", async (req, res) => {
       role: "provider",
     };
     
-    // Filtr usługi - używamy tej samej logiki co w głównym wyszukiwaniu
+    // Filtr usługi - ta sama logika co GET /api/search (slug + warianty sufiksów)
     if (service) {
-      const serviceList = String(service).split(",").filter(Boolean);
-      
-      // Sprawdź czy to są ID usług czy nazwy kategorii
-      const isServiceId = serviceList[0].length === 24; // ObjectId ma 24 znaki
-      
-      if (isServiceId) {
-        // Tradycyjne wyszukiwanie po ID usług
-        if (serviceList.length === 1) {
-          match.services = serviceList[0];
-        } else {
-          match.services = { $in: serviceList };
-        }
-      } else {
-        // Wyszukiwanie po kategoriach lub konkretnych slugach usług
-        const categoryServices = await Service.find({ 
-          $or: [
-            { parent_slug: { $in: serviceList } },
-            { slug: { $in: serviceList } }
-          ]
-        }).select('_id');
-        
-        const serviceIds = categoryServices.map(s => s._id);
+      const { ids: serviceIds, hadServiceTokens } = await resolveServicesForSearchFilter(service);
+      if (hadServiceTokens) {
         if (serviceIds.length > 0) {
           match.services = { $in: serviceIds };
+        } else {
+          match._id = { $in: [] };
         }
       }
     }
