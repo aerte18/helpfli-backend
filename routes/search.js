@@ -444,6 +444,7 @@ router.get("/", validateSearch, async (req, res) => {
         const providerData = {
           _id: p._id,
           name: p.name,
+          serviceIds: (p.services || []).map((id) => String(id)),
           level: providerLevel,
           lat: p.locationCoords?.lat || (baseLat + latOffset),
           lng: p.locationCoords?.lng || (baseLng + lngOffset),
@@ -557,19 +558,38 @@ router.get("/", validateSearch, async (req, res) => {
         break;
     }
 
-    // sponsorowane sloty
+    // sponsorowane sloty — potem odfiltruj: tylko providerzy z przynajmniej jedną dopasowaną usługą z katalogu
+    const allowedServiceIdSet =
+      resolvedServiceDocs.length > 0
+        ? new Set(resolvedServiceDocs.map((d) => String(d._id)))
+        : null;
+
+    function providerMatchesServiceFilter(row) {
+      if (!allowedServiceIdSet) return true;
+      const raw = row.serviceIds || row.services;
+      const ids = Array.isArray(raw) ? raw.map(String) : [];
+      return ids.some((id) => allowedServiceIdSet.has(id));
+    }
+
     try {
       const campaigns = await fetchActiveCampaigns({ service: serviceParam || service, city: location });
       const allowed = await capForUser({ campaigns, userId: req.user?._id });
-      const injected = injectSponsored({ list: results, campaigns: allowed });
+      let injected = injectSponsored({ list: results, campaigns: allowed });
+      if (allowedServiceIdSet) {
+        injected = injected.filter(providerMatchesServiceFilter);
+      }
       console.log("🔍 SEARCH RESULTS:", { count: injected.length, firstResult: injected[0]?.name });
       return res.json(injected);
     } catch (e) {
       console.warn('⚠️ SPONSOR_INJECT_WARN:', e?.message || e);
       console.warn('⚠️ SPONSOR_INJECT_WARN stack:', e?.stack);
       // Nie rzucaj błędu - zwróć wyniki bez sponsorowanych
-      console.log("🔍 SEARCH RESULTS (fallback - bez sponsorów):", { count: results.length, firstResult: results[0]?.name });
-      return res.json(results);
+      let out = results;
+      if (allowedServiceIdSet) {
+        out = results.filter(providerMatchesServiceFilter);
+      }
+      console.log("🔍 SEARCH RESULTS (fallback - bez sponsorów):", { count: out.length, firstResult: out[0]?.name });
+      return res.json(out);
     }
   } catch (err) {
     console.error("❌ Błąd w /api/search:", err);
