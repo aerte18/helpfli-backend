@@ -61,6 +61,36 @@ async function searchOrdersForProviderTool(params, context) {
 
   const providerCity = (provider.location || '').trim();
 
+  const normalizeSlug = (s) => String(s || '').toLowerCase().replace(/_/g, '-').trim();
+  const matchSvc = (orderSvc) => {
+    const os = normalizeSlug(orderSvc);
+    if (!os) return false;
+    return uniqueSlugs.some((s) => {
+      const ps = normalizeSlug(s);
+      if (!ps) return false;
+      return (
+        os === ps ||
+        os.startsWith(`${ps}-`) ||
+        ps.startsWith(`${os}-`)
+      );
+    });
+  };
+
+  const cityMatch = (order) => {
+    if (!providerCity) return false;
+    const cityText = String(order.city || order.location?.address || order.location || '').toLowerCase();
+    return cityText.includes(providerCity.toLowerCase());
+  };
+
+  const scoreOrder = (order) => {
+    let score = 0;
+    if (uniqueSlugs.length && matchSvc(order.service)) score += 6; // najważniejsze: zgodność usługi
+    if (cityMatch(order)) score += 2; // lokalizacja
+    const budget = budgetValue(order);
+    if (budget >= 300) score += 1; // lekka preferencja sensownego budżetu
+    return score;
+  };
+
   let orders = await Order.find(query)
     .select('_id service description city location budget budgetRange urgency createdAt')
     .sort({ createdAt: -1 })
@@ -94,25 +124,19 @@ async function searchOrdersForProviderTool(params, context) {
   if (sortBy === 'earning_potential') {
     orders = orders.sort((a, b) => budgetValue(b) - budgetValue(a));
   } else {
+    // Jeśli mamy dopasowania usługowe, nie pokazuj "losowych" branż.
+    if (uniqueSlugs.length > 0) {
+      const matched = orders.filter((o) => matchSvc(o.service));
+      if (matched.length > 0) orders = matched;
+    }
+
     orders = orders.sort((a, b) => {
-      const matchSvc = (orderSvc) => {
-        const os = String(orderSvc || '').toLowerCase().replace(/_/g, '-');
-        return uniqueSlugs.some((s) => {
-          const ps = String(s || '').toLowerCase().replace(/_/g, '-');
-          if (!ps) return false;
-          return (
-            os === ps ||
-            os.startsWith(`${ps}-`) ||
-            ps.startsWith(`${os}-`)
-          );
-        });
-      };
-      const scoreA = (uniqueSlugs.length && matchSvc(a.service) ? 2 : 0) +
-        (providerCity && (a.city || a.location?.address || a.location) && String(a.city || a.location?.address || a.location).toLowerCase().includes(providerCity.toLowerCase()) ? 1 : 0);
-      const scoreB = (uniqueSlugs.length && matchSvc(b.service) ? 2 : 0) +
-        (providerCity && (b.city || b.location?.address || b.location) && String(b.city || b.location?.address || b.location).toLowerCase().includes(providerCity.toLowerCase()) ? 1 : 0);
+      const scoreA = scoreOrder(a);
+      const scoreB = scoreOrder(b);
       if (scoreB !== scoreA) return scoreB - scoreA;
-      return budgetValue(b) - budgetValue(a);
+      const budgetDelta = budgetValue(b) - budgetValue(a);
+      if (budgetDelta !== 0) return budgetDelta;
+      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
     });
   }
 
