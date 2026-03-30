@@ -4,10 +4,46 @@ const Service = require('../models/Service');
 const User = require('../models/User');
 const router = express.Router();
 
+function escapeRegex(input = '') {
+  return String(input).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Kompatybilność wsteczna:
+ * starsze konta mogły mieć tylko pole `user.service` (string), bez `user.services` (ObjectId[]).
+ * Przy pierwszym odczycie próbujemy zmapować i zapisać brakującą usługę.
+ */
+async function migrateLegacyUserServiceIfNeeded(user) {
+  if (!user) return user;
+  if (Array.isArray(user.services) && user.services.length > 0) return user;
+
+  const legacyRaw =
+    (typeof user.service === 'string' && user.service.trim()) ||
+    (typeof user.serviceType === 'string' && user.serviceType.trim()) ||
+    '';
+  if (!legacyRaw) return user;
+
+  const legacy = legacyRaw.trim();
+  const bySlug = await Service.findOne({ slug: legacy.toLowerCase() }).select('_id');
+  let matched = bySlug;
+  if (!matched) {
+    const re = new RegExp(`^${escapeRegex(legacy)}$`, 'i');
+    matched = await Service.findOne({
+      $or: [{ name_pl: re }, { name_en: re }, { name: re }],
+    }).select('_id');
+  }
+  if (!matched?._id) return user;
+
+  user.services = [matched._id];
+  await user.save();
+  return User.findById(user._id).populate('services');
+}
+
 // Pobierz usługi przypisane do użytkownika
 router.get('/', auth, async (req, res) => {
-  const user = await User.findById(req.user._id).populate('services');
-  res.json(user.services);
+  let user = await User.findById(req.user._id).populate('services');
+  user = await migrateLegacyUserServiceIfNeeded(user);
+  res.json(user?.services || []);
 });
 
 // Pobierz usługi konkretnego providera (publiczny endpoint)

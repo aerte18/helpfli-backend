@@ -372,7 +372,12 @@ router.get('/suggest', async (req, res) => {
 // WAŻNE: Musi być NA KOŃCU, żeby nie przechwytywał innych route'ów (np. /suggest, /categories)
 router.get('/:slug', async (req, res) => {
   try {
-    const service = await Service.findOne({ slug: req.params.slug }).lean();
+    const raw = String(req.params.slug || '').trim();
+    const normalized = raw.toLowerCase().replace(/_/g, '-');
+    const underscored = normalized.replace(/-/g, '_');
+    const variants = [...new Set([raw, raw.toLowerCase(), normalized, underscored])].filter(Boolean);
+
+    const service = await Service.findOne({ slug: { $in: variants } }).lean();
     
     if (!service) {
       return res.status(404).json({ 
