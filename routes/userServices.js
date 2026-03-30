@@ -2,7 +2,31 @@ const express = require('express');
 const { auth } = require('../middleware/auth');
 const Service = require('../models/Service');
 const User = require('../models/User');
+const path = require('path');
 const router = express.Router();
+
+let STATIC_CATALOG = [];
+try {
+  const candidates = [
+    path.join(__dirname, '..', 'services_catalog.json'),
+    path.join(__dirname, '..', 'data', 'services_catalog.json'),
+    path.join(__dirname, '..', '..', 'services_catalog.json'),
+  ];
+  for (const p of candidates) {
+    try {
+      // eslint-disable-next-line import/no-dynamic-require, global-require
+      const data = require(p);
+      if (Array.isArray(data) && data.length > 0) {
+        STATIC_CATALOG = data;
+        break;
+      }
+    } catch (_) {
+      // next candidate
+    }
+  }
+} catch (_) {
+  STATIC_CATALOG = [];
+}
 
 function escapeRegex(input = '') {
   return String(input).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -64,7 +88,45 @@ async function resolveServiceByIdOrSlug(value) {
   const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const re = new RegExp(`^${escapeRegex(raw)}$`, 'i');
   doc = await Service.findOne({ $or: [{ name_pl: re }, { name_en: re }] });
-  return doc || null;
+  if (doc) return doc;
+
+  // Fallback: jeśli slug istnieje tylko w statycznym katalogu, utwórz rekord w DB.
+  if (Array.isArray(STATIC_CATALOG) && STATIC_CATALOG.length > 0) {
+    const normalizedSet = new Set(variants.map((v) => normalizeSlug(v)));
+    const staticHit = STATIC_CATALOG.find((s) => {
+      const sSlug = normalizeSlug(s?.slug || '');
+      if (sSlug && normalizedSet.has(sSlug)) return true;
+      const sNamePl = String(s?.name_pl || '').trim().toLowerCase();
+      const sNameEn = String(s?.name_en || '').trim().toLowerCase();
+      const rawNorm = String(raw || '').trim().toLowerCase();
+      return rawNorm && (sNamePl === rawNorm || sNameEn === rawNorm);
+    });
+
+    if (staticHit?.slug) {
+      const slug = normalizeSlug(staticHit.slug);
+      const payload = {
+        parent_slug: String(staticHit.parent_slug || slug.split('-')[0] || 'inne').toLowerCase(),
+        slug,
+        name_pl: staticHit.name_pl || staticHit.name || slug,
+        name_en: staticHit.name_en || staticHit.name_pl || staticHit.name || slug,
+        description: staticHit.description || staticHit.name_pl || staticHit.name || slug,
+        tags: staticHit.tags || '',
+        intent_keywords: staticHit.intent_keywords || '',
+        service_kind: staticHit.service_kind || 'onsite',
+        urgency_level: Number(staticHit.urgency_level) || 3,
+        is_top: Number(staticHit.is_top) || 0,
+        seasonal: staticHit.seasonal || 'none',
+      };
+      doc = await Service.findOneAndUpdate(
+        { slug },
+        { $setOnInsert: payload },
+        { new: true, upsert: true }
+      );
+      if (doc) return doc;
+    }
+  }
+
+  return null;
 }
 
 // Pobierz usługi przypisane do użytkownika
