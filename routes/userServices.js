@@ -39,6 +39,34 @@ async function migrateLegacyUserServiceIfNeeded(user) {
   return User.findById(user._id).populate('services');
 }
 
+function normalizeSlug(v = '') {
+  return String(v).trim().toLowerCase().replace(/_/g, '-');
+}
+
+async function resolveServiceByIdOrSlug(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+
+  // ObjectId
+  if (/^[a-f0-9]{24}$/i.test(raw)) {
+    const byId = await Service.findById(raw);
+    if (byId) return byId;
+  }
+
+  const normalized = normalizeSlug(raw);
+  const underscored = normalized.replace(/-/g, '_');
+  const variants = [...new Set([raw, raw.toLowerCase(), normalized, underscored])].filter(Boolean);
+
+  let doc = await Service.findOne({ slug: { $in: variants } });
+  if (doc) return doc;
+
+  // Fallback po nazwie (legacy wpisy)
+  const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`^${escapeRegex(raw)}$`, 'i');
+  doc = await Service.findOne({ $or: [{ name_pl: re }, { name_en: re }] });
+  return doc || null;
+}
+
 // Pobierz usługi przypisane do użytkownika
 router.get('/', auth, async (req, res) => {
   let user = await User.findById(req.user._id).populate('services');
@@ -97,19 +125,20 @@ router.post('/add/:serviceId', auth, async (req, res) => {
 
   const user = await User.findById(req.user._id);
   
-  // Sprawdź czy usługa istnieje
-  const service = await Service.findById(serviceId);
+  // Sprawdź czy usługa istnieje (ObjectId lub slug)
+  const service = await resolveServiceByIdOrSlug(serviceId);
   if (!service) {
     return res.status(404).json({ message: `Nie znaleziono usługi: ${serviceId}` });
   }
 
   // Sprawdź czy użytkownik już ma tę usługę
-  if (user.services.includes(serviceId)) {
+  const sid = String(service._id);
+  if ((user.services || []).some((id) => String(id) === sid)) {
     return res.status(400).json({ message: 'Użytkownik już ma tę usługę' });
   }
 
   // Dodaj usługę
-  user.services.push(serviceId);
+  user.services.push(service._id);
   await user.save();
 
   // Pobierz zaktualizowane usługi z populate
@@ -122,7 +151,12 @@ router.delete('/:serviceId', auth, async (req, res) => {
   const { serviceId } = req.params;
 
   const user = await User.findById(req.user._id);
-  user.services = user.services.filter((id) => id.toString() !== serviceId);
+  const service = await resolveServiceByIdOrSlug(serviceId);
+  if (!service) {
+    return res.status(404).json({ message: `Nie znaleziono usługi: ${serviceId}` });
+  }
+  const sid = String(service._id);
+  user.services = (user.services || []).filter((id) => String(id) !== sid);
   await user.save();
 
   // Pobierz zaktualizowane usługi z populate
