@@ -876,12 +876,23 @@ router.get('/open', auth, async (req, res) => {
 
     // Pobierz zlecenia
     console.log('🔍 GET_OPEN_ORDERS: Query:', JSON.stringify(query, null, 2));
+    // Przy szerokim zapytaniu (bez filtra usługi) najnowsze 50 globalnie może "wyciąć" lokalne zlecenia
+    // po późniejszym filtrowaniu dystansu. Pobierz większą próbkę i ogranicz wynik dopiero na końcu.
+    const hasServiceFilter = Boolean(
+      (service && service !== 'any') ||
+      services ||
+      query.service ||
+      query.$or ||
+      (Array.isArray(query.$and) && query.$and.some((x) => x?.$or || x?.service))
+    );
+    const prefetchLimit = hasServiceFilter ? 200 : 1000;
+
     let orders = await Order.find(query)
       .populate('client', 'name email phone level providerLevel')
       .sort({ 
         createdAt: -1 
       })
-      .limit(50);
+      .limit(prefetchLimit);
     
     // Pobierz liczbę ofert dla każdego zlecenia
     const Offer = require('../models/Offer');
@@ -1055,8 +1066,10 @@ router.get('/open', auth, async (req, res) => {
       return expiredAgo <= expiredHiddenAfterMs;
     });
 
-    console.log('🔍 GET_OPEN_ORDERS: Returning orders:', visibleToProvider.length, '(hidden expired:', demand.length - visibleToProvider.length, ')');
-    res.json({ orders: visibleToProvider });
+    // Finalny limit po wszystkich filtrach (status/dystans/wygaśnięcie), żeby nie gubić lokalnych rekordów.
+    const finalOrders = visibleToProvider.slice(0, 50);
+    console.log('🔍 GET_OPEN_ORDERS: Returning orders:', finalOrders.length, '(hidden expired:', demand.length - visibleToProvider.length, ')');
+    res.json({ orders: finalOrders });
   } catch (err) {
     console.error('GET_OPEN_ORDERS_ERROR:', err);
     res.status(500).json({ message: 'Błąd pobierania zleceń' });
