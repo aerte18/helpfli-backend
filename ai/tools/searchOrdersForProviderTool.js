@@ -129,7 +129,9 @@ async function searchOrdersForProviderTool(params, context) {
     // Jeśli mamy dopasowania usługowe, nie pokazuj "losowych" branż.
     if (uniqueSlugs.length > 0) {
       const matched = orders.filter((o) => matchSvc(o.service));
-      if (matched.length > 0) orders = matched;
+      // Gdy zapytanie regex/fallback zwróciło zlecenia spoza profilu (np. starszy format w DB),
+      // matched może być puste — wtedy NIE zostawiaj pełnej listy z fallbacku (obce branże).
+      orders = matched.length > 0 ? matched : [];
     }
 
     orders = orders.sort((a, b) => {
