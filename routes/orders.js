@@ -12,6 +12,7 @@ const { requireKycVerified } = require("../middleware/kyc");
 const Order = require("../models/Order");
 const User = require("../models/User");
 const Service = require("../models/Service");
+const { buildServiceSlugPrefixRegex } = require("../utils/serviceSlugRegex");
 const Revenue = require("../models/Revenue");
 const NotificationService = require("../services/NotificationService");
 const Payment = require("../models/Payment");
@@ -766,14 +767,6 @@ router.get('/open', auth, async (req, res) => {
           return out.length ? out : [x];
         });
       }
-      // Dopasowanie: slug w zleceniu może używać myślników lub podkreśleń; katalog — myślników.
-      const escapeRegex = (x) => String(x).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const buildServiceSlugPrefixRegex = (raw) => {
-        const norm = String(raw || '').trim().replace(/_/g, '-');
-        if (!norm) return null;
-        const part = escapeRegex(norm).replace(/-/g, '[-_]');
-        return new RegExp(`^${part}(-|$)`, 'i');
-      };
       if (serviceArray.length > 0) {
         const orBranches = serviceArray
           .map((s) => buildServiceSlugPrefixRegex(s))

@@ -6,6 +6,7 @@
 const Order = require('../../models/Order');
 const User = require('../../models/User');
 const { shouldFilterDemoData, getDemoUserIds } = require('../../utils/demoAccounts');
+const { buildServiceSlugPrefixRegex } = require('../../utils/serviceSlugRegex');
 
 async function searchOrdersForProviderTool(params, context) {
   const userId = context.userId;
@@ -21,35 +22,42 @@ async function searchOrdersForProviderTool(params, context) {
   const sortBy = params.sortBy === 'earning_potential' ? 'earning_potential' : 'best_match';
   const limit = Math.min(parseInt(params.limit, 10) || 15, 30);
 
-  // Slugi usług providera (z modelu Service)
+  // Slugi usług providera: liść + parent_slug (jak w panelu / GET open orders)
   const providerServiceSlugs = [];
   if (provider.services && Array.isArray(provider.services)) {
     provider.services.forEach((s) => {
-      const slug = typeof s === 'object' && s !== null ? s.slug : (s && String(s));
-      if (slug) providerServiceSlugs.push(slug);
+      if (typeof s === 'object' && s !== null) {
+        if (s.slug) providerServiceSlugs.push(s.slug);
+        if (s.parent_slug && s.parent_slug !== s.slug) providerServiceSlugs.push(s.parent_slug);
+      } else if (s) {
+        providerServiceSlugs.push(String(s));
+      }
     });
   }
   if (provider.service && typeof provider.service === 'string') {
     const s = provider.service.trim().toLowerCase();
     if (s && !providerServiceSlugs.includes(s)) providerServiceSlugs.push(s);
   }
+  const uniqueSlugs = [...new Set(providerServiceSlugs.filter(Boolean))];
 
-  let query = { status: { $in: ['open', 'collecting_offers'] } };
-
+  const baseStatus = { status: { $in: ['open', 'collecting_offers'] } };
+  const andParts = [baseStatus];
   if (shouldFilterDemoData(provider)) {
     const demoIds = await getDemoUserIds();
     if (demoIds.length) {
-      query = { $and: [query, { client: { $nin: demoIds } }] };
+      andParts.push({ client: { $nin: demoIds } });
     }
   }
-
-  if (sortBy === 'best_match' && providerServiceSlugs.length > 0) {
-    const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    query.$or = providerServiceSlugs.map((slug) => {
-      const part = escapeRegex(slug).replace(/_/g, '[-_]');
-      return { service: new RegExp(`^${part}(-|$)`, 'i') };
-    });
+  if (sortBy === 'best_match' && uniqueSlugs.length > 0) {
+    const orBranches = uniqueSlugs
+      .map((slug) => buildServiceSlugPrefixRegex(slug))
+      .filter(Boolean)
+      .map((re) => ({ service: { $regex: re } }));
+    if (orBranches.length > 0) {
+      andParts.push({ $or: orBranches });
+    }
   }
+  const query = andParts.length === 1 ? andParts[0] : { $and: andParts };
 
   const providerCity = (provider.location || '').trim();
 
@@ -58,6 +66,23 @@ async function searchOrdersForProviderTool(params, context) {
     .sort({ createdAt: -1 })
     .limit(limit * 2)
     .lean();
+
+  // Gdy zapytanie z $or nie zwróci nic (np. starszy format slugów) — otwarte zlecenia + sort po dopasowaniu
+  if (sortBy === 'best_match' && orders.length === 0 && uniqueSlugs.length > 0) {
+    const fallbackParts = [baseStatus];
+    if (shouldFilterDemoData(provider)) {
+      const demoIds = await getDemoUserIds();
+      if (demoIds.length) {
+        fallbackParts.push({ client: { $nin: demoIds } });
+      }
+    }
+    const fallbackQuery = fallbackParts.length === 1 ? fallbackParts[0] : { $and: fallbackParts };
+    orders = await Order.find(fallbackQuery)
+      .select('_id service description city location budget budgetRange urgency createdAt')
+      .sort({ createdAt: -1 })
+      .limit(limit * 2)
+      .lean();
+  }
 
   const budgetValue = (o) => {
     if (o.budgetRange && (o.budgetRange.max != null || o.budgetRange.min != null)) {
@@ -72,14 +97,19 @@ async function searchOrdersForProviderTool(params, context) {
     orders = orders.sort((a, b) => {
       const matchSvc = (orderSvc) => {
         const os = String(orderSvc || '').toLowerCase().replace(/_/g, '-');
-        return providerServiceSlugs.some((s) => {
+        return uniqueSlugs.some((s) => {
           const ps = String(s || '').toLowerCase().replace(/_/g, '-');
-          return ps && (os === ps || os.startsWith(`${ps}-`));
+          if (!ps) return false;
+          return (
+            os === ps ||
+            os.startsWith(`${ps}-`) ||
+            ps.startsWith(`${os}-`)
+          );
         });
       };
-      const scoreA = (providerServiceSlugs.length && matchSvc(a.service) ? 2 : 0) +
+      const scoreA = (uniqueSlugs.length && matchSvc(a.service) ? 2 : 0) +
         (providerCity && (a.city || a.location?.address || a.location) && String(a.city || a.location?.address || a.location).toLowerCase().includes(providerCity.toLowerCase()) ? 1 : 0);
-      const scoreB = (providerServiceSlugs.length && matchSvc(b.service) ? 2 : 0) +
+      const scoreB = (uniqueSlugs.length && matchSvc(b.service) ? 2 : 0) +
         (providerCity && (b.city || b.location?.address || b.location) && String(b.city || b.location?.address || b.location).toLowerCase().includes(providerCity.toLowerCase()) ? 1 : 0);
       if (scoreB !== scoreA) return scoreB - scoreA;
       return budgetValue(b) - budgetValue(a);
