@@ -167,6 +167,7 @@ const ratingsRoutes = loadRoute('ratings', './routes/ratings');
 const messagesRoutes = loadRoute('messages', './routes/messages');
 const dashboardRoutes = loadRoute('dashboard', './routes/dashboard');
 const announcementsRoutes = loadRoute('announcements', './routes/announcements');
+const contactRoutes = loadRoute('contact', './routes/contact');
 logger.debug('✅ Dashboard route loaded, creating Express app...');
 
 const app = express();
@@ -643,6 +644,8 @@ try {
   safeUse('/api/telemetry', loadRoute('telemetry', './routes/telemetry'), 'telemetry');
   logger.debug('🔵 About to register privacy route...');
   safeUse('/api/privacy', loadRoute('privacy', './routes/privacy'), 'privacy');
+  logger.debug('🔵 About to register contact route...');
+  safeUse('/api/contact', contactRoutes, 'contact');
   // legacy/extra ratings routes are already handled in routes/ratings.js
   logger.debug('🔵 About to register push route...');
   safeUse('/api/push', loadRoute('push', './routes/push'), 'push');
