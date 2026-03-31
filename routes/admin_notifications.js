@@ -5,9 +5,47 @@ const adminMiddleware = require('../middleware/adminMiddleware');
 const NotificationLog = require('../models/NotificationLog');
 const EmailTemplate = require('../models/EmailTemplate');
 const User = require('../models/User');
+const Notification = require('../models/Notification');
 
 // Zabezpieczenie - tylko admin
 router.use(authMiddleware, adminMiddleware);
+
+// GET /api/admin/notifications/alerts - Alerty analityczne/systemowe
+router.get('/alerts', async (req, res) => {
+  try {
+    const { limit = 100, offset = 0, alertType = 'funnel_regression', startDate, endDate } = req.query;
+    const query = {
+      type: 'system_announcement'
+    };
+    if (alertType) query['metadata.alertType'] = alertType;
+    if (startDate || endDate) {
+      query.createdAt = {};
+      if (startDate) query.createdAt.$gte = new Date(startDate);
+      if (endDate) query.createdAt.$lte = new Date(endDate);
+    }
+
+    const [alerts, total] = await Promise.all([
+      Notification.find(query)
+        .populate('user', 'name email')
+        .sort({ createdAt: -1 })
+        .limit(parseInt(limit, 10))
+        .skip(parseInt(offset, 10))
+        .lean(),
+      Notification.countDocuments(query)
+    ]);
+
+    res.json({
+      success: true,
+      alerts,
+      total,
+      limit: parseInt(limit, 10),
+      offset: parseInt(offset, 10)
+    });
+  } catch (error) {
+    console.error('Error fetching analytics alerts:', error);
+    res.status(500).json({ success: false, message: 'Błąd pobierania alertów', error: error.message });
+  }
+});
 
 // GET /api/admin/notifications/logs - Lista wszystkich logów powiadomień
 router.get('/logs', async (req, res) => {

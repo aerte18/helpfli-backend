@@ -3,6 +3,74 @@ const router = express.Router();
 const TelemetryService = require('../services/TelemetryService');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const { validateTelemetry } = require('../middleware/inputValidator');
+const Notification = require('../models/Notification');
+const User = require('../models/User');
+
+const FUNNEL_SEQUENCE = [
+  'page_view',
+  'search',
+  'provider_view',
+  'provider_contact',
+  'order_form_start',
+  'order_form_success',
+  'payment_succeeded'
+];
+
+function getWorstFunnelDrop(items = []) {
+  const byType = Object.fromEntries((items || []).map((i) => [i._id, i.count || 0]));
+  let prev = null;
+  let worst = null;
+  for (const key of FUNNEL_SEQUENCE) {
+    const current = byType[key] || 0;
+    if (prev !== null && prev > 0) {
+      const dropPct = ((prev - current) / prev) * 100;
+      if (!worst || dropPct > worst.dropPct) {
+        worst = { from: prev, to: current, step: key, dropPct };
+      }
+    }
+    if (current > 0) prev = current;
+  }
+  return worst;
+}
+
+async function maybeCreateFunnelRegressionAlert({ startDate, endDate, roleLabel, funnelData, threshold = 35 }) {
+  const worst = getWorstFunnelDrop(funnelData);
+  if (!worst || worst.dropPct < threshold) return;
+
+  const alertKey = `funnel_regression:${roleLabel}:${startDate.toISOString()}:${endDate.toISOString()}:${worst.step}`;
+  const existing = await Notification.findOne({
+    type: 'system_announcement',
+    'metadata.alertKey': alertKey,
+    createdAt: { $gte: new Date(Date.now() - 12 * 60 * 60 * 1000) }
+  }).lean();
+  if (existing) return;
+
+  const admins = await User.find({ role: 'admin', isActive: true }).select('_id').lean();
+  if (!admins.length) return;
+
+  const title = `Alert regresji lejka (${roleLabel})`;
+  const message = `Wykryto spadek ${worst.dropPct.toFixed(1)}% na kroku "${worst.step}" w zakresie ${startDate.toISOString().slice(0, 10)} - ${endDate.toISOString().slice(0, 10)}.`;
+
+  await Notification.insertMany(
+    admins.map((admin) => ({
+      user: admin._id,
+      type: 'system_announcement',
+      title,
+      message,
+      link: '/admin/analytics',
+      metadata: {
+        alertKey,
+        alertType: 'funnel_regression',
+        roleLabel,
+        threshold,
+        dropPct: Number(worst.dropPct.toFixed(2)),
+        step: worst.step,
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString()
+      }
+    }))
+  );
+}
 
 // POST /api/telemetry/track - śledzenie eventów
 router.post('/track', authMiddleware, validateTelemetry, async (req, res) => {
@@ -141,10 +209,18 @@ router.get('/funnel', authMiddleware, async (req, res) => {
       return res.status(400).json({ message: 'startDate i endDate są wymagane' });
     }
 
-    const funnel = await TelemetryService.getConversionFunnel(
+    const funnel = await TelemetryService.getConversionFunnelDetailed(
       new Date(startDate),
       new Date(endDate)
     );
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    await Promise.all([
+      maybeCreateFunnelRegressionAlert({ startDate: start, endDate: end, roleLabel: 'overall', funnelData: funnel.overall }),
+      maybeCreateFunnelRegressionAlert({ startDate: start, endDate: end, roleLabel: 'client', funnelData: funnel.client }),
+      maybeCreateFunnelRegressionAlert({ startDate: start, endDate: end, roleLabel: 'provider', funnelData: funnel.provider })
+    ]);
 
     res.json(funnel);
   } catch (error) {

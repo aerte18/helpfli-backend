@@ -317,6 +317,83 @@ class TelemetryService {
 
     return Event.aggregate(pipeline);
   }
+
+  async getConversionFunnelDetailed(startDate, endDate) {
+    const funnelTypes = [
+      this.eventTypes.PAGE_VIEW,
+      this.eventTypes.SEARCH,
+      this.eventTypes.PROVIDER_VIEW,
+      this.eventTypes.PROVIDER_CONTACT,
+      this.eventTypes.QUOTE_REQUEST,
+      this.eventTypes.ORDER_FORM_START,
+      this.eventTypes.ORDER_FORM_SUCCESS,
+      this.eventTypes.OFFER_FORM_START,
+      this.eventTypes.OFFER_FORM_SUBMIT,
+      this.eventTypes.ORDER_ACCEPTED,
+      this.eventTypes.PAYMENT_SUCCEEDED
+    ];
+
+    const overall = await Event.aggregate([
+      { $match: { type: { $in: funnelTypes }, createdAt: { $gte: startDate, $lte: endDate } } },
+      {
+        $group: {
+          _id: '$type',
+          count: { $sum: 1 },
+          uniqueUsers: { $addToSet: '$userId' }
+        }
+      },
+      {
+        $project: {
+          _id: 1,
+          count: 1,
+          uniqueUsers: { $size: { $setDifference: ['$uniqueUsers', [null]] } }
+        }
+      }
+    ]);
+
+    const byRole = await Event.aggregate([
+      { $match: { type: { $in: funnelTypes }, createdAt: { $gte: startDate, $lte: endDate }, userId: { $ne: null } } },
+      { $lookup: { from: 'users', localField: 'userId', foreignField: '_id', as: 'user' } },
+      { $unwind: '$user' },
+      {
+        $addFields: {
+          roleGroup: {
+            $cond: [
+              { $in: ['$user.role', ['provider', 'company_owner', 'company_manager']] },
+              'provider',
+              {
+                $cond: [{ $eq: ['$user.role', 'client'] }, 'client', 'other']
+              }
+            ]
+          }
+        }
+      },
+      { $match: { roleGroup: { $in: ['client', 'provider'] } } },
+      {
+        $group: {
+          _id: { type: '$type', role: '$roleGroup' },
+          count: { $sum: 1 },
+          uniqueUsers: { $addToSet: '$userId' }
+        }
+      },
+      {
+        $project: {
+          _id: 1,
+          count: 1,
+          uniqueUsers: { $size: '$uniqueUsers' }
+        }
+      }
+    ]);
+
+    const client = [];
+    const provider = [];
+    byRole.forEach((item) => {
+      if (item?._id?.role === 'client') client.push({ _id: item._id.type, count: item.count, uniqueUsers: item.uniqueUsers });
+      if (item?._id?.role === 'provider') provider.push({ _id: item._id.type, count: item.count, uniqueUsers: item.uniqueUsers });
+    });
+
+    return { overall, client, provider };
+  }
 }
 
 module.exports = new TelemetryService();

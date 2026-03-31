@@ -11,12 +11,22 @@ const Coupon = require('../models/Coupon');
 
 function dateOnly(d) { return dayjs(d).format('YYYY-MM-DD'); }
 
+function pctDelta(current, previous) {
+  if (!previous) return null;
+  return ((current - previous) / previous) * 100;
+}
+
 // GET /api/admin/analytics/summary?from=2025-08-01&to=2025-09-03
 router.get('/summary', authMiddleware, requireRole('admin'), async (req, res) => {
   const from = req.query.from ? dayjs(req.query.from) : dayjs().subtract(30, 'day');
   const to = req.query.to ? dayjs(req.query.to) : dayjs();
   const start = from.startOf('day').toDate();
   const end = to.endOf('day').toDate();
+  const periodDays = Math.max(1, to.diff(from, 'day') + 1);
+  const prevTo = from.subtract(1, 'day').endOf('day');
+  const prevFrom = prevTo.subtract(periodDays - 1, 'day').startOf('day');
+  const prevStart = prevFrom.toDate();
+  const prevEnd = prevTo.toDate();
 
   const [ordersAll, ordersPaid, revenueAgg, providersCount, providersVerified, clientsCount] = await Promise.all([
     Order.countDocuments({ createdAt: { $gte: start, $lte: end } }),
@@ -31,6 +41,17 @@ router.get('/summary', authMiddleware, requireRole('admin'), async (req, res) =>
   ]);
 
   const revenue = (revenueAgg[0]?.sum || 0);
+
+  const [prevOrdersAll, prevOrdersPaid, prevRevenueAgg] = await Promise.all([
+    Order.countDocuments({ createdAt: { $gte: prevStart, $lte: prevEnd } }),
+    Order.countDocuments({ createdAt: { $gte: prevStart, $lte: prevEnd }, paidInSystem: true, paymentStatus: 'succeeded' }),
+    Order.aggregate([
+      { $match: { createdAt: { $gte: prevStart, $lte: prevEnd }, paidInSystem: true, paymentStatus: 'succeeded' } },
+      { $group: { _id: null, sum: { $sum: '$amountTotal' } } }
+    ])
+  ]);
+  const prevRevenue = (prevRevenueAgg[0]?.sum || 0);
+  const prevAvgOrder = prevOrdersPaid ? Math.round(prevRevenue / prevOrdersPaid) : 0;
 
   const daily = await Order.aggregate([
     { $match: { createdAt: { $gte: start, $lte: end } } },
@@ -66,6 +87,7 @@ router.get('/summary', authMiddleware, requireRole('admin'), async (req, res) =>
 
   res.json({
     range: { from: dateOnly(start), to: dateOnly(end) },
+    compareRange: { from: dateOnly(prevStart), to: dateOnly(prevEnd) },
     kpi: {
       orders: ordersAll,
       ordersPaid,
@@ -73,6 +95,12 @@ router.get('/summary', authMiddleware, requireRole('admin'), async (req, res) =>
       revenue,
       avgOrder: (ordersPaid ? Math.round(revenue / ordersPaid) : 0),
       providersCount, providersVerified, clientsCount
+    },
+    compare: {
+      orders: { prev: prevOrdersAll, deltaPct: pctDelta(ordersAll, prevOrdersAll) },
+      ordersPaid: { prev: prevOrdersPaid, deltaPct: pctDelta(ordersPaid, prevOrdersPaid) },
+      revenue: { prev: prevRevenue, deltaPct: pctDelta(revenue, prevRevenue) },
+      avgOrder: { prev: prevAvgOrder, deltaPct: pctDelta((ordersPaid ? Math.round(revenue / ordersPaid) : 0), prevAvgOrder) }
     },
     daily,
     topServices,
