@@ -382,3 +382,132 @@ router.get('/monetization-summary', authMiddleware, requireRole('admin'), async 
     res.status(500).json({ message: 'Błąd pobierania metryk monetyzacji' });
   }
 });
+
+// GET /api/admin/analytics/dashboard - dane do panelu głównego admina
+router.get('/dashboard', authMiddleware, requireRole('admin'), async (_req, res) => {
+  try {
+    const now = dayjs();
+    const monthStart = now.startOf('month').toDate();
+    const days30Start = now.subtract(30, 'day').startOf('day').toDate();
+    const nowDate = now.toDate();
+
+    const [
+      usersAccepted,
+      newUsersMonth,
+      gmvAgg,
+      avgAgg,
+      recentUsersRaw,
+      recentOrdersRaw,
+      topProblemTagsRaw,
+      topProblemDisputesRaw,
+      topCitiesRaw
+    ] = await Promise.all([
+      User.countDocuments({ role: { $ne: 'admin' }, emailVerified: true, isActive: true }),
+      User.countDocuments({ role: { $ne: 'admin' }, createdAt: { $gte: monthStart, $lte: nowDate } }),
+      Order.aggregate([
+        { $match: { createdAt: { $gte: days30Start, $lte: nowDate }, paidInSystem: true, paymentStatus: 'succeeded' } },
+        { $group: { _id: null, sum: { $sum: '$amountTotal' } } }
+      ]),
+      Order.aggregate([
+        { $match: { createdAt: { $gte: days30Start, $lte: nowDate }, paidInSystem: true, paymentStatus: 'succeeded' } },
+        { $group: { _id: null, avg: { $avg: '$amountTotal' } } }
+      ]),
+      User.find({ role: { $ne: 'admin' } })
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .select('name email phone emailVerified createdAt')
+        .lean(),
+      Order.find({})
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .populate('client', 'name')
+        .populate('provider', 'name')
+        .select('service amountTotal status paymentStatus createdAt')
+        .lean(),
+      Order.aggregate([
+        { $match: { createdAt: { $gte: days30Start, $lte: nowDate }, aiTags: { $exists: true, $ne: [] } } },
+        { $unwind: '$aiTags' },
+        { $match: { aiTags: { $nin: [null, ''] } } },
+        { $group: { _id: '$aiTags', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 10 }
+      ]),
+      Order.aggregate([
+        { $match: { createdAt: { $gte: days30Start, $lte: nowDate }, disputeReason: { $nin: [null, ''] } } },
+        { $group: { _id: '$disputeReason', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 10 }
+      ]),
+      Order.aggregate([
+        { $match: { createdAt: { $gte: days30Start, $lte: nowDate }, city: { $nin: [null, ''] } } },
+        { $group: { _id: '$city', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 5 }
+      ])
+    ]);
+
+    const mergedProblems = new Map();
+    for (const item of topProblemTagsRaw) {
+      const key = String(item._id || '').trim();
+      if (!key) continue;
+      const prev = mergedProblems.get(key) || { aiCount: 0, disputeCount: 0 };
+      prev.aiCount += item.count || 0;
+      mergedProblems.set(key, prev);
+    }
+    for (const item of topProblemDisputesRaw) {
+      const key = String(item._id || '').trim();
+      if (!key) continue;
+      const prev = mergedProblems.get(key) || { aiCount: 0, disputeCount: 0 };
+      prev.disputeCount += item.count || 0;
+      mergedProblems.set(key, prev);
+    }
+
+    const topProblems = [...mergedProblems.entries()]
+      .map(([name, counts]) => ({
+        name,
+        aiCount: counts.aiCount || 0,
+        disputeCount: counts.disputeCount || 0,
+        count: (counts.aiCount || 0) + (counts.disputeCount || 0)
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    const gmv30d = gmvAgg[0]?.sum || 0;
+    const avgPrice = Math.round(avgAgg[0]?.avg || 0);
+
+    const recentUsers = recentUsersRaw.map((u) => ({
+      name: u.name || '—',
+      email: u.email || '—',
+      phone: u.phone || '—',
+      status: u.emailVerified ? 'Zaakceptowany' : 'Oczekuje'
+    }));
+
+    const recentOrders = recentOrdersRaw.map((o) => ({
+      id: String(o._id),
+      user: o.client?.name || '—',
+      provider: o.provider?.name || '—',
+      amountPLN: Math.round((o.amountTotal || 0) / 100)
+    }));
+
+    const marketOverview = topCitiesRaw.map((c) => ({
+      city: String(c._id || '—'),
+      count: c.count || 0
+    }));
+
+    res.json({
+      kpi: {
+        usersAccepted,
+        newUsersMonth,
+        gmv30d,
+        avgPrice
+      },
+      recentUsers,
+      recentOrders,
+      topProblems,
+      marketOverview
+    });
+  } catch (error) {
+    console.error('Dashboard analytics error:', error);
+    res.status(500).json({ message: 'Błąd pobierania dashboardu admina' });
+  }
+});
