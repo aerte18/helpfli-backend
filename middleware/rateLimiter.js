@@ -33,7 +33,10 @@ const API_LIMIT_SKIP_PATHS = [
   '/api/orders/temp-upload',
   // Własne limitery (auth/register) — nie podwajać naliczania ogólnym apiLimiter
   '/api/auth/login',
-  '/api/auth/register'
+  '/api/auth/register',
+  // Publiczne endpointy mocno używane przez Home/Landing
+  '/api/search',
+  '/api/services'
 ];
 
 const AUTH_WINDOW_MS = envInt('AUTH_RATE_LIMIT_WINDOW_MS', 15 * 60 * 1000);
@@ -70,6 +73,8 @@ const authLimiter = DISABLE_LIMITERS ? passThrough : rateLimit({
   },
   // Pomiń dla zaufanych IP (opcjonalnie)
   skip: (req) => {
+    // Nie naliczaj preflight/GET itp. — limiter logowania dotyczy tylko realnego POST /login
+    if (req.method !== 'POST') return true;
     const trustedIPs = process.env.TRUSTED_IPS?.split(',') || [];
     return trustedIPs.includes(req.ip);
   }
@@ -96,7 +101,7 @@ const registerLimiter = DISABLE_LIMITERS ? passThrough : rateLimit({
 const API_WINDOW_MS = envInt('API_RATE_LIMIT_WINDOW_MS', 15 * 60 * 1000);
 const API_MAX = envInt(
   'API_RATE_LIMIT_MAX',
-  process.env.NODE_ENV === 'development' ? 5000 : 400
+  process.env.NODE_ENV === 'development' ? 5000 : 1200
 );
 
 // Rate limiter dla API
@@ -121,7 +126,7 @@ const apiLimiter = DISABLE_LIMITERS ? passThrough : rateLimit({
 // Rate limiter dla wyszukiwania
 const searchLimiter = DISABLE_LIMITERS ? passThrough : rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minuta
-  max: 30, // 30 wyszukiwań na minutę
+  max: 120, // 120 wyszukiwań na minutę
   message: {
     error: 'Zbyt wiele wyszukiwań. Poczekaj chwilę.',
     retryAfter: 60
