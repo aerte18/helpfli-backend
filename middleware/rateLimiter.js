@@ -39,10 +39,10 @@ const API_LIMIT_SKIP_PATHS = [
   '/api/services'
 ];
 
-const AUTH_WINDOW_MS = envInt('AUTH_RATE_LIMIT_WINDOW_MS', 15 * 60 * 1000);
+const AUTH_WINDOW_MS = envInt('AUTH_RATE_LIMIT_WINDOW_MS', 5 * 60 * 1000);
 const AUTH_MAX = envInt(
   'AUTH_RATE_LIMIT_MAX',
-  process.env.NODE_ENV === 'development' ? 500 : 100
+  process.env.NODE_ENV === 'development' ? 500 : 300
 );
 const authRetryMinutes = Math.max(1, Math.round(AUTH_WINDOW_MS / 60000));
 
