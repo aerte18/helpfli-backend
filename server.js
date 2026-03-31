@@ -687,9 +687,8 @@ try {
   safeUse('/api/admin/settings', loadRoute('admin_settings', './routes/admin_settings'), 'admin_settings');
   logger.debug('🔵 About to register promote route...');
   safeUse('/api/promote', loadRoute('promote', './routes/promote'), 'promote');
-  // Apply API limiter specifically to AI routes
-  logger.debug('🔵 About to apply API limiter to AI routes...');
-  app.use('/api/ai', apiLimiter);
+  // AI routes są już objęte ogólnym limiterem app.use('/api', apiLimiter)
+  // Nie nakładaj drugiego limitera na /api/ai, bo podwaja naliczanie i zbyt szybko daje 429.
   logger.debug('🔵 About to register ai (duplicate) route...');
   safeUse('/api/ai', loadRoute('ai (duplicate)', './routes/ai'), 'ai (duplicate)');
   logger.debug('🔵 About to register ai_concierge route...');
