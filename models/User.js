@@ -12,6 +12,8 @@ const userSchema = new mongoose.Schema({
   emailVerified: { type: Boolean, default: false },
   emailVerificationToken: { type: String },
   emailVerificationExpires: { type: Date },
+  passwordResetToken: { type: String },
+  passwordResetExpires: { type: Date },
   requiresPasswordChange: { type: Boolean, default: false }, // Wymuś zmianę hasła przy pierwszym logowaniu
   role: { type: String, enum: ['client', 'provider', 'admin', 'company_owner', 'company_manager'], default: 'client' },
   isB2B: { type: Boolean, default: false },

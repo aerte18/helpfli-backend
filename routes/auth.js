@@ -2,8 +2,10 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
+const crypto = require('crypto');
 const User = require('../models/User');
 const logger = require('../utils/logger');
+const { sendMail } = require('../utils/mailer');
 // Lazy-load to avoid serverless cold-start crashes when not needed (e.g., on /login)
 let EmailVerificationService = null;
 function getEmailService() {
@@ -763,6 +765,109 @@ router.post('/resend-verification', async (req, res) => {
       stack: err.stack
     });
     res.status(500).json({ message: 'Błąd wysyłania emaila weryfikacyjnego' });
+  }
+});
+
+// Zapomniałem hasła - wyślij link resetujący
+router.post('/forgot-password', async (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  if (!email) {
+    return res.status(400).json({ message: 'Email jest wymagany' });
+  }
+
+  try {
+    const user = await User.findOne({ email });
+
+    // Zawsze zwracaj sukces (bez ujawniania czy konto istnieje)
+    const genericOk = {
+      success: true,
+      message: 'Jeśli konto istnieje, wysłaliśmy link do resetu hasła na podany email.'
+    };
+
+    if (!user) return res.json(genericOk);
+
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expires = new Date(Date.now() + 60 * 60 * 1000); // 1h
+
+    user.passwordResetToken = tokenHash;
+    user.passwordResetExpires = expires;
+    await user.save();
+
+    const appBase =
+      process.env.FRONTEND_URL ||
+      process.env.APP_URL ||
+      process.env.CORS_ORIGIN?.split(',')?.[0]?.trim() ||
+      'http://localhost:5174';
+    const resetUrl = `${appBase.replace(/\/$/, '')}/reset-password?token=${encodeURIComponent(rawToken)}`;
+
+    const html = `
+      <h2>Reset hasła - Helpfli</h2>
+      <p>Otrzymaliśmy prośbę o reset hasła do Twojego konta.</p>
+      <p>Kliknij poniższy link, aby ustawić nowe hasło:</p>
+      <p><a href="${resetUrl}" target="_blank" rel="noopener noreferrer">${resetUrl}</a></p>
+      <p>Link jest ważny przez 60 minut.</p>
+      <p>Jeśli to nie Ty, zignoruj tę wiadomość.</p>
+    `;
+
+    await sendMail({
+      to: user.email,
+      subject: 'Reset hasła - Helpfli',
+      html,
+    });
+
+    return res.json(genericOk);
+  } catch (err) {
+    logger.error('FORGOT_PASSWORD_ERROR:', {
+      message: err.message,
+      stack: err.stack,
+    });
+    return res.status(500).json({ message: 'Błąd wysyłania linku resetującego.' });
+  }
+});
+
+// Reset hasła tokenem z maila
+router.post('/reset-password', async (req, res) => {
+  const token = String(req.body?.token || '').trim();
+  const password = String(req.body?.password || '');
+  const confirmPassword = String(req.body?.confirmPassword || '');
+
+  if (!token) return res.status(400).json({ message: 'Token resetu jest wymagany.' });
+  if (!password || password.length < 8) {
+    return res.status(400).json({ message: 'Hasło musi mieć minimum 8 znaków.' });
+  }
+  if (!(/[a-z]/.test(password) && /[A-Z]/.test(password) && /\d/.test(password) && /[^A-Za-z0-9]/.test(password))) {
+    return res.status(400).json({ message: 'Hasło musi zawierać małą i dużą literę, cyfrę oraz znak specjalny.' });
+  }
+  if (password !== confirmPassword) {
+    return res.status(400).json({ message: 'Hasła nie są identyczne.' });
+  }
+
+  try {
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const user = await User.findOne({
+      passwordResetToken: tokenHash,
+      passwordResetExpires: { $gt: new Date() },
+    });
+
+    if (!user) {
+      return res.status(400).json({ message: 'Link resetu jest nieprawidłowy lub wygasł.' });
+    }
+
+    const hashed = await bcrypt.hash(password, 10);
+    user.password = hashed;
+    user.passwordResetToken = undefined;
+    user.passwordResetExpires = undefined;
+    user.requiresPasswordChange = false;
+    await user.save();
+
+    return res.json({ success: true, message: 'Hasło zostało zmienione. Możesz się zalogować.' });
+  } catch (err) {
+    logger.error('RESET_PASSWORD_ERROR:', {
+      message: err.message,
+      stack: err.stack,
+    });
+    return res.status(500).json({ message: 'Nie udało się zresetować hasła.' });
   }
 });
 
