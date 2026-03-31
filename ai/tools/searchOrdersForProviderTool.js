@@ -5,6 +5,7 @@
 
 const Order = require('../../models/Order');
 const User = require('../../models/User');
+const Service = require('../../models/Service');
 const { shouldFilterDemoData, getDemoUserIds } = require('../../utils/demoAccounts');
 const { buildServiceSlugPrefixRegex } = require('../../utils/serviceSlugRegex');
 
@@ -64,8 +65,63 @@ async function searchOrdersForProviderTool(params, context) {
   const providerCity = (provider.location || '').trim();
 
   const normalizeSlug = (s) => String(s || '').toLowerCase().replace(/_/g, '-').trim();
+  const canonicalText = (s) =>
+    String(s || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+
+  // Część zleceń ma `order.service` jako etykietę ("AGD i RTV - Instalacja ..."), nie slug.
+  // Zbuduj mapę nazw usług -> slug/parent_slug dla slugów providera.
+  const serviceNameToSlugs = new Map();
+  if (uniqueSlugs.length > 0) {
+    const catalog = await Service.find({
+      $or: [
+        { slug: { $in: uniqueSlugs } },
+        { parent_slug: { $in: uniqueSlugs } },
+      ],
+    })
+      .select('slug parent_slug name_pl name_en')
+      .lean();
+
+    for (const c of catalog) {
+      const slugs = [c.slug, c.parent_slug].map(normalizeSlug).filter(Boolean);
+      for (const nm of [c.name_pl, c.name_en]) {
+        const key = canonicalText(nm);
+        if (!key) continue;
+        if (!serviceNameToSlugs.has(key)) serviceNameToSlugs.set(key, new Set());
+        const bucket = serviceNameToSlugs.get(key);
+        slugs.forEach((s) => bucket.add(s));
+      }
+    }
+  }
+
+  const resolveOrderServiceSlug = (orderSvc) => {
+    const raw = String(orderSvc || '').trim();
+    if (!raw) return '';
+    const direct = normalizeSlug(raw);
+    if (/^[a-z0-9-]+$/i.test(direct)) return direct;
+
+    const rawCanon = canonicalText(raw);
+    if (!rawCanon) return '';
+    if (serviceNameToSlugs.has(rawCanon)) {
+      const first = [...serviceNameToSlugs.get(rawCanon)][0];
+      if (first) return first;
+    }
+    for (const [nameKey, slugs] of serviceNameToSlugs.entries()) {
+      if (!nameKey) continue;
+      if (rawCanon.includes(nameKey) || nameKey.includes(rawCanon)) {
+        const first = [...slugs][0];
+        if (first) return first;
+      }
+    }
+    return direct;
+  };
+
   const matchSvc = (orderSvc) => {
-    const os = normalizeSlug(orderSvc);
+    const os = resolveOrderServiceSlug(orderSvc);
     if (!os) return false;
     return uniqueSlugs.some((s) => {
       const ps = normalizeSlug(s);
