@@ -11,6 +11,10 @@ function envInt(name, defaultVal) {
   return Number.isFinite(n) && n > 0 ? n : defaultVal;
 }
 
+function normalizeEmail(raw) {
+  return String(raw || '').trim().toLowerCase();
+}
+
 // Helper: no-op middleware
 const passThrough = (req, res, next) => next();
 
@@ -43,11 +47,27 @@ const authRetryMinutes = Math.max(1, Math.round(AUTH_WINDOW_MS / 60000));
 const authLimiter = DISABLE_LIMITERS ? passThrough : rateLimit({
   windowMs: AUTH_WINDOW_MS,
   max: AUTH_MAX,
+  // Ograniczaj per login (email + IP), żeby shared NAT/VPN nie blokował wszystkich.
+  keyGenerator: (req) => {
+    const email = normalizeEmail(req?.body?.email);
+    const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
+    return `auth:${email || 'anon'}:${ip}`;
+  },
   // Udane logowania (2xx) nie zużywają limitu — zostaje ochrona przed brute-force na złe hasło
   skipSuccessfulRequests: true,
-  message: `Zbyt wiele prób logowania. Spróbuj ponownie za ${authRetryMinutes} minut.`,
+  message: {
+    error: `Zbyt wiele prób logowania. Spróbuj ponownie za ${authRetryMinutes} minut.`,
+    retryAfter: Math.floor(AUTH_WINDOW_MS / 1000),
+  },
   standardHeaders: true,
   legacyHeaders: false,
+  handler: (req, res, _next, options) => {
+    const retryAfterSec = Number(res.getHeader('Retry-After')) || Math.floor(AUTH_WINDOW_MS / 1000);
+    return res.status(options.statusCode).json({
+      error: `Zbyt wiele prób logowania. Spróbuj ponownie za ${Math.max(1, Math.ceil(retryAfterSec / 60))} min.`,
+      retryAfter: retryAfterSec,
+    });
+  },
   // Pomiń dla zaufanych IP (opcjonalnie)
   skip: (req) => {
     const trustedIPs = process.env.TRUSTED_IPS?.split(',') || [];
