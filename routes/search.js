@@ -33,7 +33,8 @@ router.get("/", validateSearch, async (req, res) => {
     budgetMax,       // maksymalny budżet
     b2b,             // czy B2B
     paymentType,     // system|external|both – filtr metody płatności (dla klienta)
-    sort = 'relevance' // MVP: sort=price|eta|rating
+    sort = 'relevance', // MVP: sort=price|eta|rating
+    limit = 120
   } = req.query;
 
   console.log("🔍 SEARCH REQUEST:", { 
@@ -199,8 +200,11 @@ router.get("/", validateSearch, async (req, res) => {
       if (demoIds.length) match._id = { $nin: demoIds };
     }
     
+    const searchLimit = Math.min(Math.max(parseInt(limit, 10) || 120, 1), 300);
+
     let providers = await User.find(match)
       .select("name level location locationCoords price time services provider_status promo badges kyc rankingPoints providerTier isTopProvider hasHelpfliGuarantee b2b company")
+      .limit(searchLimit)
       .lean();
     
     // Populate company tylko jeśli pole company istnieje i nie jest null
@@ -372,24 +376,30 @@ router.get("/", validateSearch, async (req, res) => {
     const allServices = await Service.find({ _id: { $in: allServiceIds } }).lean();
     const allNamesById = Object.fromEntries(allServices.map(s => [String(s._id), s.name_pl || s.name_en]));
 
-    // Pobierz informacje o dostępności "teraz" dla wszystkich providerów
-    const { isProviderAvailableNow } = require('./providerSchedule');
-    
-    // Oblicz dostępność "teraz" dla wszystkich providerów (batch dla wydajności)
-    const availabilityPromises = providers.map(async (p) => {
-      try {
-        const availableNow = await isProviderAvailableNow(p._id);
-        return { providerId: String(p._id), availableNow };
-      } catch (error) {
-        console.error(`Error checking availability for provider ${p._id}:`, error);
-        // W przypadku błędu, użyj podstawowego statusu online
-        return { providerId: String(p._id), availableNow: p.provider_status?.isOnline || false };
-      }
-    });
     const availabilityMap = new Map();
-    (await Promise.all(availabilityPromises)).forEach(({ providerId, availableNow }) => {
-      availabilityMap.set(providerId, availableNow);
-    });
+    const shouldComputeRealtimeAvailability =
+      String(availableNow || '').toLowerCase() === 'true' || String(available || '') === 'now';
+
+    if (shouldComputeRealtimeAvailability) {
+      // Real-time availability jest kosztowne; licz tylko gdy naprawdę potrzebne.
+      const { isProviderAvailableNow } = require('./providerSchedule');
+      const availabilityPromises = providers.map(async (p) => {
+        try {
+          const nowAvailable = await isProviderAvailableNow(p._id);
+          return { providerId: String(p._id), availableNow: nowAvailable };
+        } catch (error) {
+          console.error(`Error checking availability for provider ${p._id}:`, error);
+          return { providerId: String(p._id), availableNow: p.provider_status?.isOnline || false };
+        }
+      });
+      (await Promise.all(availabilityPromises)).forEach(({ providerId, availableNow: nowAvailable }) => {
+        availabilityMap.set(providerId, nowAvailable);
+      });
+    } else {
+      providers.forEach((p) => {
+        availabilityMap.set(String(p._id), p.provider_status?.isOnline || false);
+      });
+    }
     
     let results = await Promise.all(
       providers.map(async (p) => {
