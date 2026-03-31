@@ -818,11 +818,16 @@ router.get('/open', auth, async (req, res) => {
           for (const c of catalogDocs) {
             if (c.name_pl && String(c.name_pl).trim()) {
               const nm = String(c.name_pl).trim();
+              // Część rekordów ma service zapisane jako "Kategoria - Nazwa usługi"
+              // (np. "AGD i RTV - Instalacja okapu / zabudowa AGD"), więc exact-match
+              // bywa zbyt restrykcyjny. Dodaj zarówno exact, jak i contains.
               orBranches.push({ service: { $regex: new RegExp(`^${escapeRegex(nm)}$`, 'i') } });
+              orBranches.push({ service: { $regex: new RegExp(escapeRegex(nm), 'i') } });
             }
             if (c.name_en && String(c.name_en).trim() && c.name_en !== c.name_pl) {
               const nm = String(c.name_en).trim();
               orBranches.push({ service: { $regex: new RegExp(`^${escapeRegex(nm)}$`, 'i') } });
+              orBranches.push({ service: { $regex: new RegExp(escapeRegex(nm), 'i') } });
             }
           }
         } catch (e) {
