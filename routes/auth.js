@@ -281,7 +281,7 @@ router.post('/login', async (req, res) => {
 
 // Rejestracja
 router.post('/register', validate('register'), validateRegistration, async (req, res) => {
-  let { name, email, password, role, isB2B, phone, address, locationCoords, company, notificationPreferences } = req.body;
+  let { name, email, password, role, isB2B, phone, address, locationCoords, company, notificationPreferences, consents } = req.body;
   
   try {
     const existing = await User.findOne({ email });
@@ -337,6 +337,12 @@ router.post('/register', validate('register'), validateRegistration, async (req,
           email: !!notificationPreferences.marketing?.email
         }
       } : undefined,
+      marketingConsent: !!notificationPreferences?.marketing?.sms || !!notificationPreferences?.marketing?.email,
+      consents: {
+        analytics: !!consents?.analytics,
+        cookies: !!consents?.cookies,
+        updatedAt: consents ? new Date() : null
+      },
     };
     
     // Domyślne wartości dla providerów

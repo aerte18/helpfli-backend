@@ -287,8 +287,11 @@ class TelemetryService {
 
   async getConversionFunnel(startDate, endDate) {
     const funnelTypes = [
+      this.eventTypes.PAGE_VIEW,
       this.eventTypes.SEARCH,
       this.eventTypes.PROVIDER_VIEW,
+      this.eventTypes.PROVIDER_CONTACT,
+      this.eventTypes.QUOTE_REQUEST,
       this.eventTypes.ORDER_CREATED,
       this.eventTypes.ORDER_FORM_START,
       this.eventTypes.ORDER_FORM_SUCCESS,
