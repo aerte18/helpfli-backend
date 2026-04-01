@@ -585,7 +585,6 @@ try {
   safeUse('/api/admin/promos', adminPromos, 'adminPromos');
   safeUse('/api/admin/config', adminConfigRoutes, 'adminConfig');
   safeUse('/api/admin/verifications', adminVerifications, 'adminVerifications');
-  safeUse('/api/admin/analytics', safeRequire('./routes/admin_analytics'), 'admin_analytics');
   safeUse('/api/admin', adminRoutes, 'admin');
   safeUse('/api/verification', verificationRoutes, 'verification');
   safeUse('/api/reports', reportsRoutes, 'reports');
@@ -656,8 +655,6 @@ try {
   safeUse('/api/companies', loadRoute('companyPerformance', './routes/companyPerformance'), 'companyPerformance');
   logger.debug('🔵 About to register companies route...');
   safeUse('/api/companies', loadRoute('companies', './routes/companies'), 'companies');
-  logger.debug('🔵 About to register notifications route (duplicate)...');
-  safeUse('/api/notifications', loadRoute('notifications', './routes/notifications'), 'notifications');
   logger.debug('🔵 About to register admin_notifications route...');
   safeUse('/api/admin/notifications', loadRoute('admin_notifications', './routes/admin_notifications'), 'admin_notifications');
   logger.debug('🔵 About to register companies_billing route...');
@@ -689,8 +686,6 @@ try {
   safeUse('/api/promote', loadRoute('promote', './routes/promote'), 'promote');
   // AI routes są już objęte ogólnym limiterem app.use('/api', apiLimiter)
   // Nie nakładaj drugiego limitera na /api/ai, bo podwaja naliczanie i zbyt szybko daje 429.
-  logger.debug('🔵 About to register ai (duplicate) route...');
-  safeUse('/api/ai', loadRoute('ai (duplicate)', './routes/ai'), 'ai (duplicate)');
   logger.debug('🔵 About to register ai_concierge route...');
   safeUse('/api/ai', loadRoute('ai_concierge', './routes/ai_concierge'), 'ai_concierge');
   logger.debug('🔵 About to register ai_v2 route (agents)...');
