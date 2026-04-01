@@ -203,7 +203,7 @@ router.get("/", validateSearch, async (req, res) => {
     const searchLimit = Math.min(Math.max(parseInt(limit, 10) || 120, 1), 300);
 
     let providers = await User.find(match)
-      .select("name level location locationCoords price time services provider_status promo badges kyc rankingPoints providerTier isTopProvider hasHelpfliGuarantee b2b company")
+      .select("name level location locationCoords price time services provider_status promo badges kyc rankingPoints providerTier isTopProvider hasHelpfliGuarantee b2b company headline bio avatar")
       .limit(searchLimit)
       .lean();
     
@@ -493,6 +493,9 @@ router.get("/", validateSearch, async (req, res) => {
           isTopProvider: p.isTopProvider || false, // Top Provider na mapie
           hasHelpfliGuarantee: p.hasHelpfliGuarantee || false, // Gwarancja Helpfli+
           allServices: (p.services || []).map(id => allNamesById[String(id)]).filter(Boolean), // wszystkie usługi providera
+          headline: p.headline || '',
+          bio: p.bio || '',
+          avatar: p.avatar || null,
           // B2B i subscription data
           company: p.company ? {
             _id: p.company._id,
