@@ -8,8 +8,31 @@ const User = require('../models/User');
 const Payment = require('../models/Payment');
 const UserSubscription = require('../models/UserSubscription');
 const Coupon = require('../models/Coupon');
+const Event = require('../models/Event');
+const TelemetryService = require('../services/TelemetryService');
 
 function dateOnly(d) { return dayjs(d).format('YYYY-MM-DD'); }
+
+function computeConversionRates(funnelRows) {
+  const m = {};
+  for (const r of funnelRows || []) {
+    if (r && r._id) m[String(r._id)] = r.count || 0;
+  }
+  const pv = m.page_view || 0;
+  const search = m.search || 0;
+  const prv = m.provider_view || 0;
+  const qreq = m.quote_request || 0;
+  const ofs = m.order_form_success || 0;
+  return {
+    counts: m,
+    rates: {
+      searchPerPageView: pv ? Number((search / pv).toFixed(4)) : null,
+      providerViewPerSearch: search ? Number((prv / search).toFixed(4)) : null,
+      quotePerProviderView: prv ? Number((qreq / prv).toFixed(4)) : null,
+      orderSuccessPerPageView: pv ? Number((ofs / pv).toFixed(4)) : null
+    }
+  };
+}
 
 function pctDelta(current, previous) {
   if (!previous) return null;
@@ -537,5 +560,333 @@ router.get('/dashboard', authMiddleware, requireRole('admin'), async (_req, res)
   } catch (error) {
     console.error('Dashboard analytics error:', error);
     res.status(500).json({ message: 'Błąd pobierania dashboardu admina' });
+  }
+});
+
+// GET /api/admin/analytics/product-insights — ruch, wyszukiwania, „zero wyników”, tarcie w formularzach (telemetria Event)
+router.get('/product-insights', authMiddleware, requireRole('admin'), async (req, res) => {
+  try {
+    const from = req.query.from ? dayjs(req.query.from) : dayjs().subtract(30, 'day');
+    const to = req.query.to ? dayjs(req.query.to) : dayjs();
+    const start = from.startOf('day').toDate();
+    const end = to.endOf('day').toDate();
+
+    const [
+      pageViewsTotal,
+      searchEventsTotal,
+      distinctSessions,
+      topPaths,
+      dailyPageViews,
+      topSearches,
+      zeroResultSearches,
+      lowResultSearches,
+      topReferrers,
+      orderAbandonByStep,
+      disputes
+    ] = await Promise.all([
+      Event.countDocuments({ type: 'page_view', createdAt: { $gte: start, $lte: end } }),
+      Event.countDocuments({ type: 'search', createdAt: { $gte: start, $lte: end } }),
+      Event.distinct('sessionId', {
+        type: 'page_view',
+        createdAt: { $gte: start, $lte: end },
+        sessionId: { $nin: [null, ''] }
+      }).then((ids) => ids.length),
+      TelemetryService.getPopularPages(start, end, 30),
+      Event.aggregate([
+        { $match: { type: 'page_view', createdAt: { $gte: start, $lte: end } } },
+        {
+          $group: {
+            _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+            views: { $sum: 1 }
+          }
+        },
+        { $sort: { _id: 1 } }
+      ]),
+      Event.aggregate([
+        { $match: { type: 'search', createdAt: { $gte: start, $lte: end } } },
+        {
+          $addFields: {
+            q: {
+              $trim: {
+                input: { $toLower: { $ifNull: ['$properties.query', ''] } }
+              }
+            }
+          }
+        },
+        { $match: { q: { $ne: '' } } },
+        {
+          $group: {
+            _id: '$q',
+            count: { $sum: 1 },
+            avgResults: { $avg: { $ifNull: ['$properties.resultCount', 0] } },
+            zeroHits: {
+              $sum: {
+                $cond: [{ $eq: [{ $ifNull: ['$properties.resultCount', 0] }, 0] }, 1, 0]
+              }
+            }
+          }
+        },
+        { $sort: { count: -1 } },
+        { $limit: 40 }
+      ]),
+      Event.aggregate([
+        { $match: { type: 'search', createdAt: { $gte: start, $lte: end } } },
+        {
+          $match: {
+            $expr: { $eq: [{ $ifNull: ['$properties.resultCount', 0] }, 0] }
+          }
+        },
+        {
+          $addFields: {
+            q: {
+              $trim: {
+                input: { $toLower: { $ifNull: ['$properties.query', ''] } }
+              }
+            }
+          }
+        },
+        { $match: { q: { $ne: '' } } },
+        { $group: { _id: '$q', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 30 }
+      ]),
+      Event.aggregate([
+        { $match: { type: 'search', createdAt: { $gte: start, $lte: end } } },
+        {
+          $match: {
+            $expr: {
+              $and: [
+                { $gt: [{ $ifNull: ['$properties.resultCount', 0] }, 0] },
+                { $lte: [{ $ifNull: ['$properties.resultCount', 0] }, 3] }
+              ]
+            }
+          }
+        },
+        {
+          $addFields: {
+            q: {
+              $trim: {
+                input: { $toLower: { $ifNull: ['$properties.query', ''] } }
+              }
+            }
+          }
+        },
+        { $match: { q: { $ne: '' } } },
+        { $group: { _id: '$q', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 20 }
+      ]),
+      Event.aggregate([
+        { $match: { type: 'page_view', createdAt: { $gte: start, $lte: end } } },
+        {
+          $match: {
+            'properties.referrer': { $exists: true, $nin: [null, ''] }
+          }
+        },
+        {
+          $group: {
+            _id: { $substrCP: ['$properties.referrer', 0, 120] },
+            count: { $sum: 1 }
+          }
+        },
+        { $sort: { count: -1 } },
+        { $limit: 20 }
+      ]),
+      Event.aggregate([
+        { $match: { type: 'order_form_abandon', createdAt: { $gte: start, $lte: end } } },
+        {
+          $group: {
+            _id: { $ifNull: ['$properties.lastStep', '(brak)'] },
+            count: { $sum: 1 }
+          }
+        },
+        { $sort: { count: -1 } },
+        { $limit: 12 }
+      ]),
+      Event.aggregate([
+        { $match: { type: 'dispute_reported', createdAt: { $gte: start, $lte: end } } },
+        {
+          $group: {
+            _id: { $ifNull: ['$properties.reason', '(brak)'] },
+            count: { $sum: 1 }
+          }
+        },
+        { $sort: { count: -1 } },
+        { $limit: 12 }
+      ])
+    ]);
+
+    const [
+      funnelByType,
+      searchQualityBuckets,
+      utmCampaigns,
+      retentionAgg,
+      clientApiErrors
+    ] = await Promise.all([
+      Event.aggregate([
+        {
+          $match: {
+            type: { $in: ['page_view', 'search', 'provider_view', 'quote_request', 'order_form_success'] },
+            createdAt: { $gte: start, $lte: end }
+          }
+        },
+        { $group: { _id: '$type', count: { $sum: 1 } } }
+      ]),
+      Event.aggregate([
+        { $match: { type: 'search', createdAt: { $gte: start, $lte: end } } },
+        {
+          $addFields: {
+            bucket: {
+              $switch: {
+                branches: [
+                  { case: { $eq: [{ $ifNull: ['$properties.resultCount', 0] }, 0] }, then: '0' },
+                  { case: { $lte: [{ $ifNull: ['$properties.resultCount', 0] }, 3] }, then: '1-3' },
+                  { case: { $lte: [{ $ifNull: ['$properties.resultCount', 0] }, 10] }, then: '4-10' }
+                ],
+                default: '11+'
+              }
+            }
+          }
+        },
+        { $group: { _id: '$bucket', count: { $sum: 1 } } },
+        { $sort: { _id: 1 } }
+      ]),
+      Event.aggregate([
+        {
+          $match: {
+            type: 'page_view',
+            createdAt: { $gte: start, $lte: end },
+            'properties.utm.source': { $exists: true, $nin: [null, ''] }
+          }
+        },
+        {
+          $group: {
+            _id: {
+              source: '$properties.utm.source',
+              medium: { $ifNull: ['$properties.utm.medium', ''] },
+              campaign: { $ifNull: ['$properties.utm.campaign', ''] }
+            },
+            count: { $sum: 1 }
+          }
+        },
+        { $sort: { count: -1 } },
+        { $limit: 25 }
+      ]),
+      Event.aggregate([
+        { $match: { type: 'page_view', userId: { $ne: null }, createdAt: { $gte: start, $lte: end } } },
+        {
+          $group: {
+            _id: '$userId',
+            distinctDays: { $addToSet: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } } }
+          }
+        },
+        { $project: { dayCount: { $size: '$distinctDays' } } },
+        {
+          $group: {
+            _id: null,
+            usersWithPv: { $sum: 1 },
+            returningUsers: { $sum: { $cond: [{ $gte: ['$dayCount', 2] }, 1, 0] } }
+          }
+        }
+      ]),
+      Event.aggregate([
+        { $match: { type: 'client_api_error', createdAt: { $gte: start, $lte: end } } },
+        { $group: { _id: '$properties.endpoint', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 15 }
+      ])
+    ]);
+
+    const conversion = computeConversionRates(funnelByType);
+    const ret = retentionAgg[0] || {};
+    const usersWithPv = ret.usersWithPv || 0;
+    const returningUsers = ret.returningUsers || 0;
+
+    res.json({
+      range: { from: dateOnly(start), to: dateOnly(end) },
+      traffic: {
+        pageViews: pageViewsTotal,
+        searchEvents: searchEventsTotal,
+        distinctSessionsApprox: distinctSessions
+      },
+      topPaths,
+      dailyPageViews,
+      topSearches: topSearches.map((r) => ({
+        query: r._id,
+        count: r.count,
+        avgResults: r.avgResults != null ? Math.round(r.avgResults * 10) / 10 : 0,
+        zeroHits: r.zeroHits || 0
+      })),
+      zeroResultSearches: zeroResultSearches.map((r) => ({ query: r._id, count: r.count })),
+      lowResultSearches: lowResultSearches.map((r) => ({ query: r._id, count: r.count })),
+      topReferrers: topReferrers.map((r) => ({ referrer: r._id, count: r.count })),
+      friction: {
+        orderFormAbandonByStep: orderAbandonByStep.map((r) => ({ step: r._id, count: r.count })),
+        disputesByReason: disputes.map((r) => ({ reason: r._id, count: r.count }))
+      },
+      conversion,
+      searchQualityBuckets: searchQualityBuckets.map((r) => ({ bucket: r._id, count: r.count })),
+      utmTop: utmCampaigns.map((r) => ({
+        source: r._id?.source,
+        medium: r._id?.medium,
+        campaign: r._id?.campaign,
+        count: r.count
+      })),
+      retention: {
+        usersWithPageViews: usersWithPv,
+        returningUsers,
+        returningRate: usersWithPv ? Number((returningUsers / usersWithPv).toFixed(4)) : null
+      },
+      clientApiErrors: clientApiErrors.map((r) => ({ endpoint: r._id || '—', count: r.count }))
+    });
+  } catch (error) {
+    console.error('Product insights error:', error);
+    res.status(500).json({ message: 'Błąd analizy produktu (telemetria)' });
+  }
+});
+
+// GET /api/admin/analytics/api-health — czasy odpowiedzi i kody HTTP (ApiRequestLog, np. GET /api/search)
+router.get('/api-health', authMiddleware, requireRole('admin'), async (req, res) => {
+  try {
+    const ApiRequestLog = require('../models/ApiRequestLog');
+    const from = req.query.from ? dayjs(req.query.from) : dayjs().subtract(7, 'day');
+    const to = req.query.to ? dayjs(req.query.to) : dayjs();
+    const start = from.startOf('day').toDate();
+    const end = to.endOf('day').toDate();
+
+    const [summary, statusBreak] = await Promise.all([
+      ApiRequestLog.aggregate([
+        { $match: { path: '/api/search', createdAt: { $gte: start, $lte: end } } },
+        {
+          $group: {
+            _id: null,
+            n: { $sum: 1 },
+            avgMs: { $avg: '$durationMs' },
+            maxMs: { $max: '$durationMs' },
+            minMs: { $min: '$durationMs' }
+          }
+        }
+      ]),
+      ApiRequestLog.aggregate([
+        { $match: { path: '/api/search', createdAt: { $gte: start, $lte: end } } },
+        { $group: { _id: '$statusCode', count: { $sum: 1 } } },
+        { $sort: { _id: 1 } }
+      ])
+    ]);
+
+    const s = summary[0] || {};
+    res.json({
+      range: { from: dateOnly(start), to: dateOnly(end) },
+      search: {
+        samples: s.n || 0,
+        avgMs: s.avgMs != null ? Math.round(s.avgMs) : null,
+        maxMs: s.maxMs != null ? Math.round(s.maxMs) : null,
+        minMs: s.minMs != null ? Math.round(s.minMs) : null,
+        statusCodes: statusBreak.map((x) => ({ status: x._id, count: x.count }))
+      }
+    });
+  } catch (e) {
+    console.error('api-health error', e);
+    res.status(500).json({ message: 'Błąd metryk API' });
   }
 });

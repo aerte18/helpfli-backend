@@ -245,7 +245,8 @@ const validateTelemetry = [
            'order_form_start', 'order_step_view', 'order_form_abandon', 'order_form_success',
            'offer_form_start', 'offer_step_view', 'offer_form_submit',
            'payment_intent_created', 'payment_succeeded', 'payment_failed',
-           'login', 'register', 'onboarding_completed', 'dispute_reported', 'refund_requested'])
+           'login', 'register', 'onboarding_completed', 'dispute_reported', 'refund_requested',
+           'client_api_error'])
     .withMessage('Nieprawidłowy typ eventu'),
   
   body('properties')

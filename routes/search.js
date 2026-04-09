@@ -12,7 +12,25 @@ const { fetchActiveCampaigns, capForUser, injectSponsored } = require("../utils/
 const { validateSearch } = require("../middleware/inputValidator");
 const { calculateDistance, estimateETA } = require("../utils/geo");
 const { resolveServicesForSearchFilter } = require("../utils/resolveServiceSearch");
+const ApiRequestLog = require("../models/ApiRequestLog");
+
 const router = express.Router();
+
+// Metryki czasu odpowiedzi GET /api/search (dla panelu admina)
+router.use((req, res, next) => {
+  if (req.method !== "GET") return next();
+  const started = Date.now();
+  res.on("finish", () => {
+    const durationMs = Date.now() - started;
+    ApiRequestLog.create({
+      path: "/api/search",
+      method: "GET",
+      statusCode: res.statusCode,
+      durationMs
+    }).catch(() => {});
+  });
+  next();
+});
 
 // Szukaj usługodawców po usłudze i lokalizacji
 router.get("/", validateSearch, async (req, res) => {

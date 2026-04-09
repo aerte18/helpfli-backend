@@ -33,6 +33,50 @@ function getWorstFunnelDrop(items = []) {
   return worst;
 }
 
+const PUBLIC_BATCH_TYPES = new Set(['page_view', 'search', 'client_api_error']);
+const MAX_PUBLIC_BATCH = 25;
+
+function sanitizePublicProperties(eventType, raw) {
+  const p = raw && typeof raw === 'object' ? raw : {};
+  if (eventType === 'page_view') {
+    const path = typeof p.path === 'string' ? p.path.slice(0, 500) : '';
+    const page = typeof p.page === 'string' ? p.page.slice(0, 120) : '';
+    const utm = {};
+    if (p.utm && typeof p.utm === 'object') {
+      for (const k of ['source', 'medium', 'campaign', 'term', 'content']) {
+        if (typeof p.utm[k] === 'string' && p.utm[k].trim()) utm[k] = p.utm[k].trim().slice(0, 120);
+      }
+    }
+    return { path, page: page || undefined, utm: Object.keys(utm).length ? utm : undefined };
+  }
+  if (eventType === 'search') {
+    const query = typeof p.query === 'string' ? p.query.trim().slice(0, 200) : '';
+    let resultCount = Number(p.resultCount);
+    if (!Number.isFinite(resultCount)) resultCount = 0;
+    resultCount = Math.max(0, Math.min(50000, Math.round(resultCount)));
+    const filters = {};
+    if (p.filters && typeof p.filters === 'object' && !Array.isArray(p.filters)) {
+      const keys = Object.keys(p.filters).slice(0, 12);
+      for (const k of keys) {
+        const v = p.filters[k];
+        if (typeof v === 'string') filters[k] = v.slice(0, 80);
+        else if (typeof v === 'number' && Number.isFinite(v)) filters[k] = v;
+        else if (typeof v === 'boolean') filters[k] = v;
+      }
+    }
+    return { query, resultCount, filters };
+  }
+  if (eventType === 'client_api_error') {
+    const endpoint = typeof p.endpoint === 'string' ? p.endpoint.trim().slice(0, 300) : '';
+    let statusCode = Number(p.statusCode);
+    if (!Number.isFinite(statusCode)) statusCode = null;
+    else statusCode = Math.round(Math.max(0, Math.min(599, statusCode)));
+    const detail = typeof p.detail === 'string' ? p.detail.slice(0, 200) : undefined;
+    return { endpoint, statusCode, detail };
+  }
+  return {};
+}
+
 async function maybeCreateFunnelRegressionAlert({ startDate, endDate, roleLabel, funnelData, threshold = 35 }) {
   const worst = getWorstFunnelDrop(funnelData);
   if (!worst || worst.dropPct < threshold) return;
@@ -71,6 +115,55 @@ async function maybeCreateFunnelRegressionAlert({ startDate, endDate, roleLabel,
     }))
   );
 }
+
+// POST /api/telemetry/public/batch — bez logowania (page_view, search, client_api_error), np. goście po zgodzie na cookies
+router.post('/public/batch', async (req, res) => {
+  try {
+    const { events } = req.body;
+    const sessionId = req.headers['x-session-id'] || req.body?.sessionId || null;
+    if (!Array.isArray(events) || events.length === 0) {
+      return res.status(400).json({ message: 'Lista eventów jest wymagana' });
+    }
+    if (events.length > MAX_PUBLIC_BATCH) {
+      return res.status(400).json({ message: `Maksymalnie ${MAX_PUBLIC_BATCH} eventów na raz` });
+    }
+    if (!sessionId || typeof sessionId !== 'string' || sessionId.length > 140) {
+      return res.status(400).json({ message: 'Nagłówek X-Session-ID jest wymagany' });
+    }
+
+    const promises = events.map((event) => {
+      const { eventType, properties = {}, metadata = {} } = event || {};
+      if (!PUBLIC_BATCH_TYPES.has(eventType)) {
+        return Promise.resolve();
+      }
+      const safeProps = sanitizePublicProperties(eventType, properties);
+      if (eventType === 'search' && !String(safeProps.query || '').trim()) {
+        return Promise.resolve();
+      }
+      if (eventType === 'page_view' && !String(safeProps.path || '').trim()) {
+        return Promise.resolve();
+      }
+      if (eventType === 'client_api_error' && !String(safeProps.endpoint || '').trim()) {
+        return Promise.resolve();
+      }
+      return TelemetryService.track(eventType, {
+        userId: null,
+        sessionId,
+        properties: safeProps,
+        metadata: typeof metadata === 'object' && metadata ? { source: 'public_batch' } : {},
+        userAgent: req.headers['user-agent'],
+        ip: req.ip,
+        referrer: req.headers.referer
+      });
+    });
+
+    await Promise.all(promises);
+    res.json({ success: true, tracked: events.length });
+  } catch (error) {
+    console.error('Telemetry public batch error:', error);
+    res.status(500).json({ message: 'Błąd śledzenia' });
+  }
+});
 
 // POST /api/telemetry/track - śledzenie eventów
 router.post('/track', authMiddleware, validateTelemetry, async (req, res) => {

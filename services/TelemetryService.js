@@ -46,7 +46,10 @@ class TelemetryService {
       
       // Disputes
       DISPUTE_REPORTED: 'dispute_reported',
-      REFUND_REQUESTED: 'refund_requested'
+      REFUND_REQUESTED: 'refund_requested',
+
+      // Frontend / reliability
+      CLIENT_API_ERROR: 'client_api_error'
     };
   }
 
