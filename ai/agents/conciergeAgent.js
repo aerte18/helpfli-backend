@@ -9,6 +9,7 @@ const { guardrailEnforce, enforceSafetyRules } = require('../utils/guardrails');
 const { validateConciergeResponseShape } = require('../schemas/conciergeSchemas');
 const { normalizeServiceName, normalizeUrgency, extractKeywords } = require('../utils/normalize');
 const { detectApplianceIssue } = require('../utils/applianceDiagnostics');
+const { detectSafetyTriage } = require('../utils/safetyTriage');
 
 /**
  * Główna funkcja agenta Concierge
@@ -196,7 +197,30 @@ async function runConciergeAgent({ messages, userContext = {}, allowedServicesHi
       .filter(m => m.role === 'user')
       .pop();
     const userText = lastUserMessage?.content || lastUserMessage?.text || '';
+    const safetyTriage = detectSafetyTriage(userText);
     const applianceIssue = detectApplianceIssue(userText);
+
+    if (safetyTriage.flag) {
+      return {
+        ok: true,
+        agent: 'concierge',
+        reply: `${safetyTriage.title}: ${safetyTriage.reason} ${safetyTriage.actions.slice(0, 2).join(' ')}`,
+        intent: 'service_request',
+        detectedService: safetyTriage.type === 'electricity' ? 'elektryk_naprawa' : safetyTriage.type === 'flooding' ? 'hydraulik_naprawa' : 'inne',
+        urgency: ['critical', 'high'].includes(safetyTriage.level) ? 'urgent' : 'standard',
+        confidence: 0.9,
+        nextStep: 'suggest_providers',
+        questions: ['W jakiej lokalizacji potrzebujesz pilnej pomocy?'],
+        extracted: {
+          location: userContext.location?.text || userContext.location || null,
+          timeWindow: 'jak najszybciej',
+          budget: null,
+          details: [safetyTriage.title, safetyTriage.reason]
+        },
+        missing: [],
+        safety: safetyTriage
+      };
+    }
 
     if (applianceIssue) {
       return {

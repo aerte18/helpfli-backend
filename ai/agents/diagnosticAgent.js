@@ -8,6 +8,7 @@ const { callAgentLLM, safeParseJSON } = require('../utils/llmAdapter');
 const { validateDiagnosticResponse } = require('../schemas/conciergeSchemas');
 const { normalizeUrgency, extractKeywords } = require('../utils/normalize');
 const { guardrailEnforce, enforceSafetyRules } = require('../utils/guardrails');
+const { detectSafetyTriage } = require('../utils/safetyTriage');
 
 /**
  * Główna funkcja agenta Diagnostycznego
@@ -26,6 +27,21 @@ async function runDiagnosticAgent({ messages, detectedService, userContext = {} 
     const userText = (lastUserMessage?.content || lastUserMessage?.text || '').toLowerCase();
     
     const keywords = extractKeywords(userText);
+    const safetyTriage = detectSafetyTriage(userText);
+    if (safetyTriage.flag) {
+      return {
+        ok: true,
+        agent: 'diagnostic',
+        urgency: ['critical', 'high'].includes(safetyTriage.level) ? 'urgent' : 'standard',
+        risk: safetyTriage.level === 'critical' ? 'high' : safetyTriage.level,
+        recommendedPath: safetyTriage.blockDIY ? 'express' : 'provider',
+        rationale: [safetyTriage.reason],
+        immediateActions: safetyTriage.actions,
+        missing: [],
+        questions: [],
+        safety: safetyTriage
+      };
+    }
     const heuristicResult = runHeuristicDiagnostic(userText, keywords, detectedService);
     
     // Jeśli wykryto wysokie ryzyko, zwróć od razu (bez LLM)

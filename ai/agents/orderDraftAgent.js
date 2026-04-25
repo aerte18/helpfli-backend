@@ -60,7 +60,10 @@ async function runOrderDraftAgent({ messages, extracted = {}, detectedService, u
     };
 
     const completion = calculateCompletion(orderPayload, missing);
-    const quickReplies = buildQuickReplies(missing, extracted, urgency);
+    const nextPrompt = pickNextPrompt(missing, extracted, orderPayload);
+    const quickReplies = buildQuickReplies(nextPrompt, urgency);
+    const providerBrief = buildProviderBrief(orderPayload, extracted, missing);
+    const quality = calculateDraftQuality(orderPayload, extracted, missing);
     
     return {
       ok: true,
@@ -68,9 +71,14 @@ async function runOrderDraftAgent({ messages, extracted = {}, detectedService, u
       canCreate: missing.length === 0,
       orderPayload,
       missing,
-      questions: questions.slice(0, 3),
+      optionalMissing: buildOptionalMissing(extracted, orderPayload),
+      questions: nextPrompt?.question ? [nextPrompt.question] : questions.slice(0, 1),
+      nextQuestion: nextPrompt?.question || null,
+      nextField: nextPrompt?.field || null,
       quickReplies,
       completion,
+      quality,
+      providerBrief,
       summary: buildSummary(orderPayload, missing)
     };
     
@@ -113,26 +121,80 @@ function calculateCompletion(orderPayload, missing = []) {
   };
 }
 
-function buildQuickReplies(missing = [], extracted = {}, urgency = 'standard') {
-  const replies = [];
+function pickNextPrompt(missing = [], extracted = {}, orderPayload = {}) {
+  if (missing.includes('kategoria usługi')) {
+    return {
+      field: 'service',
+      question: 'Jaka usługa jest potrzebna?'
+    };
+  }
+  if (missing.includes('opis problemu')) {
+    return {
+      field: 'description',
+      question: 'Opisz proszę krótko, co dokładnie nie działa.'
+    };
+  }
   if (missing.includes('lokalizacja')) {
-    replies.push(
+    return {
+      field: 'location',
+      question: 'W jakiej lokalizacji potrzebujesz pomocy?'
+    };
+  }
+  if (!extracted.timeWindow && !orderPayload.preferredTime) {
+    return {
+      field: 'timeWindow',
+      question: 'Kiedy wykonawca ma przyjechać: dziś, jutro czy termin jest elastyczny?'
+    };
+  }
+  if (!extracted.budget && !orderPayload.budget) {
+    return {
+      field: 'budget',
+      question: 'Czy masz budżet, czy mam pokazać orientacyjne widełki?'
+    };
+  }
+  return {
+    field: 'confirmation',
+    question: 'Mam komplet do przygotowania zlecenia. Potwierdzasz utworzenie?'
+  };
+}
+
+function buildOptionalMissing(extracted = {}, orderPayload = {}) {
+  const optional = [];
+  if (!extracted.timeWindow && !orderPayload.preferredTime) optional.push('termin');
+  if (!extracted.budget && !orderPayload.budget) optional.push('budżet');
+  return optional;
+}
+
+function buildQuickReplies(nextPrompt, urgency = 'standard') {
+  if (!nextPrompt) return [];
+  if (nextPrompt.field === 'location') {
+    return [
       { label: 'Podam miasto', value: 'Potrzebuję pomocy w ' },
       { label: 'Użyj mojej lokalizacji', value: 'Chcę użyć mojej aktualnej lokalizacji' }
-    );
+    ];
   }
-  if (!extracted.timeWindow) {
-    replies.push(
+  if (nextPrompt.field === 'timeWindow') {
+    return [
       { label: 'Dziś', value: 'Potrzebuję pomocy dzisiaj' },
       { label: 'Jutro', value: 'Może być jutro' },
-      { label: 'Może poczekać', value: 'To nie jest pilne, może poczekać kilka dni' }
-    );
+      { label: urgency === 'urgent' ? 'Jak najszybciej' : 'Może poczekać', value: urgency === 'urgent' ? 'Jak najszybciej' : 'To nie jest pilne, może poczekać kilka dni' }
+    ];
   }
-  if (!extracted.budget && urgency !== 'urgent') {
-    replies.push({ label: 'Pokaż widełki', value: 'Ile to może kosztować?' });
+  if (nextPrompt.field === 'budget') {
+    return [
+      { label: 'Pokaż widełki', value: 'Ile to może kosztować?' },
+      { label: 'Do 300 zł', value: 'Mój budżet to do 300 zł' },
+      { label: 'Bez budżetu', value: 'Nie mam określonego budżetu' }
+    ];
   }
-  replies.push({ label: 'Dodam zdjęcie', value: 'Dodam zdjęcie problemu' });
-  return replies.slice(0, 6);
+  if (nextPrompt.field === 'confirmation') {
+    return [
+      { label: 'Tak, utwórz', value: 'Tak, utwórz zlecenie' },
+      { label: 'Dodam zdjęcie', value: 'Dodam zdjęcie problemu' },
+      { label: 'Zmień termin', value: 'Chcę zmienić termin' }
+    ];
+  }
+  return [];
 }
 
 function buildSummary(orderPayload, missing = []) {
@@ -145,6 +207,93 @@ function buildSummary(orderPayload, missing = []) {
     urgency: orderPayload.urgency || 'standard',
     budget: orderPayload.budget || null,
     missing
+  };
+}
+
+function buildProviderBrief(orderPayload = {}, extracted = {}, missing = []) {
+  const details = Array.isArray(extracted.details) ? extracted.details.filter(Boolean) : [];
+  const title = buildProviderTitle(orderPayload, details);
+  const bullets = [
+    orderPayload.description ? `Problem: ${orderPayload.description}` : null,
+    orderPayload.location ? `Lokalizacja: ${orderPayload.location}` : null,
+    orderPayload.preferredTime ? `Termin: ${orderPayload.preferredTime}` : 'Termin: do ustalenia',
+    orderPayload.urgency === 'urgent' ? 'Pilność: pilne' : `Pilność: ${orderPayload.urgency || 'standard'}`
+  ].filter(Boolean);
+
+  return {
+    title,
+    customerSummary: [title, ...bullets].join('\n'),
+    bullets,
+    suggestedAttachments: suggestAttachments(orderPayload, extracted),
+    questionsForProvider: buildProviderQuestions(orderPayload, extracted),
+    missingForBetterOffers: missing.length > 0 ? missing : buildOptionalMissing(extracted, orderPayload)
+  };
+}
+
+function buildProviderTitle(orderPayload = {}, details = []) {
+  const service = prettifyService(orderPayload.service);
+  const firstDetail = details[0];
+  if (firstDetail) return `${service}: ${firstDetail}`.slice(0, 90);
+  if (orderPayload.description) return `${service}: ${orderPayload.description}`.slice(0, 90);
+  return service;
+}
+
+function prettifyService(service = '') {
+  const labels = {
+    'agd-rtv-naprawa-agd': 'Naprawa AGD',
+    'agd-rtv-naprawa-rtv': 'Naprawa RTV',
+    hydraulik_naprawa: 'Hydraulik',
+    elektryk_naprawa: 'Elektryk',
+    zlota_raczka: 'Złota rączka',
+    sprzatanie: 'Sprzątanie',
+    remont: 'Remont'
+  };
+  return labels[service] || service || 'Zlecenie';
+}
+
+function suggestAttachments(orderPayload = {}, extracted = {}) {
+  const text = `${orderPayload.description || ''} ${(extracted.details || []).join(' ')}`.toLowerCase();
+  const suggestions = [];
+  if (/(pralk|zmywark|lod[oó]wk|piekarnik|agd|rtv|kod błędu|kod bledu)/i.test(text)) {
+    suggestions.push('Zdjęcie kodu błędu');
+    suggestions.push('Zdjęcie tabliczki znamionowej z modelem');
+  }
+  if (/(wyciek|ciekn|zalewa|woda)/i.test(text)) {
+    suggestions.push('Zdjęcie miejsca wycieku');
+  }
+  if (/(gniazd|bezpiecznik|iskr|prąd|prad|elektr)/i.test(text)) {
+    suggestions.push('Zdjęcie miejsca awarii z bezpiecznej odległości');
+  }
+  if (suggestions.length === 0) suggestions.push('Zdjęcie problemu lub miejsca wykonania usługi');
+  return Array.from(new Set(suggestions)).slice(0, 3);
+}
+
+function buildProviderQuestions(orderPayload = {}, extracted = {}) {
+  const questions = [];
+  const text = `${orderPayload.description || ''} ${(extracted.details || []).join(' ')}`.toLowerCase();
+  if (/(pralk|zmywark|lod[oó]wk|piekarnik|agd)/i.test(text)) {
+    questions.push('Jaka jest marka i model urządzenia?');
+  }
+  if (!orderPayload.preferredTime) questions.push('Kiedy wykonawca może przyjechać?');
+  if (!orderPayload.budget) questions.push('Czy klient ma orientacyjny budżet?');
+  return questions.slice(0, 3);
+}
+
+function calculateDraftQuality(orderPayload = {}, extracted = {}, missing = []) {
+  const checks = [
+    { key: 'service', ok: !!orderPayload.service && orderPayload.service !== 'inne', label: 'wybrana usługa' },
+    { key: 'description', ok: !!orderPayload.description && orderPayload.description.length >= 25, label: 'konkretny opis' },
+    { key: 'location', ok: !!orderPayload.location, label: 'lokalizacja' },
+    { key: 'timeWindow', ok: !!orderPayload.preferredTime, label: 'termin' },
+    { key: 'attachments', ok: (orderPayload.attachments || extracted.attachments || []).length > 0, label: 'zdjęcia' }
+  ];
+  const passed = checks.filter((item) => item.ok);
+  const percent = Math.round((passed.length / checks.length) * 100);
+  return {
+    percent,
+    level: percent >= 80 ? 'pro' : percent >= 60 ? 'good' : 'basic',
+    missingForPro: checks.filter((item) => !item.ok).map((item) => item.label),
+    blockerMissing: missing
   };
 }
 

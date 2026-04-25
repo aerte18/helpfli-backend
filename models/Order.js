@@ -103,6 +103,32 @@ const orderSchema = new mongoose.Schema({
       max: Number
     }
   },
+  aiBrief: {
+    source: { type: String, default: 'concierge' },
+    title: { type: String, default: '' },
+    customerSummary: { type: String, default: '' },
+    bullets: [{ type: String }],
+    suggestedAttachments: [{ type: String }],
+    questionsForProvider: [{ type: String }],
+    missingForBetterOffers: [{ type: String }],
+    quality: {
+      percent: { type: Number, default: 0 },
+      level: { type: String, enum: ['basic', 'good', 'pro', ''], default: '' },
+      missingForPro: [{ type: String }],
+      blockerMissing: [{ type: String }]
+    },
+    safety: {
+      flag: { type: Boolean, default: false },
+      level: { type: String, default: 'none' },
+      type: { type: String, default: null },
+      title: { type: String, default: null },
+      reason: { type: String, default: null },
+      recommendation: { type: String, default: null },
+      actions: [{ type: String }],
+      blockDIY: { type: Boolean, default: false }
+    },
+    createdAt: { type: Date, default: Date.now }
+  },
   createdAt: { type: Date, default: Date.now },
   offers: [offerSchema], // ⬅️ kluczowa zmiana
   selectedOffer: { type: mongoose.Schema.Types.ObjectId }, // ID wybranej oferty (jeśli wybrano)

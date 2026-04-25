@@ -330,6 +330,58 @@ router.post("/quote-draft", auth, async (req, res) => {
 // Tworzenie nowego zlecenia (obsługa Fast-Track limitów)
 const { ensureClientCanFastTrack, consumeClientFastTrack } = require("../middleware/limits");
 
+function normalizeAiBrief(input) {
+  if (!input) return null;
+  let data = input;
+  if (typeof data === 'string') {
+    try {
+      data = JSON.parse(data);
+    } catch (_e) {
+      return null;
+    }
+  }
+  if (!data || typeof data !== 'object') return null;
+
+  const providerBrief = data.providerBrief || data;
+  const quality = data.quality || {};
+  const safety = data.safety || {};
+  const toStringArray = (value, max = 8) => (
+    Array.isArray(value)
+      ? value.map((item) => String(item || '').trim()).filter(Boolean).slice(0, max)
+      : []
+  );
+
+  const normalized = {
+    source: String(data.source || 'concierge').slice(0, 40),
+    title: String(providerBrief.title || '').slice(0, 160),
+    customerSummary: String(providerBrief.customerSummary || '').slice(0, 3000),
+    bullets: toStringArray(providerBrief.bullets, 10),
+    suggestedAttachments: toStringArray(providerBrief.suggestedAttachments, 6),
+    questionsForProvider: toStringArray(providerBrief.questionsForProvider, 6),
+    missingForBetterOffers: toStringArray(providerBrief.missingForBetterOffers, 8),
+    quality: {
+      percent: Math.max(0, Math.min(100, Number(quality.percent) || 0)),
+      level: ['basic', 'good', 'pro'].includes(quality.level) ? quality.level : '',
+      missingForPro: toStringArray(quality.missingForPro, 8),
+      blockerMissing: toStringArray(quality.blockerMissing, 8)
+    },
+    safety: {
+      flag: Boolean(safety.flag),
+      level: String(safety.level || 'none').slice(0, 30),
+      type: safety.type ? String(safety.type).slice(0, 40) : null,
+      title: safety.title ? String(safety.title).slice(0, 160) : null,
+      reason: safety.reason ? String(safety.reason).slice(0, 500) : null,
+      recommendation: safety.recommendation ? String(safety.recommendation).slice(0, 500) : null,
+      actions: toStringArray(safety.actions, 8),
+      blockDIY: Boolean(safety.blockDIY)
+    },
+    createdAt: new Date()
+  };
+
+  if (!normalized.title && !normalized.customerSummary && normalized.bullets.length === 0) return null;
+  return normalized;
+}
+
 router.post("/", auth, async (req, res) => {
   try {
     const logger = require("../utils/logger");
@@ -359,6 +411,7 @@ router.post("/", auth, async (req, res) => {
       priorityDateTime = null,
       matchMode = "open", // MVP: 'ai_suggested' | 'manual_pick' | 'open'
       aiTriage, // MVP: cache AI triage result
+      aiBrief,
       paymentPreference = "system", // MVP: 'system' | 'external'
       paymentMethod = "system" // Legacy: 'system' | 'external'
     } = req.body;
@@ -402,6 +455,8 @@ router.post("/", auth, async (req, res) => {
     if (!service || !description) {
       return res.status(400).json({ error: "Usługa i opis są wymagane" });
     }
+
+    const normalizedAiBrief = normalizeAiBrief(aiBrief);
     
     // Normalizacja: użyj nowych pól jeśli dostępne
     const finalUrgency = urgency || 'flexible';
@@ -504,6 +559,7 @@ router.post("/", auth, async (req, res) => {
       preferredContact: finalPreferredContact,
       matchMode: matchMode,
       aiTriage: aiTriage || null,
+      ...(normalizedAiBrief ? { aiBrief: normalizedAiBrief, source: 'ai' } : {}),
       // Payment preferences (paymentPreference = flow: system vs external; paymentMethod = konkretna metoda Stripe, domyślnie unknown)
       paymentPreference: paymentPreference || 'system', // 'system' | 'external'
       // paymentMethod w schemie Order to enum ['card','p24','blik','unknown'] – nie ustawiać na 'system'/'external'

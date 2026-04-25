@@ -9,6 +9,12 @@ const { runPricingAgent } = require('./agents/pricingAgent');
 const { runDIYAgent } = require('./agents/diyAgent');
 const { runMatchingAgent } = require('./agents/matchingAgent');
 const { runOrderDraftAgent } = require('./agents/orderDraftAgent');
+const {
+  getDraft,
+  saveDraft,
+  mergeDraftContext,
+  attachStoredContext
+} = require('./utils/draftSessionStore');
 
 /**
  * Handler dla endpointu /api/ai/concierge/v2
@@ -192,6 +198,20 @@ async function conciergeHandler(req, res) {
     const lastUserMessage = finalMessages
       .filter(m => m.role === 'user')
       .pop();
+
+    const previousOrderDraft = getDraft(sessionId);
+    const mergedDraftContext = mergeDraftContext({
+      previousDraft: previousOrderDraft,
+      extracted: conciergeResult.extracted || {},
+      detectedService: conciergeResult.detectedService,
+      urgency: conciergeResult.urgency,
+      lastUserText: lastUserMessage?.content || '',
+      userContext
+    });
+
+    conciergeResult.extracted = mergedDraftContext.extracted;
+    conciergeResult.detectedService = mergedDraftContext.detectedService || conciergeResult.detectedService;
+    conciergeResult.urgency = mergedDraftContext.urgency || conciergeResult.urgency;
     
     if (lastUserMessage && lastUserMessage.content) {
       ConversationMemoryService.addMessage(
@@ -345,15 +365,19 @@ async function conciergeHandler(req, res) {
       try {
         agentPayload.orderDraft = await runOrderDraftAgent({
           messages: finalMessages.length > 0 ? finalMessages : parsed.messages,
-          extracted: conciergeResult.extracted,
+          extracted: mergedDraftContext.extracted,
           detectedService: conciergeResult.detectedService,
           urgency: conciergeResult.urgency || 'standard'
         });
+        agentPayload.orderDraft = attachStoredContext(agentPayload.orderDraft, mergedDraftContext);
+        saveDraft(sessionId, agentPayload.orderDraft);
         if (agentPayload.orderDraft.canCreate && conciergeResult.nextStep === 'ask_more') {
           conciergeResult.nextStep = 'create_order';
         }
-        if (agentPayload.orderDraft.questions?.length && (!conciergeResult.questions || conciergeResult.questions.length === 0)) {
-          conciergeResult.questions = agentPayload.orderDraft.questions;
+        if (agentPayload.orderDraft.nextQuestion) {
+          conciergeResult.questions = [agentPayload.orderDraft.nextQuestion];
+        } else if (agentPayload.orderDraft.questions?.length && (!conciergeResult.questions || conciergeResult.questions.length === 0)) {
+          conciergeResult.questions = agentPayload.orderDraft.questions.slice(0, 1);
         }
       } catch (error) {
         console.error('Order draft agent failed:', error.message);

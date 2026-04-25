@@ -4,6 +4,7 @@
  */
 
 const { normalizeUrgency, safeNumber, normalizeServiceName } = require('./normalize');
+const { applySafetyTriage } = require('./safetyTriage');
 
 function guardrailEnforce(ai) {
   if (!ai || typeof ai !== 'object') {
@@ -118,7 +119,7 @@ function enforceSafetyRules(response, userMessage = '') {
     response.nextStep = 'suggest_providers'; // Nie proponuj DIY w niebezpiecznych sytuacjach
   }
 
-  return response;
+  return applySafetyTriage(response, userMessage);
 }
 
 function sanitizeOutput(output) {

@@ -6,6 +6,8 @@ const APPLIANCE_PATTERNS = [
   { key: 'tv', label: 'telewizor', genitive: 'telewizora', pattern: /(\btv\b|telewizor|smart tv)/i }
 ];
 
+const { detectSafetyTriage } = require('./safetyTriage');
+
 const ERROR_CODES = {
   washing_machine: {
     e10: {
@@ -51,10 +53,11 @@ function detectApplianceIssue(text = '') {
   }
 
   const code = codeMatch ? codeMatch[1].toLowerCase() : null;
+  const safetyTriage = detectSafetyTriage(raw);
   const knownCode = appliance && code ? ERROR_CODES[appliance.key]?.[code] : null;
   const hasWaterRisk = /(woda|zalewa|wyciek|ciekn|mokro|pod pralk|pod zmywark)/i.test(lower) || ['e30', 'e15'].includes(code);
   const hasElectricRisk = /(iskr|dym|spalen|bezpiecznik|kopie|pora[zż]enie)/i.test(lower);
-  const safetyFlag = hasElectricRisk || /(gaz|ogień|plomien|płomień)/i.test(lower);
+  const safetyFlag = safetyTriage.flag || hasElectricRisk || /(gaz|ogień|plomien|płomień)/i.test(lower);
 
   const label = appliance?.label || 'urządzenie AGD/RTV';
   const genitiveLabel = appliance?.genitive || 'urządzenia AGD/RTV';
@@ -95,10 +98,15 @@ function detectApplianceIssue(text = '') {
     checks,
     questions: questions.slice(0, 4),
     details,
-    safety: {
+    safety: safetyTriage.flag ? safetyTriage : {
       flag: safetyFlag,
+      level: safetyFlag ? 'high' : 'none',
+      type: safetyFlag ? 'electricity' : null,
+      title: safetyFlag ? 'Możliwe zagrożenie przy urządzeniu' : null,
       reason: safetyFlag ? 'Możliwe zagrożenie elektryczne lub pożarowe' : null,
-      recommendation: safetyFlag ? 'Odłącz urządzenie od prądu i skontaktuj się z fachowcem.' : null
+      recommendation: safetyFlag ? 'Odłącz urządzenie od prądu i skontaktuj się z fachowcem.' : null,
+      actions: safetyFlag ? ['Odłącz urządzenie od prądu.', 'Nie uruchamiaj go ponownie.', 'Zamów fachowca.'] : [],
+      blockDIY: safetyFlag
     }
   };
 }
