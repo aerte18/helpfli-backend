@@ -29,6 +29,12 @@ async function conciergeHandler(req, res) {
     
     requestId = AIAnalyticsService.generateRequestId();
     
+    // Parsuj i waliduj request
+    const parsed = validateConciergeRequest(req.body);
+
+    // Pobierz kontekst użytkownika
+    const userId = req.user?.id || req.user?._id;
+    
     // A/B Testing (Faza 3) - przypisz warianty eksperymentów
     const abVariants = {
       responseLength: abTestingService.assignVariant(userId, 'response_length'),
@@ -36,11 +42,6 @@ async function conciergeHandler(req, res) {
       toolCalling: abTestingService.assignVariant(userId, 'tool_calling')
     };
 
-    // Parsuj i waliduj request
-    const parsed = validateConciergeRequest(req.body);
-
-    // Pobierz kontekst użytkownika
-    const userId = req.user?.id || req.user?._id;
     const userContext = {
       ...parsed.userContext,
       userId
@@ -122,6 +123,9 @@ async function conciergeHandler(req, res) {
     if (memoryContext.preferences) {
       userContext.preferences = memoryContext.preferences;
     }
+    
+    // Wyniki agentów pomocniczych uzupełniane po odpowiedzi Concierge.
+    const agentPayload = {};
 
     // Pobierz profil użytkownika dla personalizacji (Faza 3)
     let userProfile = null;
@@ -260,8 +264,6 @@ async function conciergeHandler(req, res) {
     }
 
     // Routing do innych agentów na podstawie nextStep
-    const agentPayload = {};
-    
     // Agent Diagnostyczny - ocena ryzyka/pilności
     if (conciergeResult.nextStep === 'diagnose') {
       try {

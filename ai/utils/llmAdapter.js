@@ -132,12 +132,7 @@ async function callLLMWithJSONFormat(systemPrompt, messages) {
     const client = new Anthropic({ apiKey });
     
     // Przygotuj pełną konwersację z system promptem
-    const fullMessages = messages
-      .filter(m => m.role !== 'system')
-      .map(m => ({
-        role: m.role === 'assistant' ? 'assistant' : 'user',
-        content: typeof m === 'string' ? m : (m.content || m.text || '')
-      }));
+    const fullMessages = toAnthropicMessages(messages);
     
     // Wzmocnij prompt o wymuszenie JSON
     const enhancedSystemPrompt = `${systemPrompt}
@@ -251,6 +246,30 @@ function safeParseJSON(text) {
   return null;
 }
 
+function toAnthropicMessages(messages = []) {
+  const normalized = messages
+    .filter((m) => m && m.role !== 'system')
+    .map((m) => ({
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      content: typeof m === 'string' ? m : (m.content || m.text || '')
+    }))
+    .filter((m) => typeof m.content === 'string' && m.content.trim().length > 0);
+
+  while (normalized[0]?.role === 'assistant') {
+    normalized.shift();
+  }
+
+  return normalized.reduce((acc, msg) => {
+    const last = acc[acc.length - 1];
+    if (last && last.role === msg.role) {
+      last.content = `${last.content}\n\n${msg.content}`;
+      return acc;
+    }
+    acc.push({ ...msg });
+    return acc;
+  }, []);
+}
+
 /**
  * Wywołanie LLM z obsługą Tool Calling
  * @param {string} systemPrompt 
@@ -280,12 +299,7 @@ async function callLLMWithTools(systemPrompt, messages, agentType, context = {})
     }
     
     // Przygotuj wiadomości
-    const fullMessages = messages
-      .filter(m => m.role !== 'system')
-      .map(m => ({
-        role: m.role === 'assistant' ? 'assistant' : 'user',
-        content: typeof m === 'string' ? m : (m.content || m.text || '')
-      }));
+    const fullMessages = toAnthropicMessages(messages);
     
     // Wywołaj Claude z tools
     const response = await client.messages.create({
@@ -405,12 +419,7 @@ async function streamLLM(systemPrompt, messages, onToken) {
     const client = new Anthropic({ apiKey });
     
     // Przygotuj wiadomości
-    const fullMessages = messages
-      .filter(m => m.role !== 'system')
-      .map(m => ({
-        role: m.role === 'assistant' ? 'assistant' : 'user',
-        content: typeof m === 'string' ? m : (m.content || m.text || '')
-      }));
+    const fullMessages = toAnthropicMessages(messages);
     
     // Streaming call
     const stream = await client.messages.stream({
