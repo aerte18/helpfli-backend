@@ -36,7 +36,7 @@ class MultiModalService {
 
       const response = await this.client.messages.create({
         model: process.env.CLAUDE_DEFAULT || 'claude-sonnet-4-6', // Vision-capable model
-        max_tokens: 1000,
+        max_tokens: 450,
         messages: [{
           role: 'user',
           content: [
@@ -255,7 +255,7 @@ class MultiModalService {
 
       const response = await this.client.messages.create({
         model: process.env.CLAUDE_DEFAULT || 'claude-sonnet-4-6',
-        max_tokens: 1500,
+        max_tokens: 650,
         messages: [{
           role: 'user',
           content

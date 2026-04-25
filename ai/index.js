@@ -149,12 +149,12 @@ async function conciergeHandler(req, res) {
         if (parsed.imageUrls.length === 1) {
           imageAnalysis = await multiModalService.analyzeImage(
             parsed.imageUrls[0],
-            'Opisz problem widoczny na obrazie. Jakiego typu usługa może być potrzebna?'
+            'Odpowiedz krótko po polsku: co widać na zdjęciu, jaki jest prawdopodobny problem i jaka usługa może być potrzebna. Maksymalnie 5 zdań.'
           );
         } else {
           imageAnalysis = await multiModalService.analyzeMultipleImages(
             parsed.imageUrls,
-            'Opisz problemy widoczne na obrazach. Jakiego typu usługi mogą być potrzebne?'
+            'Odpowiedz krótko po polsku: co widać na obrazach, jaki jest prawdopodobny problem i jaka usługa może być potrzebna. Maksymalnie 6 zdań.'
           );
         }
 
