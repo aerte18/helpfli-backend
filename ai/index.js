@@ -465,6 +465,7 @@ async function conciergeHandler(req, res) {
       questions: finalResult.questions,
       extracted: finalResult.extracted,
       safety: finalResult.safety,
+      diagnosticFlow: finalResult.diagnosticFlow || null,
       // Nowe pola dla Memory i Feedback
       sessionId: sessionId,
       messageId: messageId,

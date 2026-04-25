@@ -132,6 +132,7 @@ async function runConciergeAgent({ messages, userContext = {}, allowedServicesHi
       .pop();
     const userText = lastUserMessage?.content || lastUserMessage?.text || '';
     const applianceIssue = detectApplianceIssue(userText);
+    const wantsEscalation = /(nie pomog|nie działa dalej|dalej nie działa|nadal nie działa|bez zmian|nie zadziałało|nie zadzialalo)/i.test(userText);
     parsed = enforceSafetyRules(parsed, userText);
 
     // Normalizuj i waliduj
@@ -146,11 +147,25 @@ async function runConciergeAgent({ messages, userContext = {}, allowedServicesHi
       parsed.detectedService = applianceIssue.service;
       parsed.intent = 'service_request';
       parsed.urgency = applianceIssue.urgency;
-      parsed.nextStep = applianceIssue.nextStep;
+      parsed.nextStep = wantsEscalation ? 'suggest_providers' : applianceIssue.nextStep;
       parsed.confidence = Math.max(parsed.confidence || 0, applianceIssue.confidence);
-      parsed.reply = applianceIssue.reply;
-      parsed.questions = applianceIssue.questions;
+      parsed.reply = wantsEscalation
+        ? `Skoro podstawowe kroki nie pomogły, najlepszy kolejny krok to serwis ${applianceIssue.appliance}. Przygotuję zlecenie i pokażę najlepiej dopasowanych wykonawców.`
+        : applianceIssue.reply;
+      parsed.questions = wantsEscalation ? ['W jakim mieście potrzebujesz serwisu?'] : applianceIssue.questions;
       parsed.safety = applianceIssue.safety.flag ? applianceIssue.safety : parsed.safety;
+      parsed.diagnosticFlow = wantsEscalation ? null : applianceIssue.diagnosticFlow;
+    }
+
+    if (applianceIssue && wantsEscalation) {
+      parsed.detectedService = applianceIssue.service;
+      parsed.intent = 'service_request';
+      parsed.urgency = applianceIssue.urgency;
+      parsed.nextStep = 'suggest_providers';
+      parsed.confidence = Math.max(parsed.confidence || 0, applianceIssue.confidence);
+      parsed.reply = `Skoro podstawowe kroki nie pomogły, najlepszy kolejny krok to serwis ${applianceIssue.appliance}. Przygotuję zlecenie i pokażę najlepiej dopasowanych wykonawców.`;
+      parsed.questions = ['W jakim mieście potrzebujesz serwisu?'];
+      parsed.diagnosticFlow = null;
     }
 
     // Jeśli nie ma extracted, stwórz z kontekstu
@@ -199,6 +214,7 @@ async function runConciergeAgent({ messages, userContext = {}, allowedServicesHi
     const userText = lastUserMessage?.content || lastUserMessage?.text || '';
     const safetyTriage = detectSafetyTriage(userText);
     const applianceIssue = detectApplianceIssue(userText);
+    const wantsEscalation = /(nie pomog|nie działa dalej|dalej nie działa|nadal nie działa|bez zmian|nie zadziałało|nie zadzialalo)/i.test(userText);
 
     if (safetyTriage.flag) {
       return {
@@ -226,13 +242,15 @@ async function runConciergeAgent({ messages, userContext = {}, allowedServicesHi
       return {
         ok: true,
         agent: 'concierge',
-        reply: applianceIssue.reply,
+        reply: wantsEscalation
+          ? `Skoro podstawowe kroki nie pomogły, najlepszy kolejny krok to serwis ${applianceIssue.appliance}. Przygotuję zlecenie i pokażę najlepiej dopasowanych wykonawców.`
+          : applianceIssue.reply,
         intent: 'service_request',
         detectedService: applianceIssue.service,
         urgency: applianceIssue.urgency,
         confidence: applianceIssue.confidence,
-        nextStep: applianceIssue.nextStep,
-        questions: applianceIssue.questions,
+        nextStep: wantsEscalation ? 'suggest_providers' : applianceIssue.nextStep,
+        questions: wantsEscalation ? ['W jakim mieście potrzebujesz serwisu?'] : applianceIssue.questions,
         extracted: {
           location: userContext.location?.text || userContext.location || null,
           timeWindow: null,
@@ -240,7 +258,8 @@ async function runConciergeAgent({ messages, userContext = {}, allowedServicesHi
           details: applianceIssue.details
         },
         missing: applianceIssue.questions,
-        safety: applianceIssue.safety
+        safety: applianceIssue.safety,
+        diagnosticFlow: wantsEscalation ? null : applianceIssue.diagnosticFlow
       };
     }
 
