@@ -171,11 +171,48 @@ async function conciergeHandler(req, res) {
             userContext.detectedUrgency = analysis.urgency;
           }
 
-          // Dodaj opis obrazu do kontekstu
-          finalMessages.push({
-            role: 'system',
-            content: `Analiza obrazu: ${imageAnalysis.description}`
-          });
+          // Dodaj opis obrazu do ostatniej wiadomości użytkownika.
+          // Adapter LLM usuwa wiadomości systemowe, więc wynik vision musi być częścią rozmowy.
+          const imageContext = [
+            '',
+            '[WYNIK ANALIZY ZAŁĄCZONEGO ZDJĘCIA]',
+            'Traktuj to jako obejrzane zdjęcie. Nie pisz użytkownikowi, że nie widzisz zdjęcia.',
+            imageAnalysis.description
+          ].join('\n');
+          const lastUserIndex = finalMessages
+            .map((msg, index) => ({ msg, index }))
+            .filter(({ msg }) => msg.role === 'user')
+            .pop()?.index;
+
+          if (typeof lastUserIndex === 'number') {
+            finalMessages[lastUserIndex] = {
+              ...finalMessages[lastUserIndex],
+              content: `${finalMessages[lastUserIndex].content || ''}\n${imageContext}`.trim()
+            };
+          } else {
+            finalMessages.push({
+              role: 'user',
+              content: imageContext
+            });
+          }
+        } else if (imageAnalysis && imageAnalysis.success === false) {
+          const imageFailureContext = [
+            '',
+            '[STATUS ZAŁĄCZONEGO ZDJĘCIA]',
+            `Nie udało się technicznie odczytać zdjęcia: ${imageAnalysis.error || 'brak szczegółów błędu'}.`,
+            'Poproś krótko o opis problemu słownie i nie pokazuj od razu zlecenia ani wykonawców.'
+          ].join('\n');
+          const lastUserIndex = finalMessages
+            .map((msg, index) => ({ msg, index }))
+            .filter(({ msg }) => msg.role === 'user')
+            .pop()?.index;
+
+          if (typeof lastUserIndex === 'number') {
+            finalMessages[lastUserIndex] = {
+              ...finalMessages[lastUserIndex],
+              content: `${finalMessages[lastUserIndex].content || ''}\n${imageFailureContext}`.trim()
+            };
+          }
         }
       } catch (error) {
         console.warn('Image analysis failed:', error.message);
