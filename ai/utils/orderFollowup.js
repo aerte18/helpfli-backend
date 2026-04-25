@@ -126,6 +126,69 @@ function buildOrderFollowup(order, viewerRole = 'client') {
   return null;
 }
 
+function buildProviderOrderMatch(order, provider = {}) {
+  if (!order) return null;
+  const service = normalize(order.service || order.serviceDetails || '');
+  const providerServiceText = [
+    provider.service,
+    ...(Array.isArray(provider.services) ? provider.services.map((s) => `${s.slug || ''} ${s.parent_slug || ''} ${s.name_pl || ''} ${s.name || ''}`) : [])
+  ].join(' ');
+  const providerServices = normalize(providerServiceText);
+  const sameService = service && providerServices && (providerServices.includes(service) || service.includes(providerServices));
+
+  let score = 48;
+  const reasons = [];
+
+  if (sameService) {
+    score += 25;
+    reasons.push('Usługa pasuje do Twojej specjalizacji');
+  } else if (service && providerServices && service.split(/\s+/).some((word) => word.length > 3 && providerServices.includes(word))) {
+    score += 14;
+    reasons.push('Zakres jest zbliżony do Twoich usług');
+  }
+
+  if (order.aiBrief?.quality?.percent >= 70 || order.aiBrief?.quality?.level === 'pro') {
+    score += 10;
+    reasons.push('Opis jest dobrze przygotowany przez AI');
+  } else if (order.aiBrief?.title) {
+    score += 6;
+    reasons.push('AI brief podsumowuje najważniejsze informacje');
+  }
+
+  if (Array.isArray(order.attachments) && order.attachments.length > 0) {
+    score += 7;
+    reasons.push('Są załączniki do szybkiej wyceny');
+  }
+  if (order.budget || order.budgetRange?.max) {
+    score += 5;
+    reasons.push('Klient podał budżet');
+  }
+  if (provider.location && order.location && normalize(JSON.stringify(order.location)).includes(normalize(provider.location))) {
+    score += 5;
+    reasons.push('Lokalizacja wygląda zgodnie z Twoim obszarem');
+  }
+  if (Number(provider.ratingAvg) >= 4.5) {
+    score += 4;
+    reasons.push('Twoja wysoka ocena zwiększa szansę wygranej');
+  }
+  if (Number(provider.successRate) >= 40) {
+    score += 3;
+    reasons.push('Masz dobrą skuteczność ofert');
+  }
+
+  const percent = Math.max(35, Math.min(98, Math.round(score)));
+  return {
+    score: percent,
+    label: percent >= 82 ? 'Bardzo dobre zlecenie dla Ciebie' : percent >= 68 ? 'Dobre dopasowanie' : 'Warto sprawdzić',
+    reasons: reasons.length ? reasons.slice(0, 4) : ['AI ocenia potencjał na podstawie opisu, budżetu i danych zlecenia'],
+    highlights: {
+      serviceMatch: Boolean(sameService),
+      hasBrief: Boolean(order.aiBrief?.title),
+      hasAttachments: Array.isArray(order.attachments) && order.attachments.length > 0
+    }
+  };
+}
+
 function providerFollowup(order, context) {
   if (['open', 'collecting_offers'].includes(context.status)) {
     return action({
@@ -175,5 +238,16 @@ function action({ priority, title, tip, cta, seedQuery, actionType }) {
 }
 
 module.exports = {
-  buildOrderFollowup
+  buildOrderFollowup,
+  buildProviderOrderMatch
 };
+
+function normalize(value = '') {
+  return String(value)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[-_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}

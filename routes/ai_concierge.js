@@ -68,6 +68,91 @@ const uploadConcierge = multer({
   }
 });
 
+function normalizeUrgencyForSearch(text = '') {
+  const s = String(text || '').toLowerCase();
+  if (/(piln|awari|teraz|natychmiast|zalew|iskrz|gaz|dym|ogień|ogien)/.test(s)) return 'now';
+  if (/(dzis|dziś|today)/.test(s)) return 'today';
+  if (/(jutro|tomorrow)/.test(s)) return 'tomorrow';
+  return 'normal';
+}
+
+function pickServiceForSearch(services = [], query = '') {
+  const ranked = services
+    .map((service) => ({ service, score: scoreServiceMatch(query, service) }))
+    .sort((a, b) => b.score - a.score);
+  return ranked[0]?.score > 0 ? ranked[0].service : null;
+}
+
+// POST /api/ai/concierge/service-search
+// Szybka wyszukiwarka usług bez pełnego przebiegu rozmowy LLM.
+router.post('/concierge/service-search', authMiddleware, async (req, res) => {
+  try {
+    const { query = '', lat = null, lon = null, limit = 3 } = req.body || {};
+    const text = String(query || '').trim();
+    if (text.length < 3) {
+      return res.status(400).json({ message: 'Wpisz czego szukasz.' });
+    }
+
+    const services = await Service.find({}).lean().catch(() => []);
+    const best = pickServiceForSearch(services, text);
+    const serviceCode = best?.slug || best?.code || best?.parent_slug || 'inne';
+    const urgency = normalizeUrgencyForSearch(text);
+    const [pricing, providers] = await Promise.all([
+      computePriceHints(serviceCode, {}).catch(() => null),
+      recommendProviders(serviceCode, lat, lon, Math.min(Number(limit) || 3, 5), urgency).catch(() => [])
+    ]);
+
+    res.json({
+      ok: true,
+      query: text,
+      serviceCandidate: best ? {
+        code: serviceCode,
+        name: best.name_pl || best.name || serviceCode,
+        description: best.description || ''
+      } : {
+        code: serviceCode,
+        name: 'Inne',
+        description: ''
+      },
+      urgency,
+      pricing,
+      matching: {
+        service: serviceCode,
+        topProviders: providers.map((provider) => ({
+          providerId: String(provider._id || provider.id),
+          name: provider.name || 'Wykonawca',
+          rating: provider.rating || 0,
+          ratingCount: provider.ratingCount || 0,
+          distanceKm: provider.distanceKm || 0,
+          level: provider.level || provider.providerTier || 'standard',
+          providerTier: provider.providerTier || provider.level || 'standard',
+          isPro: Boolean(provider.isPro),
+          verified: Boolean(provider.verified),
+          isAvailable: Boolean(provider.isOnline || provider.isAvailable),
+          completedOrders: provider.completedOrders || 0,
+          matchScore: provider.score || 0,
+          matchLabel: provider.score >= 85 ? 'Bardzo dobre dopasowanie' : provider.score >= 70 ? 'Dobre dopasowanie' : 'Warto sprawdzić',
+          matchReasons: [
+            `Pasuje do usługi: ${best?.name_pl || serviceCode}`,
+            provider.verified ? 'Zweryfikowany profil' : null,
+            provider.isPro ? 'Pakiet PRO z kontrolowanym boostem jakościowym' : null,
+            provider.rating ? `Ocena ${provider.rating}/5` : null,
+            provider.distanceKm ? `${provider.distanceKm} km od klienta` : null
+          ].filter(Boolean)
+        }))
+      },
+      ctas: [
+        { label: 'Pokaż wykonawców', action: 'show_providers' },
+        { label: 'Utwórz zlecenie', action: 'create_order' },
+        { label: 'Zapytaj o cenę', action: 'ask_price' }
+      ]
+    });
+  } catch (error) {
+    console.error('AI service search error:', error);
+    res.status(500).json({ message: 'Nie udało się wyszukać usługi.' });
+  }
+});
+
 // POST /api/ai/concierge/upload - upload plików dla AI Concierge
 router.post('/concierge/upload', authMiddleware, uploadConcierge.array('files', 5), async (req, res) => {
   try {

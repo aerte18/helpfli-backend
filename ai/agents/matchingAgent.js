@@ -73,7 +73,8 @@ async function runMatchingAgent({ service, urgency = 'standard', budget = null, 
         const distance = provider.distanceKm || provider.distance || 0;
         const rating = provider.rating || provider.avgRating || 0;
         const providerName = provider.name || provider.companyName || provider.displayName || 'Wykonawca';
-        const providerLevel = provider.level || provider.providerTier || 'basic';
+        const providerLevel = normalizeProviderLevel(provider.level || provider.providerTier || provider.plan || provider.package || 'basic');
+        const isPro = providerLevel === 'pro';
         const isAvailable = provider.isAvailable || provider.availableNow || provider.provider_status?.isOnline || provider.isOnline || false;
         const completedOrders = provider.completedOrders || provider.completed || 0;
         const successRate = provider.successRate || null;
@@ -89,7 +90,8 @@ async function runMatchingAgent({ service, urgency = 'standard', budget = null, 
           urgency,
           completedOrders,
           successRate,
-          baseRankingScore
+          baseRankingScore,
+          isPro
         });
 
         const match = buildMatchExplanation({
@@ -112,6 +114,7 @@ async function runMatchingAgent({ service, urgency = 'standard', budget = null, 
           rating,
           distanceKm: distance,
           level: providerLevel,
+          isPro,
           verified: !!provider.verified,
           isAvailable,
           completedOrders,
@@ -190,7 +193,14 @@ function getRecommendedLevel(budget) {
   return 'pro';
 }
 
-function calculateFitScore({ rating, distance, availability, level, recommendedLevel, urgency, completedOrders = 0, successRate = null, baseRankingScore = null }) {
+function normalizeProviderLevel(value = '') {
+  const raw = String(value || '').toLowerCase();
+  if (raw.includes('pro') || raw.includes('premium') || raw.includes('business')) return 'pro';
+  if (raw.includes('standard')) return 'standard';
+  return raw || 'basic';
+}
+
+function calculateFitScore({ rating, distance, availability, level, recommendedLevel, urgency, completedOrders = 0, successRate = null, baseRankingScore = null, isPro = false }) {
   let score = 0.35; // Base score
 
   // Rating (0-0.22)
@@ -210,6 +220,11 @@ function calculateFitScore({ rating, distance, availability, level, recommendedL
   if (level === recommendedLevel) score += 0.14;
   else if (recommendedLevel === 'standard' && level === 'pro') score += 0.1;
   else if (level === 'pro') score += 0.06;
+
+  // PRO boost jest jakościowy i mały. Nie powinien przebić słabego dopasowania.
+  if (isPro && (Number(rating) >= 4.2 || completedOrders >= 5 || successRate === null || successRate >= 60)) {
+    score += 0.04;
+  }
 
   // Track record (0-0.13)
   if (completedOrders >= 20) score += 0.08;

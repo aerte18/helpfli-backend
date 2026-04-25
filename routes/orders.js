@@ -1554,10 +1554,17 @@ router.get('/:id/ai-followup', auth, loadOrderById, async (req, res) => {
       return res.status(403).json({ message: 'Brak uprawnień' });
     }
 
-    const { buildOrderFollowup } = require('../ai/utils/orderFollowup');
+    const { buildOrderFollowup, buildProviderOrderMatch } = require('../ai/utils/orderFollowup');
     const viewerRole = isClient ? 'client' : 'provider';
     const followup = buildOrderFollowup(order.toObject ? order.toObject() : order, viewerRole);
-    return res.json({ ok: true, followup });
+    let providerMatch = null;
+    if (viewerRole === 'provider') {
+      const provider = await User.findById(req.user._id)
+        .populate('services', 'slug parent_slug name_pl name_en')
+        .lean();
+      providerMatch = buildProviderOrderMatch(order.toObject ? order.toObject() : order, provider || req.user);
+    }
+    return res.json({ ok: true, followup, providerMatch });
   } catch (error) {
     console.error('AI followup error:', error);
     return res.status(500).json({ message: 'Nie udało się pobrać podpowiedzi AI' });

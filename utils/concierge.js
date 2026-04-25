@@ -376,7 +376,7 @@ async function recommendProviders(serviceCode, lat, lon, limit = 3, urgency = 'n
     }
     
     const base = await User.find(query)
-      .select('_id name level providerTier provider_status verified badges rankingPoints locationLat locationLon services avatar').lean();
+      .select('_id name level providerLevel providerTier provider_status verified badges rankingPoints promo locationLat locationLon services avatar').lean();
 
     // Pobierz oceny dla wszystkich providerów
     const providerIds = base.map(p => p._id);
@@ -436,18 +436,23 @@ async function recommendProviders(serviceCode, lat, lon, limit = 3, urgency = 'n
       // Dostępność (online teraz)
       const availability = p.provider_status?.isOnline === true ? 1.0 : 0.3;
       
-      // Tier boost (PRO > Standard > Basic)
-      const tierBoost = p.providerTier === 'pro' ? 0.15 : 
-                       p.providerTier === 'standard' ? 0.08 : 0;
+      const tier = normalizeProviderTier(p.providerTier || p.providerLevel || p.level);
+      const isPro = tier === 'pro' || (Array.isArray(p.badges) && p.badges.includes('pro'));
+
+      // Tier boost jest kontrolowany: PRO pomaga, ale nie przebija słabego dopasowania jakościowego.
+      const tierBoost = isPro ? 0.08 : tier === 'standard' ? 0.04 : 0;
       
       // Verified boost
       const verifiedBoost = p.verified ? 0.05 : 0;
       
       // Promocje boost (jeśli ma aktywną promocję)
       const now = new Date();
-      const hasActivePromo = (p.badges?.highlightUntil && new Date(p.badges.highlightUntil) > now) ||
-                            (p.badges?.topUntil && new Date(p.badges.topUntil) > now);
-      const promoBoost = hasActivePromo ? 0.05 : 0;
+      const hasActivePromo = Boolean(
+        (p.promo?.highlightUntil && new Date(p.promo.highlightUntil) > now) ||
+        (p.promo?.topUntil && new Date(p.promo.topUntil) > now) ||
+        (p.promo?.topBadgeUntil && new Date(p.promo.topBadgeUntil) > now)
+      );
+      const promoBoost = hasActivePromo ? 0.03 : 0;
 
       // Wagi (dostosowane do nowych czynników)
       const baseScore = (
@@ -458,21 +463,25 @@ async function recommendProviders(serviceCode, lat, lon, limit = 3, urgency = 'n
         availability * 0.10     // dostępność (10%)
       );
       
-      const finalScore = (baseScore + tierBoost + verifiedBoost + promoBoost) * 100;
+      const qualityGate = rating >= 4.2 || providerRatings.length === 0 || rate >= 0.6;
+      const packageBoost = qualityGate ? tierBoost + promoBoost : Math.min(0.03, tierBoost + promoBoost);
+      const finalScore = Math.min(98, (baseScore + packageBoost + verifiedBoost) * 100);
 
       return { 
         _id: p._id,
         id: p._id,
         name: p.name,
         avatar: p.avatar,
-        level: p.level,
-        providerTier: p.providerTier,
+        level: tier,
+        providerTier: tier,
+        isPro,
         verified: p.verified,
         rating: Math.round(rating * 10) / 10,
         ratingCount: providerRatings.length,
         distanceKm: dk ? Math.round(dk * 10) / 10 : null,
         isOnline: p.provider_status?.isOnline === true,
         hasActivePromo,
+        packageBoost: Math.round(packageBoost * 100),
         score: Math.round(finalScore),
         // Dodatkowe metryki dla UI
         successRate: Math.round(rate * 100),
@@ -489,42 +498,61 @@ async function recommendProviders(serviceCode, lat, lon, limit = 3, urgency = 'n
   }
 }
 
+function normalizeProviderTier(value = '') {
+  const raw = String(value || '').toLowerCase();
+  if (raw.includes('pro') || raw.includes('premium') || raw.includes('business')) return 'pro';
+  if (raw.includes('standard')) return 'standard';
+  return 'basic';
+}
+
 // 6) Funkcja scoringu serwisów
 function scoreServiceMatch(description = '', service) {
   const s = description.toLowerCase();
-  const serviceName = (service.name || '').toLowerCase();
-  const serviceCode = (service.code || '').toLowerCase();
+  const serviceName = (service.name || service.name_pl || service.name_en || '').toLowerCase();
+  const serviceCode = (service.code || service.slug || service.parent_slug || '').toLowerCase();
+  const serviceText = [
+    serviceName,
+    serviceCode,
+    service.tags,
+    service.intent_keywords,
+    service.description
+  ].filter(Boolean).join(' ').toLowerCase();
   
   let score = 0;
   
   // Hydraulik
   if (/(ciekn|zlew|kran|kapie|uszcz|hydraul|wod)/.test(s)) {
-    if (serviceName.includes('hydraul') || serviceCode.includes('hydraul')) score += 100;
+    if (serviceText.includes('hydraul')) score += 100;
   }
   
   // Elektryk
   if (/(prąd|elektryk|gniazd|iskr|bezpiecznik|zwarc|instalacj|kabel)/.test(s)) {
-    if (serviceName.includes('elektr') || serviceCode.includes('elektr')) score += 100;
+    if (serviceText.includes('elektr')) score += 100;
   }
   
   // Sprzątanie
   if (/(sprzątani|czyszczen|porządk|myc)/.test(s)) {
-    if (serviceName.includes('sprząt') || serviceCode.includes('sprząt')) score += 100;
+    if (serviceText.includes('sprząt') || serviceText.includes('sprzat')) score += 100;
   }
   
   // AGD
   if (/(agd|pralk|lodówk|kuchenk|piekarn|zmyw)/.test(s)) {
-    if (serviceName.includes('agd') || serviceCode.includes('agd')) score += 100;
+    if (serviceText.includes('agd') || serviceText.includes('rtv')) score += 100;
+  }
+
+  // Malowanie
+  if (/(malowan|malarz|farb|ścian|scian|pokój|pokoju)/.test(s)) {
+    if (serviceText.includes('mal') || serviceText.includes('remont')) score += 90;
   }
   
   // Złota rączka
-  if (/(montaż|montow|meble|ram|obraz|półk)/.test(s)) {
-    if (serviceName.includes('złot') || serviceCode.includes('złot')) score += 80;
+  if (/(montaż|montaz|montow|meble|szaf|ram|obraz|półk|polk)/.test(s)) {
+    if (serviceText.includes('złot') || serviceText.includes('zlot') || serviceText.includes('montaż') || serviceText.includes('montaz') || serviceText.includes('mebl')) score += 80;
   }
   
   // Inne
   if (/(inne|inne|ogólne|uniwersal)/.test(s)) {
-    if (serviceName.includes('inne') || serviceCode.includes('inne')) score += 60;
+    if (serviceText.includes('inne')) score += 60;
   }
   
   return score;

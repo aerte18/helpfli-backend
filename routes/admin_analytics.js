@@ -142,6 +142,7 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
 
     const aiMatch = { createdAt: { $gte: start, $lte: end } };
     const orderMatch = { createdAt: { $gte: start, $lte: end } };
+    const eventMatch = { createdAt: { $gte: start, $lte: end } };
 
     const [
       aiSummaryAgg,
@@ -156,7 +157,11 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
       aiOrdersByService,
       dailyAiRequests,
       dailyAiOrders,
-      topErrors
+      topErrors,
+      startPromptSearches,
+      providerDiscovery,
+      aiProviderViews,
+      aiProviderOrderCtas
     ] = await Promise.all([
       AIAnalytics.aggregate([
         { $match: aiMatch },
@@ -236,7 +241,41 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
         { $group: { _id: { type: '$errorType', error: '$error' }, count: { $sum: 1 } } },
         { $sort: { count: -1 } },
         { $limit: 10 }
-      ])
+      ]),
+      Event.aggregate([
+        {
+          $match: {
+            ...eventMatch,
+            type: 'search',
+            'properties.filters.source': { $in: ['concierge_start_prompt', 'provider_ai_start_prompt'] }
+          }
+        },
+        {
+          $group: {
+            _id: {
+              source: '$properties.filters.source',
+              query: '$properties.query'
+            },
+            count: { $sum: 1 }
+          }
+        },
+        { $sort: { count: -1 } },
+        { $limit: 20 }
+      ]),
+      Event.aggregate([
+        {
+          $match: {
+            ...eventMatch,
+            type: 'category_selected',
+            'properties.categoryId': /^ai-/
+          }
+        },
+        { $group: { _id: '$properties.categoryName', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 12 }
+      ]),
+      Event.countDocuments({ ...eventMatch, type: 'provider_view', 'properties.viewType': 'ai_recommendation' }),
+      Event.countDocuments({ ...eventMatch, type: 'provider_contact', 'properties.contactType': 'ai_create_order_cta' })
     ]);
 
     const aiSummary = aiSummaryAgg[0] || {
@@ -282,7 +321,20 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
         type: row._id?.type || 'other',
         error: row._id?.error || '',
         count: row.count
-      }))
+      })),
+      promptAnalytics: {
+        startPrompts: startPromptSearches.map((row) => ({
+          source: row._id?.source || 'unknown',
+          query: row._id?.query || '',
+          count: row.count
+        })),
+        providerDiscovery: providerDiscovery.map((row) => ({
+          service: row._id || 'unknown',
+          count: row.count
+        })),
+        aiProviderViews,
+        aiProviderOrderCtas
+      }
     });
   } catch (error) {
     console.error('AI_INSIGHTS_ERROR:', error);
