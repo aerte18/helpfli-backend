@@ -27,6 +27,13 @@ async function ensureDefaultPlansInDb() {
   }
 }
 
+function getPlanAudience(planKey = '') {
+  if (planKey.startsWith('CLIENT_')) return 'client';
+  if (planKey.startsWith('PROV_')) return 'provider';
+  if (planKey.startsWith('BUSINESS_')) return 'business';
+  return 'unknown';
+}
+
 router.get('/plans', async (req, res) => {
   try {
     await ensureDefaultPlansInDb();
@@ -54,6 +61,10 @@ router.get('/plans', async (req, res) => {
 
 router.post('/subscribe', auth, async (req, res) => {
   const { planKey, billingPeriod = 'monthly', referralCode, earlyAdopter = false, requestInvoice = false } = req.body || {};
+  const requestedAudience = getPlanAudience(planKey);
+  if (requestedAudience === 'unknown') {
+    return res.status(400).json({ message: 'Nieprawidłowy typ planu subskrypcji' });
+  }
   
   // Sprawdź performance discount dla providerów
   const { getCurrentPerformanceDiscount } = require('../utils/performancePricing');
@@ -68,6 +79,22 @@ router.post('/subscribe', auth, async (req, res) => {
   
   const plan = await SubscriptionPlan.findOne({ key: planKey, active: true });
   if (!plan) return res.status(404).json({ message: 'Plan nie istnieje' });
+
+  const fullUser = await User.findById(req.user._id).select('role company roleInCompany');
+  if (!fullUser) return res.status(404).json({ message: 'Użytkownik nie znaleziony' });
+
+  if (requestedAudience === 'client' && fullUser.role !== 'client') {
+    return res.status(403).json({ message: 'Plan klienta jest dostępny tylko dla kont klienta' });
+  }
+  if (requestedAudience === 'provider' && fullUser.role !== 'provider') {
+    return res.status(403).json({ message: 'Plan wykonawcy jest dostępny tylko dla kont wykonawców' });
+  }
+  if (requestedAudience === 'business') {
+    const hasCompanyContext = Boolean(fullUser.company) || ['owner', 'manager', 'provider'].includes(fullUser.roleInCompany);
+    if (!hasCompanyContext) {
+      return res.status(403).json({ message: 'Plan firmowy wymaga aktywnego konta firmowego' });
+    }
+  }
 
   const now = new Date();
   const validUntil = new Date(now);

@@ -86,15 +86,21 @@ const FRONTEND_URL = process.env.FRONTEND_URL || process.env.APP_URL || 'http://
 // Feature flag – umożliwia stopniowe włączanie Stripe Connect
 const ENABLE_STRIPE_CONNECT = process.env.ENABLE_STRIPE_CONNECT === 'true';
 
+function isStripeConnectProvider(user) {
+  if (!user) return false;
+  if (user.role === 'provider') return true;
+  return user.roleInCompany === 'provider';
+}
+
 // --- STRIPE CONNECT: tworzenie konta i linków onboardingowych ---
 
 // POST /api/payments/connect/create-account
 // Tworzy konto Stripe Connect (Express) dla zalogowanego wykonawcy
 router.post('/connect/create-account', authMiddleware, async (req, res) => {
   try {
-    const user = await User.findById(req.user._id);
+    const user = await User.findById(req.user._id).select('email role roleInCompany kyc stripeAccountId stripeConnectStatus');
     if (!user) return res.status(404).json({ message: 'Użytkownik nie znaleziony' });
-    if (user.role !== 'provider') {
+    if (!isStripeConnectProvider(user)) {
       return res.status(403).json({ message: 'Tylko wykonawcy mogą aktywować wypłaty Stripe' });
     }
     if (!stripe) {
@@ -140,7 +146,14 @@ router.post('/connect/create-account', authMiddleware, async (req, res) => {
     });
   } catch (e) {
     console.error('Stripe Connect create-account error:', e);
-    res.status(500).json({ message: 'Nie udało się utworzyć konta Stripe Connect' });
+    const stripeMessage = e?.raw?.message || e?.message || '';
+    const stripeCode = e?.code || e?.raw?.code || '';
+    const details = [stripeCode, stripeMessage].filter(Boolean).join(': ');
+    res.status(500).json({
+      message: details
+        ? `Nie udało się utworzyć konta Stripe Connect (${details})`
+        : 'Nie udało się utworzyć konta Stripe Connect'
+    });
   }
 });
 
@@ -148,9 +161,9 @@ router.post('/connect/create-account', authMiddleware, async (req, res) => {
 // Generuje link onboardingowy / refresh do panelu Stripe dla providera
 router.post('/connect/account-link', authMiddleware, async (req, res) => {
   try {
-    const user = await User.findById(req.user._id);
+    const user = await User.findById(req.user._id).select('role roleInCompany stripeAccountId');
     if (!user) return res.status(404).json({ message: 'Użytkownik nie znaleziony' });
-    if (user.role !== 'provider') {
+    if (!isStripeConnectProvider(user)) {
       return res.status(403).json({ message: 'Tylko wykonawcy mogą aktywować wypłaty Stripe' });
     }
     if (!stripe) {
@@ -183,9 +196,9 @@ router.post('/connect/account-link', authMiddleware, async (req, res) => {
 // Zwraca aktualny status konta Stripe Connect dla zalogowanego użytkownika
 router.get('/connect/status', authMiddleware, async (req, res) => {
   try {
-    const user = await User.findById(req.user._id);
+    const user = await User.findById(req.user._id).select('role roleInCompany stripeAccountId stripeConnectStatus');
     if (!user) return res.status(404).json({ message: 'Użytkownik nie znaleziony' });
-    if (user.role !== 'provider') {
+    if (!isStripeConnectProvider(user)) {
       return res.status(403).json({ message: 'Tylko wykonawcy mogą mieć wypłaty Stripe' });
     }
     if (!stripe || !user.stripeAccountId) {
