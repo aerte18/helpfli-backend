@@ -9,6 +9,7 @@ const Revenue = require("../models/Revenue");
 const { computePricingBands } = require("../utils/pricing");
 const { notifyOfferNew, notifyOfferAccepted } = require("../utils/notifier");
 const logger = require("../utils/logger");
+const { evaluateOfferPreflight, normalizeOfferQuality } = require("../ai/utils/preflightQualityEvaluator");
 
 // Helper function: Calculate distance between two coordinates (Haversine formula)
 function calculateDistance(coord1, coord2) {
@@ -28,23 +29,7 @@ function calculateDistance(coord1, coord2) {
 }
 
 function normalizeOfferAiQuality(aiQuality) {
-  if (!aiQuality || typeof aiQuality !== 'object') return undefined;
-  const toArray = (value, max = 4) => (
-    Array.isArray(value)
-      ? value.map((item) => String(item || '').trim()).filter(Boolean).slice(0, max)
-      : []
-  );
-  const percent = Math.max(0, Math.min(100, Math.round(Number(aiQuality.percent) || 0)));
-  if (!percent) return undefined;
-  return {
-    percent,
-    label: String(aiQuality.label || '').slice(0, 80),
-    tone: ["emerald", "blue", "amber", "rose"].includes(aiQuality.tone) ? aiQuality.tone : "",
-    missing: toArray(aiQuality.missing, 4),
-    warnings: toArray(aiQuality.warnings, 4),
-    strengths: toArray(aiQuality.strengths, 4),
-    measuredAt: new Date()
-  };
+  return normalizeOfferQuality(aiQuality) || undefined;
 }
 
 const router = express.Router();
@@ -202,6 +187,51 @@ router.get("/analyze-order", auth, async (req, res) => {
       orderId: req.query?.orderId
     });
     res.status(500).json({ message: "Błąd analizy zlecenia" });
+  }
+});
+
+// POST /api/offers/preflight-quality - AI ocena jakości oferty przed wysłaniem
+router.post("/preflight-quality", auth, async (req, res) => {
+  try {
+    const { orderId, amount, message, completionDate, priceIncludes, isFinalPrice, contactMethod } = req.body || {};
+    if (!orderId) return res.status(400).json({ message: "Brak orderId" });
+
+    const provider = await User.findById(req.user._id).lean();
+    if (!provider || provider.role !== 'provider') {
+      return res.status(403).json({ message: "Tylko providerzy mogą używać preflight AI" });
+    }
+
+    const order = await Order.findById(orderId).lean();
+    if (!order) return res.status(404).json({ message: "Zlecenie nie istnieje" });
+
+    const quality = await evaluateOfferPreflight({
+      orderContext: {
+        service: typeof order.service === 'object' ? order.service?.code : order.service,
+        description: order.description || '',
+        urgency: order.urgency || 'normal',
+        location: order.location?.city || order.location?.address || '',
+        budget: order.budget || order.budgetRange || null
+      },
+      offerDraft: {
+        amount,
+        message,
+        completionDate,
+        priceIncludes,
+        isFinalPrice,
+        contactMethod,
+        providerLevel: provider.providerLevel || provider.providerTier || 'standard'
+      }
+    });
+
+    return res.json({ quality });
+  } catch (e) {
+    logger.error("OFFERS_PREFLIGHT_QUALITY_ERROR:", {
+      message: e.message,
+      stack: e.stack,
+      orderId: req.body?.orderId,
+      providerId: req.user?._id
+    });
+    return res.status(500).json({ message: "Błąd preflight quality" });
   }
 });
 

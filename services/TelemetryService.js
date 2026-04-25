@@ -33,6 +33,9 @@ class TelemetryService {
       OFFER_FORM_START: 'offer_form_start',
       OFFER_STEP_VIEW: 'offer_step_view',
       OFFER_FORM_SUBMIT: 'offer_form_submit',
+      PROVIDER_AI_MESSAGE_PREFLIGHT_BLOCKED: 'provider_ai_message_preflight_blocked',
+      PROVIDER_AI_MESSAGE_PREFLIGHT_OVERRIDE: 'provider_ai_message_preflight_override',
+      PROVIDER_AI_MESSAGE_SENT: 'provider_ai_message_sent',
       
       // Payment flow
       PAYMENT_INTENT_CREATED: 'payment_intent_created',

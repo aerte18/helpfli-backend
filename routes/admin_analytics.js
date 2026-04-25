@@ -166,7 +166,10 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
       aiProcessAgg,
       aiOfferStatsAgg,
       aiOfferQualitySummaryAgg,
-      aiOfferQualityBuckets
+      aiOfferQualityBuckets,
+      aiMessagePreflightBlocked,
+      aiMessagePreflightOverride,
+      aiMessagePreflightByMode
     ] = await Promise.all([
       AIAnalytics.aggregate([
         { $match: aiMatch },
@@ -423,6 +426,25 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
           }
         },
         { $sort: { _id: -1 } }
+      ]),
+      Event.countDocuments({ ...eventMatch, type: 'provider_ai_message_preflight_blocked' }),
+      Event.countDocuments({ ...eventMatch, type: 'provider_ai_message_preflight_override' }),
+      Event.aggregate([
+        {
+          $match: {
+            ...eventMatch,
+            type: { $in: ['provider_ai_message_preflight_blocked', 'provider_ai_message_preflight_override', 'provider_ai_message_sent'] }
+          }
+        },
+        {
+          $group: {
+            _id: {
+              mode: { $ifNull: ['$properties.mode', 'unknown'] },
+              type: '$type'
+            },
+            count: { $sum: 1 }
+          }
+        }
       ])
     ]);
 
@@ -453,6 +475,25 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
       sentWithWarnings: 0,
       acceptedMeasuredOffers: 0
     };
+    const preflightModeMap = {};
+    for (const row of aiMessagePreflightByMode || []) {
+      const mode = row?._id?.mode || 'unknown';
+      const type = row?._id?.type || '';
+      const count = Number(row?.count || 0);
+      if (!preflightModeMap[mode]) {
+        preflightModeMap[mode] = { mode, blocked: 0, override: 0, sent: 0 };
+      }
+      if (type === 'provider_ai_message_preflight_blocked') preflightModeMap[mode].blocked += count;
+      if (type === 'provider_ai_message_preflight_override') preflightModeMap[mode].override += count;
+      if (type === 'provider_ai_message_sent') preflightModeMap[mode].sent += count;
+    }
+    const preflightByMode = Object.values(preflightModeMap)
+      .map((row) => ({
+        ...row,
+        overrideRate: rate(row.override, row.blocked),
+        blockRatePerSent: rate(row.blocked, row.sent)
+      }))
+      .sort((a, b) => (b.blocked || 0) - (a.blocked || 0));
 
     res.json({
       range: { from: from.format('YYYY-MM-DD'), to: to.format('YYYY-MM-DD') },
@@ -515,6 +556,12 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
             acceptanceRate: rate(row.accepted || 0, row.count),
             avgAmount: row.avgAmount != null ? Math.round(row.avgAmount) : null
           }))
+        },
+        messagePreflight: {
+          blocked: aiMessagePreflightBlocked,
+          override: aiMessagePreflightOverride,
+          overrideRate: rate(aiMessagePreflightOverride, aiMessagePreflightBlocked),
+          byMode: preflightByMode
         }
       },
       topErrors: topErrors.map((row) => ({

@@ -8,6 +8,7 @@ const User = require('../models/User');
 const aiPricingService = require('../services/ai_pricing_service');
 const claudeService = require('../services/claude');
 const { remember } = require('../utils/cache');
+const { evaluateProviderMessagePreflight } = require('../ai/utils/preflightQualityEvaluator');
 
 /**
  * POST /api/ai/advanced/pricing-advice
@@ -221,6 +222,48 @@ router.post('/offer-chat', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Offer chat error:', error);
     res.status(500).json({ message: error.message || 'Błąd AI chat' });
+  }
+});
+
+/**
+ * POST /api/ai/advanced/offer-message-preflight
+ * AI pre-send quality check dla wiadomosci providera
+ */
+router.post('/offer-message-preflight', authMiddleware, async (req, res) => {
+  try {
+    const { orderId, message, assistantMode = 'offer' } = req.body || {};
+    if (!orderId || !message) {
+      return res.status(400).json({ message: 'Brak orderId lub message' });
+    }
+
+    const user = await User.findById(req.user._id).lean();
+    if (!user || user.role !== 'provider') {
+      return res.status(403).json({ message: 'Tylko wykonawcy mogą używać preflight AI' });
+    }
+
+    const order = await Order.findById(orderId).lean();
+    if (!order) {
+      return res.status(404).json({ message: 'Zlecenie nie znalezione' });
+    }
+
+    const quality = await evaluateProviderMessagePreflight({
+      orderContext: {
+        service: typeof order.service === 'object' ? order.service?.code : order.service,
+        urgency: order.urgency || 'normal',
+        location: order.location?.city || order.location?.address || '',
+        budget: order.budgetRange || order.budget || null,
+        attachments: order.attachments?.length || 0
+      },
+      draft: {
+        message,
+        assistantMode
+      }
+    });
+
+    return res.json({ quality });
+  } catch (error) {
+    console.error('Offer message preflight error:', error);
+    return res.status(500).json({ message: error.message || 'Błąd preflight wiadomości' });
   }
 });
 

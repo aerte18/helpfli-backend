@@ -7,6 +7,7 @@ const { ORDER_DRAFT_SYSTEM } = require('../prompts/orderDraftPrompt');
 const { callAgentLLM, safeParseJSON } = require('../utils/llmAdapter');
 const { validateOrderDraftResponse } = require('../schemas/conciergeSchemas');
 const { normalizeUrgency, normalizeServiceName } = require('../utils/normalize');
+const { evaluateOrderDraftPreflight } = require('../utils/preflightQualityEvaluator');
 
 /**
  * Główna funkcja agenta Order Draft
@@ -63,7 +64,7 @@ async function runOrderDraftAgent({ messages, extracted = {}, detectedService, u
     const nextPrompt = pickNextPrompt(missing, extracted, orderPayload);
     const quickReplies = buildQuickReplies(nextPrompt, urgency);
     const providerBrief = buildProviderBrief(orderPayload, extracted, missing);
-    const quality = calculateDraftQuality(orderPayload, extracted, missing);
+    const quality = await evaluateOrderDraftPreflight({ orderPayload, extracted, missing });
     const contextSnapshot = buildContextSnapshot(orderPayload, extracted, userMessages);
     
     return {
@@ -309,24 +310,6 @@ function buildProviderQuestions(orderPayload = {}, extracted = {}) {
   if (!orderPayload.preferredTime) questions.push('Kiedy wykonawca może przyjechać?');
   if (!orderPayload.budget) questions.push('Czy klient ma orientacyjny budżet?');
   return questions.slice(0, 3);
-}
-
-function calculateDraftQuality(orderPayload = {}, extracted = {}, missing = []) {
-  const checks = [
-    { key: 'service', ok: !!orderPayload.service && orderPayload.service !== 'inne', label: 'wybrana usługa' },
-    { key: 'description', ok: !!orderPayload.description && orderPayload.description.length >= 25, label: 'konkretny opis' },
-    { key: 'location', ok: !!orderPayload.location, label: 'lokalizacja' },
-    { key: 'timeWindow', ok: !!orderPayload.preferredTime, label: 'termin' },
-    { key: 'attachments', ok: (orderPayload.attachments || extracted.attachments || []).length > 0, label: 'zdjęcia' }
-  ];
-  const passed = checks.filter((item) => item.ok);
-  const percent = Math.round((passed.length / checks.length) * 100);
-  return {
-    percent,
-    level: percent >= 80 ? 'pro' : percent >= 60 ? 'good' : 'basic',
-    missingForPro: checks.filter((item) => !item.ok).map((item) => item.label),
-    blockerMissing: missing
-  };
 }
 
 module.exports = {
