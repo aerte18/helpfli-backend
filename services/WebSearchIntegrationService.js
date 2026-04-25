@@ -3,8 +3,6 @@
  * Automatyczne wyszukiwanie w internecie dla rzadkich problemów
  */
 
-const webSearchService = require('./webSearchService');
-
 class WebSearchIntegrationService {
   /**
    * Sprawdź czy problem wymaga wyszukiwania w internecie
