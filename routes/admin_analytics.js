@@ -10,6 +10,7 @@ const UserSubscription = require('../models/UserSubscription');
 const Coupon = require('../models/Coupon');
 const Event = require('../models/Event');
 const TelemetryService = require('../services/TelemetryService');
+const AIAnalytics = require('../models/AIAnalytics');
 
 function dateOnly(d) { return dayjs(d).format('YYYY-MM-DD'); }
 
@@ -129,6 +130,164 @@ router.get('/summary', authMiddleware, requireRole('admin'), async (req, res) =>
     topServices,
     heatmap: heatRaw
   });
+});
+
+// GET /api/admin/analytics/ai-insights?from=YYYY-MM-DD&to=YYYY-MM-DD
+router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res) => {
+  try {
+    const from = req.query.from ? dayjs(req.query.from) : dayjs().subtract(30, 'day');
+    const to = req.query.to ? dayjs(req.query.to) : dayjs();
+    const start = from.startOf('day').toDate();
+    const end = to.endOf('day').toDate();
+
+    const aiMatch = { createdAt: { $gte: start, $lte: end } };
+    const orderMatch = { createdAt: { $gte: start, $lte: end } };
+
+    const [
+      aiSummaryAgg,
+      agentBreakdown,
+      nextSteps,
+      detectedServices,
+      ordersFromAi,
+      ordersWithAiBrief,
+      safetyAlerts,
+      avgBriefQualityAgg,
+      qualityLevels,
+      aiOrdersByService,
+      dailyAiRequests,
+      dailyAiOrders,
+      topErrors
+    ] = await Promise.all([
+      AIAnalytics.aggregate([
+        { $match: aiMatch },
+        {
+          $group: {
+            _id: null,
+            requests: { $sum: 1 },
+            successful: { $sum: { $cond: ['$success', 1, 0] } },
+            failed: { $sum: { $cond: ['$success', 0, 1] } },
+            avgResponseTime: { $avg: '$responseTime' },
+            uniqueSessions: { $addToSet: '$sessionId' },
+            avgConfidence: { $avg: '$quality.confidence' }
+          }
+        },
+        {
+          $project: {
+            _id: 0,
+            requests: 1,
+            successful: 1,
+            failed: 1,
+            avgResponseTime: { $round: ['$avgResponseTime', 0] },
+            uniqueSessions: { $size: '$uniqueSessions' },
+            avgConfidence: { $round: ['$avgConfidence', 3] }
+          }
+        }
+      ]),
+      AIAnalytics.aggregate([
+        { $match: aiMatch },
+        { $group: { _id: '$agent', count: { $sum: 1 }, avgMs: { $avg: '$responseTime' }, failures: { $sum: { $cond: ['$success', 0, 1] } } } },
+        { $sort: { count: -1 } }
+      ]),
+      AIAnalytics.aggregate([
+        { $match: aiMatch },
+        { $group: { _id: '$metadata.nextStep', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 12 }
+      ]),
+      AIAnalytics.aggregate([
+        { $match: aiMatch },
+        { $group: { _id: '$metadata.detectedService', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 12 }
+      ]),
+      Order.countDocuments({ ...orderMatch, source: 'ai' }),
+      Order.countDocuments({ ...orderMatch, 'aiBrief.title': { $exists: true, $ne: '' } }),
+      Order.countDocuments({ ...orderMatch, 'aiBrief.safety.flag': true }),
+      Order.aggregate([
+        { $match: { ...orderMatch, 'aiBrief.quality.percent': { $exists: true } } },
+        { $group: { _id: null, avg: { $avg: '$aiBrief.quality.percent' }, count: { $sum: 1 } } },
+        { $project: { _id: 0, avg: { $round: ['$avg', 0] }, count: 1 } }
+      ]),
+      Order.aggregate([
+        { $match: { ...orderMatch, 'aiBrief.quality.level': { $exists: true, $ne: '' } } },
+        { $group: { _id: '$aiBrief.quality.level', count: { $sum: 1 } } },
+        { $sort: { count: -1 } }
+      ]),
+      Order.aggregate([
+        { $match: { ...orderMatch, source: 'ai' } },
+        { $group: { _id: '$service', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 10 }
+      ]),
+      AIAnalytics.aggregate([
+        { $match: aiMatch },
+        { $project: { date: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, success: '$success' } },
+        { $group: { _id: '$date', requests: { $sum: 1 }, failed: { $sum: { $cond: ['$success', 0, 1] } } } },
+        { $sort: { _id: 1 } }
+      ]),
+      Order.aggregate([
+        { $match: { ...orderMatch, source: 'ai' } },
+        { $project: { date: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } } } },
+        { $group: { _id: '$date', orders: { $sum: 1 } } },
+        { $sort: { _id: 1 } }
+      ]),
+      AIAnalytics.aggregate([
+        { $match: { ...aiMatch, success: false } },
+        { $group: { _id: { type: '$errorType', error: '$error' }, count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 10 }
+      ])
+    ]);
+
+    const aiSummary = aiSummaryAgg[0] || {
+      requests: 0,
+      successful: 0,
+      failed: 0,
+      avgResponseTime: 0,
+      uniqueSessions: 0,
+      avgConfidence: null
+    };
+    const avgBriefQuality = avgBriefQualityAgg[0] || { avg: 0, count: 0 };
+
+    res.json({
+      range: { from: from.format('YYYY-MM-DD'), to: to.format('YYYY-MM-DD') },
+      kpi: {
+        requests: aiSummary.requests,
+        uniqueSessions: aiSummary.uniqueSessions,
+        successRate: aiSummary.requests ? Number((aiSummary.successful / aiSummary.requests).toFixed(4)) : null,
+        failureRate: aiSummary.requests ? Number((aiSummary.failed / aiSummary.requests).toFixed(4)) : null,
+        avgResponseTime: aiSummary.avgResponseTime,
+        avgConfidence: aiSummary.avgConfidence,
+        ordersFromAi,
+        ordersWithAiBrief,
+        aiOrderShare: ordersFromAi ? Number((ordersWithAiBrief / ordersFromAi).toFixed(4)) : null,
+        safetyAlerts,
+        avgBriefQuality: avgBriefQuality.avg,
+        briefsMeasured: avgBriefQuality.count
+      },
+      agentBreakdown: agentBreakdown.map((row) => ({
+        agent: row._id || 'unknown',
+        count: row.count,
+        avgMs: Math.round(row.avgMs || 0),
+        failures: row.failures || 0,
+        failureRate: row.count ? Number(((row.failures || 0) / row.count).toFixed(4)) : 0
+      })),
+      nextSteps: nextSteps.filter((row) => row._id).map((row) => ({ nextStep: row._id, count: row.count })),
+      detectedServices: detectedServices.filter((row) => row._id).map((row) => ({ service: row._id, count: row.count })),
+      qualityLevels: qualityLevels.map((row) => ({ level: row._id || 'unknown', count: row.count })),
+      aiOrdersByService: aiOrdersByService.map((row) => ({ service: row._id || 'unknown', count: row.count })),
+      dailyAiRequests,
+      dailyAiOrders,
+      topErrors: topErrors.map((row) => ({
+        type: row._id?.type || 'other',
+        error: row._id?.error || '',
+        count: row.count
+      }))
+    });
+  } catch (error) {
+    console.error('AI_INSIGHTS_ERROR:', error);
+    res.status(500).json({ message: 'Błąd analityki AI' });
+  }
 });
 
 // GET /api/admin/analytics/pro-conversion - analiza konwersji do PRO

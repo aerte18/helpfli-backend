@@ -74,7 +74,10 @@ async function runMatchingAgent({ service, urgency = 'standard', budget = null, 
         const rating = provider.rating || provider.avgRating || 0;
         const providerName = provider.name || provider.companyName || provider.displayName || 'Wykonawca';
         const providerLevel = provider.level || provider.providerTier || 'basic';
-        const isAvailable = provider.isAvailable || provider.availableNow || provider.provider_status?.isOnline || false;
+        const isAvailable = provider.isAvailable || provider.availableNow || provider.provider_status?.isOnline || provider.isOnline || false;
+        const completedOrders = provider.completedOrders || provider.completed || 0;
+        const successRate = provider.successRate || null;
+        const baseRankingScore = provider.score || null;
         
         // Oblicz fitScore (0-1)
         const fitScore = calculateFitScore({
@@ -83,30 +86,25 @@ async function runMatchingAgent({ service, urgency = 'standard', budget = null, 
           availability: isAvailable,
           level: providerLevel,
           recommendedLevel,
-          urgency
+          urgency,
+          completedOrders,
+          successRate,
+          baseRankingScore
         });
-        
-        // Uzasadnienie wyboru
-        const reasons = [];
-        if (rating >= 4.5) {
-          reasons.push('Najwyższa ocena w okolicy');
-        } else if (rating >= 4.0) {
-          reasons.push('Wysoka ocena');
-        }
-        if (distance < 5) {
-          reasons.push('Bardzo blisko');
-        } else if (distance < 10) {
-          reasons.push('W pobliżu');
-        }
-        if (isAvailable && urgency === 'urgent') {
-          reasons.push('Dostępny teraz');
-        }
-        if (providerLevel === recommendedLevel) {
-          reasons.push(`Poziom ${recommendedLevel} zgodny z potrzebami`);
-        }
-        if (provider.verified) {
-          reasons.push('Zweryfikowany wykonawca');
-        }
+
+        const match = buildMatchExplanation({
+          provider,
+          service,
+          urgency,
+          rating,
+          distance,
+          isAvailable,
+          providerLevel,
+          recommendedLevel,
+          completedOrders,
+          successRate,
+          fitScore
+        });
         
         return {
           providerId: String(provider._id || provider.id),
@@ -114,10 +112,22 @@ async function runMatchingAgent({ service, urgency = 'standard', budget = null, 
           rating,
           distanceKm: distance,
           level: providerLevel,
-          reason: reasons.length > 0 ? reasons.slice(0, 2) : ['Dostępny w Twojej okolicy'],
-          fitScore
+          verified: !!provider.verified,
+          isAvailable,
+          completedOrders,
+          successRate,
+          reason: match.reasons,
+          fitScore,
+          matchScore: match.percent,
+          matchLevel: match.level,
+          matchLabel: match.label,
+          matchReasons: match.reasons,
+          matchHighlights: match.highlights,
+          matchSummary: match.summary,
+          nextBestAction: match.nextBestAction
         };
       });
+      topProviders.sort((a, b) => b.matchScore - a.matchScore);
       
     } catch (error) {
       console.warn('Could not fetch providers from DB:', error.message);
@@ -180,28 +190,129 @@ function getRecommendedLevel(budget) {
   return 'pro';
 }
 
-function calculateFitScore({ rating, distance, availability, level, recommendedLevel, urgency }) {
-  let score = 0.5; // Base score
-  
-  // Rating (0-0.3)
-  score += (rating / 5.0) * 0.3;
-  
-  // Distance (0-0.2)
-  if (distance < 5) score += 0.2;
-  else if (distance < 10) score += 0.1;
-  
-  // Availability (0-0.2)
-  if (availability && urgency === 'urgent') score += 0.2;
+function calculateFitScore({ rating, distance, availability, level, recommendedLevel, urgency, completedOrders = 0, successRate = null, baseRankingScore = null }) {
+  let score = 0.35; // Base score
+
+  // Rating (0-0.22)
+  score += (Math.min(Number(rating) || 0, 5) / 5.0) * 0.22;
+
+  // Distance (0-0.18)
+  if (distance === null || distance === undefined || Number(distance) === 0) score += 0.08;
+  else if (distance < 5) score += 0.18;
+  else if (distance < 10) score += 0.12;
+  else if (distance < 20) score += 0.06;
+
+  // Availability (0-0.18)
+  if (availability && urgency === 'urgent') score += 0.18;
   else if (availability) score += 0.1;
-  
-  // Level match (0-0.2)
-  if (level === recommendedLevel) score += 0.2;
+
+  // Level match (0-0.14)
+  if (level === recommendedLevel) score += 0.14;
   else if (recommendedLevel === 'standard' && level === 'pro') score += 0.1;
-  
+  else if (level === 'pro') score += 0.06;
+
+  // Track record (0-0.13)
+  if (completedOrders >= 20) score += 0.08;
+  else if (completedOrders >= 5) score += 0.05;
+  if (successRate !== null && successRate >= 80) score += 0.05;
+
+  // Existing ranking signal from recommendProviders (0-0.1)
+  if (baseRankingScore !== null) {
+    score += Math.min(Math.max(Number(baseRankingScore) || 0, 0), 100) / 1000;
+  }
+
   return Math.min(1.0, Math.max(0.0, score));
 }
 
+function buildMatchExplanation({ provider, service, urgency, rating, distance, isAvailable, providerLevel, recommendedLevel, completedOrders, successRate, fitScore }) {
+  const percent = Math.round(fitScore * 100);
+  const reasons = [];
+  const highlights = [];
+
+  reasons.push(`Pasuje do usługi: ${humanizeService(service)}`);
+  highlights.push({ type: 'service', label: 'Usługa', detail: humanizeService(service) });
+
+  if (rating >= 4.7) {
+    reasons.push(`Bardzo wysoka ocena ${rating.toFixed(1)}/5`);
+    highlights.push({ type: 'rating', label: 'Ocena', detail: `${rating.toFixed(1)}/5` });
+  } else if (rating >= 4.2) {
+    reasons.push(`Dobra ocena ${rating.toFixed(1)}/5`);
+    highlights.push({ type: 'rating', label: 'Ocena', detail: `${rating.toFixed(1)}/5` });
+  }
+
+  if (distance && distance < 5) {
+    reasons.push(`Bardzo blisko klienta (${distance.toFixed(1)} km)`);
+    highlights.push({ type: 'distance', label: 'Blisko', detail: `${distance.toFixed(1)} km` });
+  } else if (distance && distance < 12) {
+    reasons.push(`W rozsądnej odległości (${distance.toFixed(1)} km)`);
+    highlights.push({ type: 'distance', label: 'Dystans', detail: `${distance.toFixed(1)} km` });
+  }
+
+  if (isAvailable && urgency === 'urgent') {
+    reasons.push('Dostępny teraz przy pilnym problemie');
+    highlights.push({ type: 'availability', label: 'Dostępność', detail: 'teraz' });
+  } else if (isAvailable) {
+    reasons.push('Aktualnie dostępny');
+    highlights.push({ type: 'availability', label: 'Dostępność', detail: 'online' });
+  }
+
+  if (providerLevel === recommendedLevel) {
+    reasons.push(`Poziom ${recommendedLevel} pasuje do zakresu zlecenia`);
+  } else if (providerLevel === 'pro') {
+    reasons.push('Wykonawca PRO dla bardziej wymagających zleceń');
+  }
+
+  if (completedOrders >= 20) {
+    reasons.push(`Duże doświadczenie: ${completedOrders} zakończonych zleceń`);
+    highlights.push({ type: 'experience', label: 'Doświadczenie', detail: `${completedOrders} zleceń` });
+  } else if (completedOrders >= 5) {
+    reasons.push(`${completedOrders} zakończonych zleceń w historii`);
+  }
+
+  if (successRate >= 80) {
+    reasons.push(`Wysoka skuteczność realizacji (${successRate}%)`);
+  }
+
+  if (provider.verified) {
+    reasons.push('Zweryfikowany wykonawca');
+  }
+
+  const level = percent >= 90 ? 'excellent' : percent >= 80 ? 'strong' : percent >= 65 ? 'good' : 'basic';
+  const label = {
+    excellent: 'Najlepsze dopasowanie',
+    strong: 'Bardzo dobre dopasowanie',
+    good: 'Dobre dopasowanie',
+    basic: 'Podstawowe dopasowanie'
+  }[level];
+
+  return {
+    percent,
+    level,
+    label,
+    reasons: reasons.slice(0, 5),
+    highlights: highlights.slice(0, 4),
+    summary: `${percent}% dopasowania: ${reasons.slice(0, 3).join(', ')}.`,
+    nextBestAction: urgency === 'urgent' && isAvailable
+      ? 'Wyślij pilne zapytanie'
+      : 'Poproś o wycenę'
+  };
+}
+
+function humanizeService(service = '') {
+  const labels = {
+    'agd-rtv-naprawa-agd': 'naprawa AGD',
+    'agd-rtv-naprawa-rtv': 'naprawa RTV',
+    hydraulik_naprawa: 'hydraulik',
+    elektryk_naprawa: 'elektryk',
+    zlota_raczka: 'złota rączka',
+    sprzatanie: 'sprzątanie',
+    remont: 'remont'
+  };
+  return labels[service] || String(service || 'wybrana usługa').replace(/[-_]/g, ' ');
+}
+
 module.exports = {
-  runMatchingAgent
+  runMatchingAgent,
+  calculateFitScore
 };
 

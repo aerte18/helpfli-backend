@@ -1542,6 +1542,28 @@ router.patch('/:id', auth, loadOrderById, async (req, res) => {
 });
 
 // GET /api/orders/:id - szczegóły zlecenia
+router.get('/:id/ai-followup', auth, loadOrderById, async (req, res) => {
+  try {
+    const order = req.order;
+    const userId = req.user._id.toString();
+    const isClient = order.client && order.client.toString() === userId;
+    const isAssignedProvider = order.provider && order.provider.toString() === userId;
+    const isMarketplaceProvider = req.user.role === 'provider';
+
+    if (!isClient && !isAssignedProvider && !isMarketplaceProvider && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Brak uprawnień' });
+    }
+
+    const { buildOrderFollowup } = require('../ai/utils/orderFollowup');
+    const viewerRole = isClient ? 'client' : 'provider';
+    const followup = buildOrderFollowup(order.toObject ? order.toObject() : order, viewerRole);
+    return res.json({ ok: true, followup });
+  } catch (error) {
+    console.error('AI followup error:', error);
+    return res.status(500).json({ message: 'Nie udało się pobrać podpowiedzi AI' });
+  }
+});
+
 // GET /api/orders/:id/timeline - historia zmian statusu zlecenia
 router.get('/:id/timeline', auth, async (req, res) => {
   try {
