@@ -10,6 +10,14 @@ const { isCompanyProPlan } = require('../utils/companyPro');
 const { isOfferQualifiedByPolicy, sanitizeFollowupMessage, normalizeThresholdHours } = require('../utils/companyProOps');
 
 let isRunning = false;
+const cronHealth = {
+  scheduledSpec: null,
+  lastRunStartedAt: null,
+  lastRunFinishedAt: null,
+  lastStatus: 'never',
+  lastError: null,
+  lastStats: null
+};
 
 function getMemberIds(company) {
   return [
@@ -42,6 +50,9 @@ async function runCompanyProAutoFollowupOnce() {
 
   isRunning = true;
   const startedAt = Date.now();
+  cronHealth.lastRunStartedAt = new Date(startedAt);
+  cronHealth.lastStatus = 'running';
+  cronHealth.lastError = null;
   const stats = {
     companiesScanned: 0,
     companiesEligible: 0,
@@ -189,9 +200,16 @@ async function runCompanyProAutoFollowupOnce() {
       metadata: { source: 'company_pro_auto_followup_cron' }
     });
 
+    cronHealth.lastRunFinishedAt = new Date();
+    cronHealth.lastStatus = 'ok';
+    cronHealth.lastStats = { ...stats, elapsedMs };
     logger.info('[CRON][COMPANY_PRO] Auto-followup run completed', { ...stats, elapsedMs });
     return { success: true, ...stats, elapsedMs };
   } catch (error) {
+    cronHealth.lastRunFinishedAt = new Date();
+    cronHealth.lastStatus = 'error';
+    cronHealth.lastError = error.message;
+    cronHealth.lastStats = { ...stats };
     logger.error('[CRON][COMPANY_PRO] Auto-followup run failed', error);
     return { success: false, error: error.message, ...stats };
   } finally {
@@ -201,6 +219,7 @@ async function runCompanyProAutoFollowupOnce() {
 
 function scheduleCompanyProAutoFollowupCron() {
   const spec = process.env.COMPANY_PRO_AUTOFOLLOWUP_CRON || '*/30 * * * *';
+  cronHealth.scheduledSpec = spec;
   cron.schedule(spec, async () => {
     await runCompanyProAutoFollowupOnce();
   }, { timezone: 'Europe/Warsaw' });
@@ -208,7 +227,15 @@ function scheduleCompanyProAutoFollowupCron() {
   logger.info(`[CRON][COMPANY_PRO] Auto-followup scheduled: ${spec}`);
 }
 
+function getCompanyProAutoFollowupCronHealth() {
+  return {
+    ...cronHealth,
+    isRunning
+  };
+}
+
 module.exports = {
   runCompanyProAutoFollowupOnce,
-  scheduleCompanyProAutoFollowupCron
+  scheduleCompanyProAutoFollowupCron,
+  getCompanyProAutoFollowupCronHealth
 };

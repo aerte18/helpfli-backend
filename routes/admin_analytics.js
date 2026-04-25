@@ -13,6 +13,7 @@ const Event = require('../models/Event');
 const Offer = require('../models/Offer');
 const TelemetryService = require('../services/TelemetryService');
 const AIAnalytics = require('../models/AIAnalytics');
+const { getCompanyProAutoFollowupCronHealth } = require('../jobs/companyProAutoFollowupCron');
 
 function dateOnly(d) { return dayjs(d).format('YYYY-MM-DD'); }
 
@@ -181,7 +182,8 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
       companyAiAutoFollowupCronRuns,
       companyAiSlaBreachDetected,
       companyAiSlaBreachFirstOffer,
-      companyAiSlaBreachQualifiedOffer
+      companyAiSlaBreachQualifiedOffer,
+      companyPlanComparisonAgg
     ] = await Promise.all([
       AIAnalytics.aggregate([
         { $match: aiMatch },
@@ -524,7 +526,98 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
       Event.countDocuments({ ...eventMatch, type: 'company_ai_auto_followup_cron_run' }),
       Event.countDocuments({ ...eventMatch, type: 'company_ai_sla_breach_detected' }),
       Event.countDocuments({ ...eventMatch, type: 'company_ai_sla_breach_detected', 'properties.breachType': 'first_offer' }),
-      Event.countDocuments({ ...eventMatch, type: 'company_ai_sla_breach_detected', 'properties.breachType': 'qualified_offer' })
+      Event.countDocuments({ ...eventMatch, type: 'company_ai_sla_breach_detected', 'properties.breachType': 'qualified_offer' }),
+      Order.aggregate([
+        {
+          $match: {
+            ...orderMatch,
+            source: 'ai'
+          }
+        },
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'client',
+            foreignField: '_id',
+            as: 'clientUser'
+          }
+        },
+        { $unwind: { path: '$clientUser', preserveNullAndEmptyArrays: true } },
+        {
+          $lookup: {
+            from: 'companies',
+            localField: 'clientUser.company',
+            foreignField: '_id',
+            as: 'companyDoc'
+          }
+        },
+        { $unwind: { path: '$companyDoc', preserveNullAndEmptyArrays: true } },
+        {
+          $addFields: {
+            companySegment: {
+              $cond: [
+                {
+                  $and: [
+                    { $eq: ['$companyDoc.subscription.isActive', true] },
+                    { $in: [{ $toLower: { $ifNull: ['$companyDoc.subscription.plan', ''] } }, ['premium', 'pro']] }
+                  ]
+                },
+                'pro',
+                'non_pro'
+              ]
+            }
+          }
+        },
+        {
+          $lookup: {
+            from: 'offers',
+            localField: '_id',
+            foreignField: 'orderId',
+            as: 'offerDocs'
+          }
+        },
+        {
+          $project: {
+            companySegment: 1,
+            createdAt: 1,
+            offerCount: { $size: '$offerDocs' },
+            hasOffer: { $gt: [{ $size: '$offerDocs' }, 0] },
+            accepted: {
+              $or: [
+                { $ne: ['$acceptedOfferId', null] },
+                { $in: ['$status', ['accepted', 'funded', 'in_progress', 'completed', 'released', 'rated']] }
+              ]
+            },
+            firstOfferAt: { $min: '$offerDocs.createdAt' }
+          }
+        },
+        {
+          $addFields: {
+            firstOfferHours: {
+              $cond: [
+                { $and: ['$hasOffer', { $ne: ['$firstOfferAt', null] }] },
+                {
+                  $divide: [
+                    { $subtract: ['$firstOfferAt', '$createdAt'] },
+                    1000 * 60 * 60
+                  ]
+                },
+                null
+              ]
+            }
+          }
+        },
+        {
+          $group: {
+            _id: '$companySegment',
+            orders: { $sum: 1 },
+            ordersWithOffers: { $sum: { $cond: ['$hasOffer', 1, 0] } },
+            acceptedOrders: { $sum: { $cond: ['$accepted', 1, 0] } },
+            avgFirstOfferHours: { $avg: '$firstOfferHours' },
+            avgOffersPerOrder: { $avg: '$offerCount' }
+          }
+        }
+      ])
     ]);
 
     const aiSummary = aiSummaryAgg[0] || {
@@ -580,6 +673,26 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
         blockRatePerSent: rate(row.blocked, row.sent)
       }))
       .sort((a, b) => (b.blocked || 0) - (a.blocked || 0));
+    const companyPlanComparisonMap = {};
+    for (const row of companyPlanComparisonAgg || []) {
+      const key = row?._id === 'pro' ? 'pro' : 'non_pro';
+      companyPlanComparisonMap[key] = {
+        orders: Number(row?.orders || 0),
+        ordersWithOffers: Number(row?.ordersWithOffers || 0),
+        acceptedOrders: Number(row?.acceptedOrders || 0),
+        avgFirstOfferHours: row?.avgFirstOfferHours != null ? Number(Number(row.avgFirstOfferHours).toFixed(2)) : null,
+        avgOffersPerOrder: row?.avgOffersPerOrder != null ? Number(Number(row.avgOffersPerOrder).toFixed(2)) : null
+      };
+    }
+    const emptyCompanySegment = {
+      orders: 0,
+      ordersWithOffers: 0,
+      acceptedOrders: 0,
+      avgFirstOfferHours: null,
+      avgOffersPerOrder: null
+    };
+    const proSegment = companyPlanComparisonMap.pro || emptyCompanySegment;
+    const nonProSegment = companyPlanComparisonMap.non_pro || emptyCompanySegment;
 
     // Skuteczność auto follow-up: czy po auto follow-up pojawiła się oferta z jakością >= 45% w oknie 24h.
     const autoFollowupEvents = await Event.find({
@@ -737,6 +850,18 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
           followupPerShortlistRate: rate(companyAiFollowupSent, companyAiShortlistGenerated),
           autoFollowupPerShortlistRate: rate(companyAiAutoFollowupSent, companyAiShortlistGenerated),
           slaBreachRateVsShortlist: rate(companyAiSlaBreachDetected, companyAiShortlistGenerated)
+        },
+        companyPlanComparison: {
+          pro: {
+            ...proSegment,
+            offerCoverageRate: rate(proSegment.ordersWithOffers, proSegment.orders),
+            acceptanceRate: rate(proSegment.acceptedOrders, proSegment.orders)
+          },
+          nonPro: {
+            ...nonProSegment,
+            offerCoverageRate: rate(nonProSegment.ordersWithOffers, nonProSegment.orders),
+            acceptanceRate: rate(nonProSegment.acceptedOrders, nonProSegment.orders)
+          }
         }
       },
       topErrors: topErrors.map((row) => ({
@@ -761,6 +886,28 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
   } catch (error) {
     console.error('AI_INSIGHTS_ERROR:', error);
     res.status(500).json({ message: 'Błąd analityki AI' });
+  }
+});
+
+// GET /api/admin/analytics/company-pro-cron-health - heartbeat auto follow-up cron
+router.get('/company-pro-cron-health', authMiddleware, requireRole('admin'), async (_req, res) => {
+  try {
+    const health = getCompanyProAutoFollowupCronHealth();
+    const staleAfterMinutes = Math.max(5, Math.min(240, Number(process.env.COMPANY_PRO_AUTOFOLLOWUP_HEALTH_STALE_MINUTES || 90)));
+    const now = Date.now();
+    const lastFinishedTs = health?.lastRunFinishedAt ? new Date(health.lastRunFinishedAt).getTime() : 0;
+    const stale = !health.isRunning && lastFinishedTs > 0
+      ? (now - lastFinishedTs) > (staleAfterMinutes * 60 * 1000)
+      : false;
+
+    return res.json({
+      success: true,
+      staleAfterMinutes,
+      stale,
+      health
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Błąd pobierania health cron', error: error.message });
   }
 });
 
