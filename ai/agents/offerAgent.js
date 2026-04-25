@@ -19,6 +19,8 @@ async function runOfferAgent({ orderContext, providerInfo, existingOffers = [], 
       .map((m) => m.content || m.text || '')
       .pop() || '';
     const assistantMode = orderContext.assistantMode || 'offer';
+    const isCompanyProMode = assistantMode === 'company_pro';
+    const procurementPolicy = orderContext.procurementPolicy || {};
     const wantsFollowup = assistantMode === 'followup' || /(follow|przypomn|ponowi|odezw|brak odpowiedzi|nie odpowied)/i.test(lastProviderMessage);
     const wantsSchedule = /(termin|godzin|kiedy|umów|umow|przyjazd)/i.test(lastProviderMessage);
     const wantsQuestions = assistantMode === 'risks' || /(pytan|dopyta|zapyta|brakuje|doprecyz|ryzyk)/i.test(lastProviderMessage);
@@ -138,14 +140,16 @@ async function runOfferAgent({ orderContext, providerInfo, existingOffers = [], 
       'Cena i termin są podane konkretnie',
       'Zakres prac jest jasny dla klienta',
       'Wiadomo, czy materiały i dojazd są w cenie',
-      'Oferta zawiera krótki powód, dlaczego warto wybrać Ciebie'
+      'Oferta zawiera krótki powód, dlaczego warto wybrać Ciebie',
+      ...(isCompanyProMode && procurementPolicy.requiresInvoice ? ['Uwzględniono informację o fakturze VAT'] : []),
+      ...(isCompanyProMode && procurementPolicy.requiresWarranty ? ['Uwzględniono zakres gwarancji'] : [])
     ];
 
     // Krótkie pierwsze zdanie do klienta (do karty „Komunikacja”)
     let firstMessageSuggestion = `Dzień dobry, zapoznałem się ze zleceniem i mogę pomóc${urgency === 'now' || urgency === 'today' ? ' w szybkim terminie' : ''}.`;
     
     // Generuj przykładową wiadomość
-    let suggestedMessage = `Dzień dobry! Zapoznałem się ze zleceniem i mogę je wykonać.
+    let suggestedMessage = `${isCompanyProMode ? 'Dzień dobry, dziękuję za przesłanie zapytania.' : 'Dzień dobry! Zapoznałem się ze zleceniem i mogę je wykonać.'}
 
 **Zakres prac:**
 - ${service || 'Wykonanie usługi zgodnie z opisem'}
@@ -196,6 +200,8 @@ Po odpowiedzi przygotuję konkretną realizację i termin.`;
     // Wskazówki
     const tips = [
       aiHandoffNote ? 'Użyj kontekstu z rozmowy AI - klient nie powinien powtarzać tych samych informacji.' : null,
+      isCompanyProMode && procurementPolicy.requiresInvoice ? 'Dodaj informację o możliwości wystawienia faktury VAT.' : null,
+      isCompanyProMode && procurementPolicy.requiresWarranty ? 'Wprost opisz zakres gwarancji i czas jej obowiązywania.' : null,
       'Bądź konkretny w opisie zakresu prac',
       'Zaproponuj kilka opcji cenowych jeśli możliwe',
       'Zapytaj o dodatkowe szczegóły jeśli potrzebne',

@@ -3,11 +3,12 @@ const router = express.Router();
 const { authMiddleware } = require('../middleware/authMiddleware');
 const User = require('../models/User');
 const UserSubscription = require('../models/UserSubscription');
+const { getCompanyProContext } = require('../utils/companyPro');
 
 // POST /api/provider-ai-chat - chat AI dla providerów
 router.post('/', authMiddleware, async (req, res) => {
   try {
-    const { message, orderId } = req.body;
+    const { message, orderId, assistantMode = 'offer' } = req.body;
     
     if (!message) {
       return res.status(400).json({ message: 'Brak wiadomości' });
@@ -110,6 +111,7 @@ router.post('/', authMiddleware, async (req, res) => {
     // Użyj nowego Provider AI Handler z agentami
     let aiResponse = null;
     let agentPayload = null;
+    let assistantModeUsed = 'offer';
     
     try {
       const { runProviderOrchestrator } = require('../ai/agents/providerOrchestrator');
@@ -123,13 +125,20 @@ router.post('/', authMiddleware, async (req, res) => {
         { role: 'user', content: message }
       ];
       
+      const companyProContext = await getCompanyProContext(req.user._id);
+      const shouldUseCompanyPro = Boolean(companyProContext.eligible && assistantMode === 'company_pro');
+      assistantModeUsed = shouldUseCompanyPro ? 'company_pro' : 'offer';
+
       // Przygotuj kontekst
       const orderContext = orderDetails ? {
         service: typeof orderDetails.service === 'object' ? orderDetails.service?.code : orderDetails.service,
         description: orderDetails.description,
         urgency: orderDetails.urgency,
         location: orderDetails.location?.city || orderDetails.location || null,
-        budget: orderDetails.budget ? { min: orderDetails.budget * 0.8, max: orderDetails.budget * 1.2 } : null
+        budget: orderDetails.budget ? { min: orderDetails.budget * 0.8, max: orderDetails.budget * 1.2 } : null,
+        assistantMode: shouldUseCompanyPro ? 'company_pro' : 'offer',
+        companyContext: shouldUseCompanyPro ? { companyId: companyProContext.companyId } : null,
+        procurementPolicy: shouldUseCompanyPro ? companyProContext.procurementPolicy : null
       } : {};
       
       const providerInfo = {
@@ -144,7 +153,8 @@ router.post('/', authMiddleware, async (req, res) => {
       const orchestratorResult = await runProviderOrchestrator({
         messages,
         orderContext,
-        providerInfo
+        providerInfo,
+        assistantMode: shouldUseCompanyPro ? 'company_pro' : 'offer'
       });
       
       // Główna odpowiedź = naturalna wypowiedź (jak u klienta). Szczegóły w agents.
@@ -234,6 +244,7 @@ router.post('/', authMiddleware, async (req, res) => {
     res.json({
       response: aiResponse,
       agents: agentPayload || {},
+      assistantModeUsed,
       package: packageType,
       usage: {
         used: usage?.providerAiChatQueries || 0,

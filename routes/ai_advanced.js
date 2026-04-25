@@ -9,6 +9,7 @@ const aiPricingService = require('../services/ai_pricing_service');
 const claudeService = require('../services/claude');
 const { remember } = require('../utils/cache');
 const { evaluateProviderMessagePreflight } = require('../ai/utils/preflightQualityEvaluator');
+const { getCompanyProContext } = require('../utils/companyPro');
 
 /**
  * POST /api/ai/advanced/pricing-advice
@@ -70,9 +71,12 @@ router.post('/offer-chat', authMiddleware, async (req, res) => {
       orderId,
       providerId: req.user._id
     }).lean();
-    const normalizedAssistantMode = ['offer', 'pricing', 'risks', 'negotiation', 'followup'].includes(assistantMode)
-      ? assistantMode
-      : 'offer';
+    const companyProContext = await getCompanyProContext(req.user._id);
+    const isCompanyManagerFlow = ['company_owner', 'company_manager'].includes(user.role) || ['owner', 'manager'].includes(user.roleInCompany);
+    const shouldUseCompanyPro = companyProContext.eligible && (assistantMode === 'company_pro' || isCompanyManagerFlow);
+    const normalizedAssistantMode = shouldUseCompanyPro
+      ? 'company_pro'
+      : (['offer', 'pricing', 'risks', 'negotiation', 'followup'].includes(assistantMode) ? assistantMode : 'offer');
 
     // Przygotuj kontekst dla AI
     const context = {
@@ -127,7 +131,9 @@ router.post('/offer-chat', authMiddleware, async (req, res) => {
           questionsForProvider: order.aiBrief.questionsForProvider || [],
           contextSnapshot: order.aiBrief.contextSnapshot || null,
           safety: order.aiBrief.safety || null
-        } : null
+        } : null,
+        companyContext: shouldUseCompanyPro ? { companyId: companyProContext.companyId } : null,
+        procurementPolicy: shouldUseCompanyPro ? companyProContext.procurementPolicy : null
       };
       
       const providerInfo = {
@@ -178,6 +184,8 @@ router.post('/offer-chat', authMiddleware, async (req, res) => {
         response: messageText,
         message: messageText,
         agents,
+        assistantModeUsed: normalizedAssistantMode,
+        companyPro: { eligible: companyProContext.eligible, active: shouldUseCompanyPro },
         suggestions: agents.offer?.suggestedScope || [],
         tips: agents.offer?.tips || agents.pricing?.tips || [],
         timestamp: new Date().toISOString()

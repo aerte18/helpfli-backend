@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const dayjs = require('dayjs');
+const mongoose = require('mongoose');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const { requireRole } = require('../middleware/roles');
 const Order = require('../models/Order');
@@ -173,7 +174,14 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
       aiOfferFormPreflightBlocked,
       aiOfferFormPreflightOverride,
       aiOfferFormSubmitStatsAgg,
-      aiOfferFormSubmitDailyAgg
+      aiOfferFormSubmitDailyAgg,
+      companyAiShortlistGenerated,
+      companyAiFollowupSent,
+      companyAiAutoFollowupSent,
+      companyAiAutoFollowupCronRuns,
+      companyAiSlaBreachDetected,
+      companyAiSlaBreachFirstOffer,
+      companyAiSlaBreachQualifiedOffer
     ] = await Promise.all([
       AIAnalytics.aggregate([
         { $match: aiMatch },
@@ -509,7 +517,14 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
           }
         },
         { $sort: { date: 1 } }
-      ])
+      ]),
+      Event.countDocuments({ ...eventMatch, type: 'company_ai_shortlist_generated' }),
+      Event.countDocuments({ ...eventMatch, type: 'company_ai_followup_sent' }),
+      Event.countDocuments({ ...eventMatch, type: 'company_ai_auto_followup_sent' }),
+      Event.countDocuments({ ...eventMatch, type: 'company_ai_auto_followup_cron_run' }),
+      Event.countDocuments({ ...eventMatch, type: 'company_ai_sla_breach_detected' }),
+      Event.countDocuments({ ...eventMatch, type: 'company_ai_sla_breach_detected', 'properties.breachType': 'first_offer' }),
+      Event.countDocuments({ ...eventMatch, type: 'company_ai_sla_breach_detected', 'properties.breachType': 'qualified_offer' })
     ]);
 
     const aiSummary = aiSummaryAgg[0] || {
@@ -565,6 +580,60 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
         blockRatePerSent: rate(row.blocked, row.sent)
       }))
       .sort((a, b) => (b.blocked || 0) - (a.blocked || 0));
+
+    // Skuteczność auto follow-up: czy po auto follow-up pojawiła się oferta z jakością >= 45% w oknie 24h.
+    const autoFollowupEvents = await Event.find({
+      ...eventMatch,
+      type: 'company_ai_auto_followup_sent'
+    })
+      .select('createdAt properties.orderId')
+      .lean();
+
+    const firstAutoFollowupByOrder = new Map();
+    for (const ev of autoFollowupEvents || []) {
+      const orderId = String(ev?.properties?.orderId || '');
+      if (!orderId) continue;
+      const current = firstAutoFollowupByOrder.get(orderId);
+      const candidateTs = new Date(ev.createdAt).getTime();
+      if (!current || candidateTs < current.createdAtTs) {
+        firstAutoFollowupByOrder.set(orderId, { createdAtTs: candidateTs, createdAt: new Date(ev.createdAt) });
+      }
+    }
+
+    const autoFollowupOrderIds = Array.from(firstAutoFollowupByOrder.keys())
+      .filter((id) => mongoose.Types.ObjectId.isValid(id));
+
+    let autoFollowupSuccessWithin12h = 0;
+    let autoFollowupSuccessWithin24h = 0;
+    let autoFollowupSuccessWithin48h = 0;
+    if (autoFollowupOrderIds.length > 0) {
+      const offersAfterAutoFollowup = await Offer.find({
+        orderId: { $in: autoFollowupOrderIds },
+        'aiQuality.percent': { $gte: 45 }
+      })
+        .select('orderId createdAt aiQuality.percent')
+        .lean();
+
+      const successOrders12h = new Set();
+      const successOrders24h = new Set();
+      const successOrders48h = new Set();
+      for (const offer of offersAfterAutoFollowup || []) {
+        const orderId = String(offer?.orderId || '');
+        const trigger = firstAutoFollowupByOrder.get(orderId);
+        if (!trigger) continue;
+        const offerTs = new Date(offer.createdAt).getTime();
+        const diffMs = offerTs - trigger.createdAtTs;
+        if (diffMs < 0) continue;
+        if (diffMs <= 12 * 60 * 60 * 1000) successOrders12h.add(orderId);
+        if (diffMs <= 24 * 60 * 60 * 1000) successOrders24h.add(orderId);
+        if (diffMs <= 48 * 60 * 60 * 1000) successOrders48h.add(orderId);
+      }
+      autoFollowupSuccessWithin12h = successOrders12h.size;
+      autoFollowupSuccessWithin24h = successOrders24h.size;
+      autoFollowupSuccessWithin48h = successOrders48h.size;
+    }
+
+    const autoFollowupTrackedOrders = autoFollowupOrderIds.length;
 
     res.json({
       range: { from: from.format('YYYY-MM-DD'), to: to.format('YYYY-MM-DD') },
@@ -649,6 +718,25 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
             sentWithOverride: Number(row.sentWithOverride || 0),
             overrideRate: rate(Number(row.sentWithOverride || 0), Number(row.sent || 0))
           }))
+        },
+        companyPro: {
+          shortlistGenerated: companyAiShortlistGenerated,
+          followupSent: companyAiFollowupSent,
+          autoFollowupSent: companyAiAutoFollowupSent,
+          autoFollowupCronRuns: companyAiAutoFollowupCronRuns,
+          autoFollowupTrackedOrders,
+          autoFollowupSuccessWithin12h,
+          autoFollowupSuccessWithin12hRate: rate(autoFollowupSuccessWithin12h, autoFollowupTrackedOrders),
+          autoFollowupSuccessWithin24h,
+          autoFollowupSuccessWithin24hRate: rate(autoFollowupSuccessWithin24h, autoFollowupTrackedOrders),
+          autoFollowupSuccessWithin48h,
+          autoFollowupSuccessWithin48hRate: rate(autoFollowupSuccessWithin48h, autoFollowupTrackedOrders),
+          slaBreaches: companyAiSlaBreachDetected,
+          slaBreachesFirstOffer: companyAiSlaBreachFirstOffer,
+          slaBreachesQualifiedOffer: companyAiSlaBreachQualifiedOffer,
+          followupPerShortlistRate: rate(companyAiFollowupSent, companyAiShortlistGenerated),
+          autoFollowupPerShortlistRate: rate(companyAiAutoFollowupSent, companyAiShortlistGenerated),
+          slaBreachRateVsShortlist: rate(companyAiSlaBreachDetected, companyAiShortlistGenerated)
         }
       },
       topErrors: topErrors.map((row) => ({

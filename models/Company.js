@@ -57,6 +57,18 @@ const companySchema = new mongoose.Schema({
     defaultProviderLevel: { type: String, enum: ['basic', 'standard', 'pro'], default: 'basic' },
     maxProviders: { type: Number, default: 50 } // maksymalna liczba providerów
   },
+  procurementPolicy: {
+    minRating: { type: Number, default: null },
+    maxBudget: { type: Number, default: null },
+    requiresWarranty: { type: Boolean, default: false },
+    requiresInvoice: { type: Boolean, default: false },
+    formalTone: { type: Boolean, default: true },
+    slaFirstOfferHours: { type: Number, default: 8 },
+    slaThresholdHours: { type: Number, default: 24 },
+    autoFollowupEnabled: { type: Boolean, default: false },
+    maxAutoFollowupsPerDay: { type: Number, default: 3 },
+    updatedAt: { type: Date, default: null }
+  },
   
   // Subskrypcja firmy
   subscription: {

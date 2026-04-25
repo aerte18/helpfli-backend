@@ -28,7 +28,10 @@ async function runProviderOrchestrator({ messages, orderContext = {}, providerIn
     const wantsWin = /(wygra|szans|konkurenc|lepiej|skuteczn)/i.test(userText);
     const wantsQuestions = /(pytan|dopyta|zapyta|brakuje|doprecyz)/i.test(userText);
 
-    if (assistantMode === 'pricing') {
+    if (assistantMode === 'company_pro') {
+      intent = 'create_offer';
+      nextStep = 'suggest_offer';
+    } else if (assistantMode === 'pricing') {
       intent = 'pricing';
       nextStep = 'suggest_pricing';
     } else if (['risks', 'negotiation', 'followup'].includes(assistantMode)) {
@@ -75,7 +78,10 @@ async function runProviderOrchestrator({ messages, orderContext = {}, providerIn
       console.warn('LLM provider orchestrator failed, using heuristic:', llmError.message);
     }
 
-    if (assistantMode === 'pricing') {
+    if (assistantMode === 'company_pro') {
+      intent = 'create_offer';
+      nextStep = 'suggest_offer';
+    } else if (assistantMode === 'pricing') {
       intent = 'pricing';
       nextStep = 'suggest_pricing';
     } else if (['risks', 'negotiation', 'followup'].includes(assistantMode)) {
@@ -100,6 +106,7 @@ async function runProviderOrchestrator({ messages, orderContext = {}, providerIn
       pricing: 'Pomogę Ci dobrać konkurencyjną cenę do tego zlecenia.',
       communication: 'Pokażę Ci, jak lepiej się komunikować z klientem.',
       find_orders: 'Sprawdzam zlecenia najlepiej dopasowane do Ciebie.',
+      company_pro: 'Przygotuję ofertę w trybie firmowym PRO z naciskiem na SLA, formalny ton i wymagania firmy.',
       general: 'Jak mogę Ci pomóc przy tym zleceniu?'
     };
     const fallbackReply = replies[intent] || 'Jak mogę Ci pomóc?';
@@ -133,6 +140,7 @@ async function runProviderOrchestrator({ messages, orderContext = {}, providerIn
 function modeToIntent(mode = 'offer') {
   const map = {
     offer: { intent: 'create_offer', nextStep: 'suggest_offer' },
+    company_pro: { intent: 'create_offer', nextStep: 'suggest_offer' },
     pricing: { intent: 'pricing', nextStep: 'suggest_pricing' },
     risks: { intent: 'communication', nextStep: 'communication_help' },
     negotiation: { intent: 'communication', nextStep: 'communication_help' },

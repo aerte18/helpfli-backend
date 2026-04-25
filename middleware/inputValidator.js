@@ -246,6 +246,7 @@ const validateTelemetry = [
            'offer_form_start', 'offer_step_view', 'offer_form_submit',
            'offer_form_preflight_blocked', 'offer_form_preflight_override',
            'provider_ai_message_preflight_blocked', 'provider_ai_message_preflight_override', 'provider_ai_message_sent',
+           'company_ai_shortlist_generated', 'company_ai_followup_sent', 'company_ai_auto_followup_sent', 'company_ai_auto_followup_cron_run', 'company_ai_sla_breach_detected',
            'payment_intent_created', 'payment_succeeded', 'payment_failed',
            'login', 'register', 'onboarding_completed', 'dispute_reported', 'refund_requested',
            'client_api_error'])

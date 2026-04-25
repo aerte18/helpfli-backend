@@ -2,11 +2,22 @@ const express = require('express');
 const mongoose = require('mongoose');
 const Company = require('../models/Company');
 const User = require('../models/User');
+const Order = require('../models/Order');
+const Offer = require('../models/Offer');
 const CompanyRole = require('../models/CompanyRole');
 const CompanyJoinRequest = require('../models/CompanyJoinRequest');
 const { auth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
 const router = express.Router();
+const TelemetryService = require('../services/TelemetryService');
+const {
+  isValidObjectId,
+  normalizeTopN,
+  normalizeThresholdHours,
+  sanitizeFollowupMessage,
+  isOfferQualifiedByPolicy
+} = require('../utils/companyProOps');
+const { getCompanyProContext, normalizeProcurementPolicy } = require('../utils/companyPro');
 
 // Debug middleware - loguj wszystkie requesty
 router.use((req, res, next) => {
@@ -103,6 +114,59 @@ router.get('/', auth, async (req, res) => {
 // GET /api/companies/:companyId - Szczegóły firmy
 // WAŻNE: Wszystkie specyficzne routy muszą być PRZED /:companyId, żeby Express je dopasował pierwsze
 // Express sprawdza routy w kolejności definicji i pierwszy pasujący route jest używany
+
+// GET /api/companies/:companyId/procurement-policy
+router.get('/:companyId/procurement-policy', auth, requireCompanyAccess, async (req, res) => {
+  try {
+    const company = await Company.findById(req.params.companyId).select('procurementPolicy').lean();
+    if (!company) {
+      return res.status(404).json({ success: false, message: 'Firma nie znaleziona' });
+    }
+    const companyPro = await getCompanyProContext(req.user._id);
+    return res.json({
+      success: true,
+      policy: normalizeProcurementPolicy(company.procurementPolicy || {}),
+      companyPro: {
+        eligible: Boolean(companyPro.eligible),
+        source: companyPro.source || 'none'
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Błąd pobierania polityki zakupowej', error: error.message });
+  }
+});
+
+// PATCH /api/companies/:companyId/procurement-policy
+router.patch('/:companyId/procurement-policy', auth, requireCompanyAccess, async (req, res) => {
+  try {
+    if (!req.companyAccess?.canManage) {
+      return res.status(403).json({ success: false, message: 'Brak uprawnień do edycji polityki zakupowej' });
+    }
+    const companyPro = await getCompanyProContext(req.user._id);
+    if (!companyPro.eligible) {
+      return res.status(403).json({ success: false, message: 'Ta funkcja jest dostępna w planie firmowym PRO' });
+    }
+    const policy = normalizeProcurementPolicy(req.body || {});
+    const company = await Company.findByIdAndUpdate(
+      req.params.companyId,
+      {
+        $set: {
+          procurementPolicy: {
+            ...policy,
+            updatedAt: new Date()
+          }
+        }
+      },
+      { new: true }
+    ).select('procurementPolicy');
+    if (!company) {
+      return res.status(404).json({ success: false, message: 'Firma nie znaleziona' });
+    }
+    return res.json({ success: true, policy: normalizeProcurementPolicy(company.procurementPolicy || {}) });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Błąd zapisu polityki zakupowej', error: error.message });
+  }
+});
 
 // GET /api/companies/:companyId/invoices - Lista faktur
 console.log('[COMPANIES_ROUTER] Registering route: GET /:companyId/invoices');
@@ -786,6 +850,468 @@ router.get('/:companyId/orders', auth, requireCompanyAccess, async (req, res) =>
   } catch (error) {
     console.error('COMPANY_ORDERS_ERROR:', error);
     res.status(500).json({ success: false, message: 'Błąd pobierania zleceń firmy', error: error.message });
+  }
+});
+
+// GET /api/companies/:companyId/orders/:orderId/shortlist - AI shortlist ofert dla zlecenia firmy (PRO)
+router.get('/:companyId/orders/:orderId/shortlist', auth, requireCompanyAccess, async (req, res) => {
+  try {
+    const companyId = req.companyId || req.params.companyId;
+    const { orderId } = req.params;
+    if (!isValidObjectId(orderId)) {
+      return res.status(400).json({ success: false, message: 'Nieprawidłowe ID zlecenia' });
+    }
+    const topN = normalizeTopN(req.query.topN, 5);
+
+    const company = await Company.findById(companyId)
+      .populate('owner', '_id')
+      .populate('managers', '_id')
+      .populate('providers', '_id')
+      .lean();
+    if (!company) {
+      return res.status(404).json({ success: false, message: 'Firma nie znaleziona' });
+    }
+
+    const memberIds = [
+      ...(company.owner?._id ? [String(company.owner._id)] : []),
+      ...((company.managers || []).map((m) => String(m._id || m))),
+      ...((company.providers || []).map((p) => String(p._id || p)))
+    ];
+
+    const order = await Order.findById(orderId).lean();
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Zlecenie nie znalezione' });
+    }
+    if (!memberIds.includes(String(order.client))) {
+      return res.status(403).json({ success: false, message: 'To zlecenie nie należy do Twojej firmy' });
+    }
+
+    const offers = await Offer.find({ orderId: order._id })
+      .populate('providerId', 'name email rating ratingAvg vatInvoice providerLevel providerTier verified')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const policy = company.procurementPolicy || {};
+    const minRating = Number(policy.minRating);
+    const maxBudget = Number(policy.maxBudget);
+    const requiresInvoice = Boolean(policy.requiresInvoice);
+    const requiresWarranty = Boolean(policy.requiresWarranty);
+    const targetBudget = Number(order?.budgetRange?.max || order?.budget || 0);
+
+    const shortlist = offers.map((offer) => {
+      const provider = offer.providerId || {};
+      const providerRating = Number(provider.ratingAvg || provider.rating || 0);
+      const amount = Number(offer.amount || offer.price || 0);
+      const quality = Number(offer?.aiQuality?.percent || 0);
+      const hasInvoice = Boolean(provider.vatInvoice);
+      const hasWarranty = Boolean(offer.hasGuarantee) || /gwaranc/i.test(String(offer.notes || offer.message || ''));
+      const policyQualified = isOfferQualifiedByPolicy(offer, policy);
+
+      // Shortlist v2: jawne składowe score, żeby ranking był przewidywalny i audytowalny.
+      const qualityScore = Math.max(0, Math.min(40, Math.round(quality * 0.4)));
+      const ratingScore = Math.max(0, Math.min(20, Math.round(providerRating * 4)));
+      let priceFitScore = 8;
+      let policyFitScore = 0;
+      let riskPenalty = 0;
+
+      if (targetBudget > 0 && amount > 0) {
+        const diffRatio = Math.abs(amount - targetBudget) / targetBudget;
+        priceFitScore = Math.max(0, 20 - Math.round(diffRatio * 20));
+      }
+
+      if (Number.isFinite(minRating) && minRating > 0) {
+        policyFitScore += providerRating >= minRating ? 8 : -8;
+      }
+      if (Number.isFinite(maxBudget) && maxBudget > 0 && amount > 0) {
+        policyFitScore += amount <= maxBudget ? 10 : -10;
+      }
+      if (requiresInvoice) {
+        policyFitScore += hasInvoice ? 8 : -8;
+      }
+      if (requiresWarranty) {
+        policyFitScore += hasWarranty ? 8 : -8;
+      }
+      if (offer.aiQuality?.lowQualityOverride) riskPenalty += 5;
+      if (!policyQualified) riskPenalty += 6;
+
+      const rawScore = qualityScore + ratingScore + priceFitScore + policyFitScore - riskPenalty;
+      const normalizedScore = Math.max(0, Math.min(100, Math.round(rawScore)));
+
+      const fitReasons = [
+        policyQualified ? 'Spełnia politykę zakupową firmy' : 'Częściowo niespełniona polityka zakupowa',
+        quality > 0 ? `AI quality: ${quality}%` : null,
+        providerRating > 0 ? `Ocena wykonawcy: ${providerRating.toFixed(1)}` : null,
+        amount > 0 ? `Cena oferty: ${amount} PLN` : null,
+        requiresInvoice ? (hasInvoice ? 'Spełnia wymóg faktury VAT' : 'Brak faktury VAT') : null,
+        requiresWarranty ? (hasWarranty ? 'Spełnia wymóg gwarancji' : 'Brak deklaracji gwarancji') : null
+      ].filter(Boolean);
+
+      const risks = [
+        Number.isFinite(minRating) && minRating > 0 && providerRating > 0 && providerRating < minRating
+          ? `Ocena wykonawcy poniżej wymogu (${providerRating.toFixed(1)} < ${minRating.toFixed(1)})`
+          : null,
+        Number.isFinite(maxBudget) && maxBudget > 0 && amount > maxBudget
+          ? `Cena przekracza max budżet policy (${amount} > ${maxBudget})`
+          : null,
+        requiresInvoice && !hasInvoice ? 'Oferta nie deklaruje faktury VAT' : null,
+        requiresWarranty && !hasWarranty ? 'Oferta nie deklaruje gwarancji' : null
+      ].filter(Boolean).slice(0, 3);
+
+      return {
+        offerId: offer._id,
+        providerId: provider._id || null,
+        providerName: provider.name || 'Wykonawca',
+        providerEmail: provider.email || '',
+        amount,
+        status: offer.status,
+        quality,
+        score: normalizedScore,
+        policyQualified,
+        scoreBreakdown: {
+          qualityScore,
+          ratingScore,
+          priceFitScore,
+          policyFitScore,
+          riskPenalty
+        },
+        recommendation: policyQualified && normalizedScore >= 75 ? 'strong_match' : (policyQualified ? 'good_match' : 'review_required'),
+        fitReasons: fitReasons.slice(0, 5),
+        risks,
+        createdAt: offer.createdAt
+      };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, topN)
+    .map((row, index) => ({ rank: index + 1, ...row }));
+
+    await TelemetryService.track('company_ai_shortlist_generated', {
+      userId: req.user._id,
+      properties: {
+        companyId: String(companyId),
+        orderId: String(order._id),
+        offersAnalyzed: offers.length,
+        shortlistCount: shortlist.length
+      },
+      metadata: { source: 'companies_shortlist_endpoint' }
+    });
+
+    return res.json({
+      success: true,
+      orderId: String(order._id),
+      policy: {
+        minRating: Number.isFinite(minRating) ? minRating : null,
+        maxBudget: Number.isFinite(maxBudget) ? maxBudget : null,
+        requiresInvoice,
+        requiresWarranty
+      },
+      shortlist
+    });
+  } catch (error) {
+    console.error('COMPANY_ORDER_SHORTLIST_ERROR:', error);
+    return res.status(500).json({ success: false, message: 'Błąd generowania shortlisty ofert', error: error.message });
+  }
+});
+
+async function sendCompanyOrderFollowupInternal({
+  companyId,
+  order,
+  offers,
+  actorUserId,
+  message,
+  telemetryType = 'company_ai_followup_sent',
+  telemetrySource = 'companies_followup_endpoint'
+}) {
+  const Notification = require('../models/Notification');
+  const now = new Date();
+  const minGapMs = 12 * 60 * 60 * 1000;
+  let sent = 0;
+  for (const offer of offers) {
+    const existingRecent = await Notification.findOne({
+      user: offer.providerId,
+      type: 'system_announcement',
+      'metadata.followupType': 'company_order_followup',
+      'metadata.orderId': String(order._id),
+      createdAt: { $gte: new Date(now.getTime() - minGapMs) }
+    }).lean();
+    if (existingRecent) continue;
+
+    await Notification.create({
+      user: offer.providerId,
+      type: 'system_announcement',
+      title: 'Follow-up od firmy',
+      message,
+      link: `/orders/${order._id}`,
+      metadata: {
+        followupType: 'company_order_followup',
+        companyId: String(companyId),
+        orderId: String(order._id),
+        offerId: String(offer._id),
+        sentBy: String(actorUserId),
+        sentAt: now
+      }
+    });
+    sent += 1;
+  }
+
+  await TelemetryService.track(telemetryType, {
+    userId: actorUserId,
+    properties: {
+      companyId: String(companyId),
+      orderId: String(order._id),
+      offersConsidered: offers.length,
+      notificationsSent: sent
+    },
+    metadata: { source: telemetrySource }
+  });
+
+  return {
+    offersConsidered: offers.length,
+    notificationsSent: sent,
+    cooldownHours: 12
+  };
+}
+
+// GET /api/companies/:companyId/orders/:orderId/sla-status - status SLA dla zlecenia firmy
+router.get('/:companyId/orders/:orderId/sla-status', auth, requireCompanyAccess, async (req, res) => {
+  try {
+    const companyId = req.companyId || req.params.companyId;
+    const { orderId } = req.params;
+    if (!isValidObjectId(orderId)) {
+      return res.status(400).json({ success: false, message: 'Nieprawidłowe ID zlecenia' });
+    }
+    const queryThreshold = req.query.thresholdHours;
+    const queryFirstOfferThreshold = req.query.firstOfferThresholdHours;
+
+    const company = await Company.findById(companyId)
+      .populate('owner', '_id')
+      .populate('managers', '_id')
+      .populate('providers', '_id')
+      .lean();
+    if (!company) return res.status(404).json({ success: false, message: 'Firma nie znaleziona' });
+
+    const memberIds = [
+      ...(company.owner?._id ? [String(company.owner._id)] : []),
+      ...((company.managers || []).map((m) => String(m._id || m))),
+      ...((company.providers || []).map((p) => String(p._id || p)))
+    ];
+
+    const order = await Order.findById(orderId).lean();
+    if (!order) return res.status(404).json({ success: false, message: 'Zlecenie nie znalezione' });
+    if (!memberIds.includes(String(order.client))) {
+      return res.status(403).json({ success: false, message: 'To zlecenie nie należy do Twojej firmy' });
+    }
+
+    const offers = await Offer.find({ orderId: order._id })
+      .populate('providerId', 'rating ratingAvg vatInvoice')
+      .lean();
+    const policy = company.procurementPolicy || {};
+    const firstOfferThresholdHours = normalizeThresholdHours(queryFirstOfferThreshold, Number(policy.slaFirstOfferHours || 8));
+    const thresholdHours = normalizeThresholdHours(queryThreshold, Number(policy.slaThresholdHours || 24));
+    const firstOfferAt = offers
+      .map((o) => new Date(o.createdAt))
+      .filter((d) => !Number.isNaN(d.getTime()))
+      .sort((a, b) => a - b)[0] || null;
+    const qualifiedOffers = offers.filter((o) => isOfferQualifiedByPolicy(o, policy));
+    const firstQualifiedAt = qualifiedOffers
+      .map((o) => new Date(o.createdAt))
+      .filter((d) => !Number.isNaN(d.getTime()))
+      .sort((a, b) => a - b)[0] || null;
+
+    const startedAt = new Date(order.createdAt);
+    const now = new Date();
+    const elapsedHours = Math.max(0, (now.getTime() - startedAt.getTime()) / 36e5);
+    const firstOfferBreached = !firstOfferAt && elapsedHours >= firstOfferThresholdHours;
+    const qualifiedOfferBreached = !firstQualifiedAt && elapsedHours >= thresholdHours;
+    const breached = firstOfferBreached || qualifiedOfferBreached;
+    const breachType = qualifiedOfferBreached ? 'qualified_offer' : (firstOfferBreached ? 'first_offer' : null);
+    const timeToFirstOfferHours = firstOfferAt ? Number(((firstOfferAt.getTime() - startedAt.getTime()) / 36e5).toFixed(2)) : null;
+    const timeToFirstQualifiedHours = firstQualifiedAt ? Number(((firstQualifiedAt.getTime() - startedAt.getTime()) / 36e5).toFixed(2)) : null;
+
+    if (breached) {
+      await TelemetryService.track('company_ai_sla_breach_detected', {
+        userId: req.user._id,
+        properties: {
+          companyId: String(companyId),
+          orderId: String(order._id),
+          breachType,
+          firstOfferThresholdHours,
+          thresholdHours,
+          elapsedHours: Number(elapsedHours.toFixed(2)),
+          offersTotal: offers.length
+        },
+        metadata: { source: 'companies_sla_status' }
+      });
+    }
+
+    return res.json({
+      success: true,
+      sla: {
+        firstOfferThresholdHours,
+        thresholdHours,
+        elapsedHours: Number(elapsedHours.toFixed(2)),
+        breached,
+        breachType,
+        offersTotal: offers.length,
+        timeToFirstOfferHours,
+        qualifiedOffers: qualifiedOffers.length,
+        timeToFirstQualifiedHours
+      }
+    });
+  } catch (error) {
+    console.error('COMPANY_SLA_STATUS_ERROR:', error);
+    return res.status(500).json({ success: false, message: 'Błąd pobierania statusu SLA', error: error.message });
+  }
+});
+
+// POST /api/companies/:companyId/orders/:orderId/followup - follow-up do wykonawców ofert
+router.post('/:companyId/orders/:orderId/followup', auth, requireCompanyAccess, async (req, res) => {
+  try {
+    const companyId = req.companyId || req.params.companyId;
+    const { orderId } = req.params;
+    if (!isValidObjectId(orderId)) {
+      return res.status(400).json({ success: false, message: 'Nieprawidłowe ID zlecenia' });
+    }
+    const message = sanitizeFollowupMessage(req.body?.message);
+
+    const company = await Company.findById(companyId)
+      .populate('owner', '_id')
+      .populate('managers', '_id')
+      .populate('providers', '_id')
+      .lean();
+    if (!company) return res.status(404).json({ success: false, message: 'Firma nie znaleziona' });
+
+    const memberIds = [
+      ...(company.owner?._id ? [String(company.owner._id)] : []),
+      ...((company.managers || []).map((m) => String(m._id || m))),
+      ...((company.providers || []).map((p) => String(p._id || p)))
+    ];
+
+    const order = await Order.findById(orderId).lean();
+    if (!order) return res.status(404).json({ success: false, message: 'Zlecenie nie znalezione' });
+    if (!memberIds.includes(String(order.client))) {
+      return res.status(403).json({ success: false, message: 'To zlecenie nie należy do Twojej firmy' });
+    }
+
+    const offers = await Offer.find({ orderId: order._id, status: { $in: ['sent'] } })
+      .select('_id providerId createdAt')
+      .lean();
+    const followupSummary = await sendCompanyOrderFollowupInternal({
+      companyId,
+      order,
+      offers,
+      actorUserId: req.user._id,
+      message
+    });
+
+    return res.json({
+      success: true,
+      followup: followupSummary
+    });
+  } catch (error) {
+    console.error('COMPANY_ORDER_FOLLOWUP_ERROR:', error);
+    return res.status(500).json({ success: false, message: 'Błąd wysyłki follow-up', error: error.message });
+  }
+});
+
+// POST /api/companies/:companyId/orders/:orderId/followup/auto-check - warunkowy auto follow-up wg SLA/policy
+router.post('/:companyId/orders/:orderId/followup/auto-check', auth, requireCompanyAccess, async (req, res) => {
+  try {
+    const companyId = req.companyId || req.params.companyId;
+    const { orderId } = req.params;
+    if (!isValidObjectId(orderId)) {
+      return res.status(400).json({ success: false, message: 'Nieprawidłowe ID zlecenia' });
+    }
+
+    const company = await Company.findById(companyId)
+      .populate('owner', '_id')
+      .populate('managers', '_id')
+      .populate('providers', '_id')
+      .lean();
+    if (!company) return res.status(404).json({ success: false, message: 'Firma nie znaleziona' });
+    const policy = company.procurementPolicy || {};
+    if (!policy.autoFollowupEnabled) {
+      return res.status(400).json({ success: false, message: 'Auto follow-up jest wyłączony w polityce firmy' });
+    }
+
+    const memberIds = [
+      ...(company.owner?._id ? [String(company.owner._id)] : []),
+      ...((company.managers || []).map((m) => String(m._id || m))),
+      ...((company.providers || []).map((p) => String(p._id || p)))
+    ];
+
+    const order = await Order.findById(orderId).lean();
+    if (!order) return res.status(404).json({ success: false, message: 'Zlecenie nie znalezione' });
+    if (!memberIds.includes(String(order.client))) {
+      return res.status(403).json({ success: false, message: 'To zlecenie nie należy do Twojej firmy' });
+    }
+
+    const offers = await Offer.find({ orderId: order._id, status: { $in: ['sent'] } })
+      .populate('providerId', 'rating ratingAvg vatInvoice')
+      .lean();
+    const qualifiedOffers = offers.filter((o) => isOfferQualifiedByPolicy(o, policy));
+    const firstOfferThresholdHours = normalizeThresholdHours(policy.slaFirstOfferHours, 8);
+    const thresholdHours = normalizeThresholdHours(policy.slaThresholdHours, 24);
+    const elapsedHours = Math.max(0, (Date.now() - new Date(order.createdAt).getTime()) / 36e5);
+    const firstOfferBreached = offers.length === 0 && elapsedHours >= firstOfferThresholdHours;
+    const qualifiedOfferBreached = qualifiedOffers.length === 0 && elapsedHours >= thresholdHours;
+    const breached = firstOfferBreached || qualifiedOfferBreached;
+    const breachType = qualifiedOfferBreached ? 'qualified_offer' : (firstOfferBreached ? 'first_offer' : null);
+    if (!breached) {
+      return res.json({
+        success: true,
+        autoFollowup: {
+          triggered: false,
+          reason: 'sla_not_breached',
+          elapsedHours: Number(elapsedHours.toFixed(2)),
+          thresholdHours,
+          firstOfferThresholdHours
+        }
+      });
+    }
+
+    const Notification = require('../models/Notification');
+    const dayStart = new Date();
+    dayStart.setHours(0, 0, 0, 0);
+    const sentToday = await Notification.countDocuments({
+      type: 'system_announcement',
+      'metadata.followupType': 'company_order_followup',
+      'metadata.companyId': String(companyId),
+      createdAt: { $gte: dayStart }
+    });
+    const maxAutoPerDay = Math.max(1, Math.min(20, Number(policy.maxAutoFollowupsPerDay || 3)));
+    if (sentToday >= maxAutoPerDay) {
+      return res.json({
+        success: true,
+        autoFollowup: { triggered: false, reason: 'daily_limit_reached', sentToday, maxAutoPerDay }
+      });
+    }
+
+    const followupSummary = await sendCompanyOrderFollowupInternal({
+      companyId,
+      order,
+      offers: offers
+        .map((o) => ({ _id: o._id, providerId: o.providerId?._id || o.providerId }))
+        .filter((o) => o.providerId),
+      actorUserId: req.user._id,
+      message: sanitizeFollowupMessage(req.body?.message || 'Dzień dobry, to automatyczne przypomnienie o aktualizacji oferty dla zlecenia firmy.'),
+      telemetryType: 'company_ai_auto_followup_sent',
+      telemetrySource: 'companies_auto_followup'
+    });
+
+    return res.json({
+      success: true,
+      autoFollowup: {
+        triggered: true,
+        breachType,
+        firstOfferThresholdHours,
+        thresholdHours,
+        elapsedHours: Number(elapsedHours.toFixed(2)),
+        ...followupSummary
+      }
+    });
+  } catch (error) {
+    console.error('COMPANY_ORDER_AUTO_FOLLOWUP_ERROR:', error);
+    return res.status(500).json({ success: false, message: 'Błąd auto follow-up', error: error.message });
   }
 });
 

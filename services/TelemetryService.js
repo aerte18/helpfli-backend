@@ -38,6 +38,11 @@ class TelemetryService {
       PROVIDER_AI_MESSAGE_PREFLIGHT_BLOCKED: 'provider_ai_message_preflight_blocked',
       PROVIDER_AI_MESSAGE_PREFLIGHT_OVERRIDE: 'provider_ai_message_preflight_override',
       PROVIDER_AI_MESSAGE_SENT: 'provider_ai_message_sent',
+      COMPANY_AI_SHORTLIST_GENERATED: 'company_ai_shortlist_generated',
+      COMPANY_AI_FOLLOWUP_SENT: 'company_ai_followup_sent',
+      COMPANY_AI_AUTO_FOLLOWUP_SENT: 'company_ai_auto_followup_sent',
+      COMPANY_AI_AUTO_FOLLOWUP_CRON_RUN: 'company_ai_auto_followup_cron_run',
+      COMPANY_AI_SLA_BREACH_DETECTED: 'company_ai_sla_breach_detected',
       
       // Payment flow
       PAYMENT_INTENT_CREATED: 'payment_intent_created',

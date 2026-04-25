@@ -785,6 +785,7 @@ let handleExpiredSubscriptions = null;
 let updateLoyaltyMonths = null;
 let checkSponsorAdsStatus = null;
 let processSubscriptionOrders = null;
+let scheduleCompanyProAutoFollowupCron = null;
 
 if (ENABLE_JOBS) {
   ({ startWeeklyCron } = require('./jobs/weekly_report'));
@@ -797,6 +798,7 @@ if (ENABLE_JOBS) {
   ({ handleExpiredSubscriptions, updateLoyaltyMonths } = require('./utils/subscriptionCron'));
   ({ checkSponsorAdsStatus } = require('./cron/sponsorAdsCron'));
   ({ processSubscriptionOrders } = require('./jobs/subscriptionOrdersCron'));
+  ({ scheduleCompanyProAutoFollowupCron } = require('./jobs/companyProAutoFollowupCron'));
 }
 if (process.env.VERCEL !== '1') {
   const PORT = process.env.PORT || 5000;
@@ -871,6 +873,14 @@ if (process.env.VERCEL !== '1') {
       logger.info('[CRON] Order expiration management cron scheduled');
     } catch (e) {
       logger.error('[CRON] Error scheduling order expiration cron:', e);
+    }
+
+    // Auto follow-up Firma PRO (SLA-based)
+    try {
+      scheduleCompanyProAutoFollowupCron();
+      logger.info('[CRON] Company PRO auto-followup cron scheduled');
+    } catch (e) {
+      logger.error('[CRON] Error scheduling Company PRO auto-followup cron:', e);
     }
   
     // Powiadomienia o kończących się pakietach promocyjnych - codziennie o 9:05
