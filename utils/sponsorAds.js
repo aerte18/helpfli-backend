@@ -9,8 +9,7 @@ async function getMonthlyImpressions(adId, year, month) {
     const startDate = new Date(year, month, 1);
     const endDate = new Date(year, month + 1, 0, 23, 59, 59, 999);
     
-    const count = await SponsorImpression.countDocuments({ain
-    
+    const count = await SponsorImpression.countDocuments({
       ad: adId,
       type: 'impression',
       createdAt: { $gte: startDate, $lte: endDate }
