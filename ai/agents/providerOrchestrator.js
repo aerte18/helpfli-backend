@@ -10,7 +10,7 @@ const { normalizeUrgency } = require('../utils/normalize');
 /**
  * Główna funkcja orchestratora dla providerów
  */
-async function runProviderOrchestrator({ messages, orderContext = {}, providerInfo = {} }) {
+async function runProviderOrchestrator({ messages, orderContext = {}, providerInfo = {}, assistantMode = 'offer' }) {
   try {
     const lastMessage = messages
       .filter(m => m.role === 'user')
@@ -18,8 +18,9 @@ async function runProviderOrchestrator({ messages, orderContext = {}, providerIn
     const userText = (lastMessage?.content || lastMessage?.text || '').toLowerCase();
     
     // Heurystyczna klasyfikacja intencji
-    let intent = 'general';
-    let nextStep = 'general_help';
+    const modeIntent = modeToIntent(assistantMode);
+    let intent = modeIntent.intent;
+    let nextStep = modeIntent.nextStep;
     let parsed = null;
     
     const wantsOffer = /(ofert|propozycj|wiadomo|napisz|przygotuj|wstaw)/i.test(userText);
@@ -27,7 +28,13 @@ async function runProviderOrchestrator({ messages, orderContext = {}, providerIn
     const wantsWin = /(wygra|szans|konkurenc|lepiej|skuteczn)/i.test(userText);
     const wantsQuestions = /(pytan|dopyta|zapyta|brakuje|doprecyz)/i.test(userText);
 
-    if (wantsOffer || wantsPrice || wantsWin || wantsQuestions) {
+    if (assistantMode === 'pricing') {
+      intent = 'pricing';
+      nextStep = 'suggest_pricing';
+    } else if (['risks', 'negotiation', 'followup'].includes(assistantMode)) {
+      intent = 'communication';
+      nextStep = 'communication_help';
+    } else if (wantsOffer || wantsPrice || wantsWin || wantsQuestions) {
       if (wantsOffer || wantsWin || wantsQuestions) {
         intent = 'create_offer';
         nextStep = 'suggest_offer';
@@ -45,7 +52,7 @@ async function runProviderOrchestrator({ messages, orderContext = {}, providerIn
     
     // Spróbuj użyć LLM dla lepszej klasyfikacji
     try {
-      const systemPrompt = PROVIDER_SYSTEM + `\n\nOrder context: ${JSON.stringify(orderContext)}\nProvider info: ${JSON.stringify(providerInfo)}`;
+      const systemPrompt = PROVIDER_SYSTEM + `\n\nProvider AI mode: ${assistantMode}\nOrder context: ${JSON.stringify(orderContext)}\nProvider info: ${JSON.stringify(providerInfo)}`;
       
       const llmResponse = await callAgentLLM({
         systemPrompt,
@@ -66,6 +73,14 @@ async function runProviderOrchestrator({ messages, orderContext = {}, providerIn
       }
     } catch (llmError) {
       console.warn('LLM provider orchestrator failed, using heuristic:', llmError.message);
+    }
+
+    if (assistantMode === 'pricing') {
+      intent = 'pricing';
+      nextStep = 'suggest_pricing';
+    } else if (['risks', 'negotiation', 'followup'].includes(assistantMode)) {
+      intent = 'communication';
+      nextStep = 'communication_help';
     }
     
     // Wyekstraktuj dane
@@ -113,6 +128,17 @@ async function runProviderOrchestrator({ messages, orderContext = {}, providerIn
       confidence: 0.0
     };
   }
+}
+
+function modeToIntent(mode = 'offer') {
+  const map = {
+    offer: { intent: 'create_offer', nextStep: 'suggest_offer' },
+    pricing: { intent: 'pricing', nextStep: 'suggest_pricing' },
+    risks: { intent: 'communication', nextStep: 'communication_help' },
+    negotiation: { intent: 'communication', nextStep: 'communication_help' },
+    followup: { intent: 'communication', nextStep: 'communication_help' }
+  };
+  return map[mode] || map.offer;
 }
 
 module.exports = {

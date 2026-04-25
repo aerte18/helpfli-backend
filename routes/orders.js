@@ -345,6 +345,8 @@ function normalizeAiBrief(input) {
   const providerBrief = data.providerBrief || data;
   const quality = data.quality || {};
   const safety = data.safety || {};
+  const contextSnapshot = data.contextSnapshot || providerBrief.contextSnapshot || {};
+  const contextDate = contextSnapshot.lastUpdatedAt ? new Date(contextSnapshot.lastUpdatedAt) : null;
   const toStringArray = (value, max = 8) => (
     Array.isArray(value)
       ? value.map((item) => String(item || '').trim()).filter(Boolean).slice(0, max)
@@ -374,6 +376,12 @@ function normalizeAiBrief(input) {
       recommendation: safety.recommendation ? String(safety.recommendation).slice(0, 500) : null,
       actions: toStringArray(safety.actions, 8),
       blockDIY: Boolean(safety.blockDIY)
+    },
+    contextSnapshot: {
+      originalProblem: String(contextSnapshot.originalProblem || '').slice(0, 500),
+      extractedFacts: toStringArray(contextSnapshot.extractedFacts, 8),
+      handoffNote: String(contextSnapshot.handoffNote || '').slice(0, 650),
+      lastUpdatedAt: contextDate && !Number.isNaN(contextDate.getTime()) ? contextDate : new Date()
     },
     createdAt: new Date()
   };

@@ -18,9 +18,11 @@ async function runOfferAgent({ orderContext, providerInfo, existingOffers = [], 
       .filter((m) => m.role === 'user')
       .map((m) => m.content || m.text || '')
       .pop() || '';
-    const wantsFollowup = /(follow|przypomn|ponowi|odezw|brak odpowiedzi|nie odpowied)/i.test(lastProviderMessage);
+    const assistantMode = orderContext.assistantMode || 'offer';
+    const wantsFollowup = assistantMode === 'followup' || /(follow|przypomn|ponowi|odezw|brak odpowiedzi|nie odpowied)/i.test(lastProviderMessage);
     const wantsSchedule = /(termin|godzin|kiedy|umów|umow|przyjazd)/i.test(lastProviderMessage);
-    const wantsQuestions = /(pytan|dopyta|zapyta|brakuje|doprecyz)/i.test(lastProviderMessage);
+    const wantsQuestions = assistantMode === 'risks' || /(pytan|dopyta|zapyta|brakuje|doprecyz|ryzyk)/i.test(lastProviderMessage);
+    const wantsNegotiation = assistantMode === 'negotiation' || /(negocj|taniej|rabat|zniż|zniz|za drogo|obniż|obniz)/i.test(lastProviderMessage);
     
     // Oblicz sugerowaną cenę na podstawie rynku
     let priceHints = null;
@@ -106,6 +108,8 @@ async function runOfferAgent({ orderContext, providerInfo, existingOffers = [], 
     const hasAttachments = Number(orderContext.attachments || 0) > 0;
     const hasBudget = Boolean(orderContext.budget?.min || orderContext.budget?.max || orderContext.budget);
     const hasClearDescription = (orderContext.description || '').length >= 80;
+    const aiContext = orderContext.aiBrief?.contextSnapshot || null;
+    const aiHandoffNote = aiContext?.handoffNote || orderContext.aiBrief?.customerSummary || '';
     const winScore = Math.max(45, Math.min(96,
       58 +
       (isPro ? 8 : 0) +
@@ -124,6 +128,7 @@ async function runOfferAgent({ orderContext, providerInfo, existingOffers = [], 
     ].filter(Boolean);
 
     const questions = [
+      ...(Array.isArray(orderContext.aiBrief?.questionsForProvider) ? orderContext.aiBrief.questionsForProvider.slice(0, 2) : []),
       !hasAttachments ? 'Czy klient może dosłać zdjęcie problemu lub miejsca wykonania?' : null,
       'Czy cena ma obejmować materiały/części, czy tylko robociznę?',
       'Jaki termin jest dla klienta najwygodniejszy?'
@@ -145,6 +150,7 @@ async function runOfferAgent({ orderContext, providerInfo, existingOffers = [], 
 **Zakres prac:**
 - ${service || 'Wykonanie usługi zgodnie z opisem'}
 - diagnoza/problem zgodnie z opisem klienta
+- ${aiHandoffNote ? `kontekst z rozmowy AI: ${aiHandoffNote.slice(0, 120)}` : 'potwierdzenie szczegółów przed startem'}
 - robocizna i dojazd${hasAttachments ? '' : ' (dokładny zakres potwierdzę po dodatkowym zdjęciu lub krótkim opisie)'}
 - uporządkowanie miejsca pracy po realizacji
 
@@ -160,6 +166,17 @@ Cena zakłada standardowy zakres prac. Jeśli po oględzinach okaże się, że p
 Podtrzymuję proponowaną cenę ${suggestedPrice.recommended} PLN i termin: ${suggestedTimeline}. Jeśli coś wymaga doprecyzowania, chętnie odpowiem na pytania albo dopasuję zakres do Państwa potrzeb.
 
 Czy mogę zarezerwować dla Państwa najbliższy dogodny termin?`;
+    } else if (wantsNegotiation) {
+      firstMessageSuggestion = 'Dzień dobry, rozumiem pytanie o cenę - mogę zaproponować dwa warianty.';
+      suggestedMessage = `Dzień dobry, rozumiem pytanie o cenę.
+
+Moja propozycja ${suggestedPrice.recommended} PLN obejmuje pełny zakres: diagnozę, robociznę, dojazd i uporządkowanie miejsca pracy. Mogę też przygotować tańszy wariant, jeśli ograniczymy zakres lub materiały/części rozliczymy osobno.
+
+Proponuję:
+1. Wariant pełny: ${suggestedPrice.recommended} PLN
+2. Wariant podstawowy: do ustalenia po doprecyzowaniu zakresu
+
+Chętnie dopasuję rozwiązanie tak, żeby było uczciwe cenowo i bez niespodzianek.`;
     } else if (wantsSchedule) {
       firstMessageSuggestion = 'Dzień dobry, proponuję ustalić dogodny termin realizacji.';
       suggestedMessage = `Dzień dobry, proponuję ustalić dogodny termin realizacji.
@@ -178,11 +195,12 @@ Po odpowiedzi przygotuję konkretną realizację i termin.`;
     
     // Wskazówki
     const tips = [
+      aiHandoffNote ? 'Użyj kontekstu z rozmowy AI - klient nie powinien powtarzać tych samych informacji.' : null,
       'Bądź konkretny w opisie zakresu prac',
       'Zaproponuj kilka opcji cenowych jeśli możliwe',
       'Zapytaj o dodatkowe szczegóły jeśli potrzebne',
       'Odpowiedz szybko - to zwiększa szanse na akceptację'
-    ];
+    ].filter(Boolean);
     
     // Zakres prac
     const suggestedScope = [

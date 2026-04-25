@@ -46,7 +46,7 @@ router.post('/pricing-advice', authMiddleware, async (req, res) => {
  */
 router.post('/offer-chat', authMiddleware, async (req, res) => {
   try {
-    const { orderId, message, conversationHistory = [] } = req.body;
+    const { orderId, message, conversationHistory = [], assistantMode = 'offer' } = req.body;
     
     if (!orderId || !message) {
       return res.status(400).json({ message: 'Brak orderId lub message' });
@@ -69,6 +69,9 @@ router.post('/offer-chat', authMiddleware, async (req, res) => {
       orderId,
       providerId: req.user._id
     }).lean();
+    const normalizedAssistantMode = ['offer', 'pricing', 'risks', 'negotiation', 'followup'].includes(assistantMode)
+      ? assistantMode
+      : 'offer';
 
     // Przygotuj kontekst dla AI
     const context = {
@@ -113,8 +116,17 @@ router.post('/offer-chat', authMiddleware, async (req, res) => {
         budget: order.budgetRange || (order.budget ? { min: order.budget * 0.8, max: order.budget * 1.2 } : null),
         attachments: order.attachments?.length || 0,
         paymentPreference: order.paymentPreference || 'system',
+        assistantMode: normalizedAssistantMode,
         priorityDateTime: order.priorityDateTime || null,
-        clientPreferredTerm: order.priorityDateTime ? new Date(order.priorityDateTime).toISOString() : null
+        clientPreferredTerm: order.priorityDateTime ? new Date(order.priorityDateTime).toISOString() : null,
+        aiBrief: order.aiBrief ? {
+          title: order.aiBrief.title,
+          customerSummary: order.aiBrief.customerSummary,
+          bullets: order.aiBrief.bullets || [],
+          questionsForProvider: order.aiBrief.questionsForProvider || [],
+          contextSnapshot: order.aiBrief.contextSnapshot || null,
+          safety: order.aiBrief.safety || null
+        } : null
       };
       
       const providerInfo = {
@@ -129,7 +141,8 @@ router.post('/offer-chat', authMiddleware, async (req, res) => {
       const orchestratorResult = await runProviderOrchestrator({
         messages,
         orderContext,
-        providerInfo
+        providerInfo,
+        assistantMode: normalizedAssistantMode
       });
       
       // Główna odpowiedź = naturalna wypowiedź. Szczegóły (cena, wskazówki) w agents.

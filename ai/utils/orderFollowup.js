@@ -244,6 +244,7 @@ function followupServiceTip(service = '') {
 }
 
 function action({ priority, title, tip, cta, seedQuery, actionType }) {
+  const pilot = processPilotMeta(actionType);
   return {
     ok: true,
     agent: 'order_followup',
@@ -253,6 +254,11 @@ function action({ priority, title, tip, cta, seedQuery, actionType }) {
     cta,
     seedQuery,
     actionType,
+    processPilot: true,
+    phase: pilot.phase,
+    phaseLabel: pilot.phaseLabel,
+    stepLabel: pilot.stepLabel,
+    oneActionReason: pilot.oneActionReason,
     generatedAt: new Date().toISOString()
   };
 }
@@ -270,4 +276,94 @@ function normalize(value = '') {
     .replace(/[-_]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function processPilotMeta(actionType = '') {
+  const map = {
+    add_attachments: {
+      phase: 'brief',
+      phaseLabel: 'Etap: doprecyzowanie zlecenia',
+      stepLabel: 'Następny najlepszy krok: dodaj zdjęcia',
+      oneActionReason: 'To najbardziej zwiększy szansę na szybką i konkretną wycenę.'
+    },
+    improve_order: {
+      phase: 'brief',
+      phaseLabel: 'Etap: doprecyzowanie zlecenia',
+      stepLabel: 'Następny najlepszy krok: popraw opis',
+      oneActionReason: 'Lepszy opis ogranicza pytania i przyspiesza oferty.'
+    },
+    ask_ai: {
+      phase: 'waiting',
+      phaseLabel: 'Etap: czekasz na oferty',
+      stepLabel: 'Następny najlepszy krok: sprawdź, co można ulepszyć',
+      oneActionReason: 'AI wybierze jedną rzecz, która najszybciej poprawi zlecenie.'
+    },
+    compare_offers: {
+      phase: 'decision',
+      phaseLabel: 'Etap: wybór wykonawcy',
+      stepLabel: 'Następny najlepszy krok: porównaj oferty',
+      oneActionReason: 'Teraz największą wartość daje decyzja na podstawie ceny, terminu i jakości.'
+    },
+    payment_or_schedule: {
+      phase: 'handoff',
+      phaseLabel: 'Etap: po akceptacji oferty',
+      stepLabel: 'Następny najlepszy krok: ustal płatność lub termin',
+      oneActionReason: 'Bez tego zlecenie może utknąć przed startem realizacji.'
+    },
+    schedule_work: {
+      phase: 'handoff',
+      phaseLabel: 'Etap: przygotowanie realizacji',
+      stepLabel: 'Następny najlepszy krok: potwierdź termin',
+      oneActionReason: 'Konkretny termin zmniejsza niepewność po obu stronach.'
+    },
+    scope_change: {
+      phase: 'delivery',
+      phaseLabel: 'Etap: realizacja',
+      stepLabel: 'Następny najlepszy krok: wyjaśnij zmianę zakresu',
+      oneActionReason: 'Ustalenie zmian przed zakończeniem zmniejsza ryzyko sporu.'
+    },
+    confirm_receipt: {
+      phase: 'closing',
+      phaseLabel: 'Etap: odbiór pracy',
+      stepLabel: 'Następny najlepszy krok: sprawdź i potwierdź odbiór',
+      oneActionReason: 'To zamyka zlecenie i uruchamia dalsze rozliczenie/opinię.'
+    },
+    retention: {
+      phase: 'aftercare',
+      phaseLabel: 'Etap: po zakończeniu',
+      stepLabel: 'Następny najlepszy krok: zaplanuj kolejne działania',
+      oneActionReason: 'AI może podpowiedzieć, jak uniknąć powrotu problemu.'
+    },
+    provider_offer: {
+      phase: 'offer',
+      phaseLabel: 'Etap: zdobycie zlecenia',
+      stepLabel: 'Następny najlepszy krok: przygotuj ofertę',
+      oneActionReason: 'Konkretna oferta z ceną i terminem ma większą szansę wygranej.'
+    },
+    provider_schedule: {
+      phase: 'handoff',
+      phaseLabel: 'Etap: po wygraniu zlecenia',
+      stepLabel: 'Następny najlepszy krok: ustal termin i zakres',
+      oneActionReason: 'Dobre ustalenia przed startem ograniczają niedomówienia.'
+    },
+    provider_scope: {
+      phase: 'delivery',
+      phaseLabel: 'Etap: realizacja',
+      stepLabel: 'Następny najlepszy krok: potwierdź zmianę zakresu',
+      oneActionReason: 'Zmiany kosztu lub zakresu powinny być zaakceptowane przed wykonaniem.'
+    },
+    provider_review: {
+      phase: 'closing',
+      phaseLabel: 'Etap: zakończenie zlecenia',
+      stepLabel: 'Następny najlepszy krok: poproś o odbiór i opinię',
+      oneActionReason: 'To pomaga zamknąć zlecenie i buduje wiarygodność profilu.'
+    }
+  };
+
+  return map[actionType] || {
+    phase: 'next_step',
+    phaseLabel: 'AI pilot procesu',
+    stepLabel: 'Następny najlepszy krok',
+    oneActionReason: 'AI pokazuje teraz tylko jedną najważniejszą akcję.'
+  };
 }

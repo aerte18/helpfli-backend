@@ -27,6 +27,26 @@ function calculateDistance(coord1, coord2) {
   return R * c; // Distance in km
 }
 
+function normalizeOfferAiQuality(aiQuality) {
+  if (!aiQuality || typeof aiQuality !== 'object') return undefined;
+  const toArray = (value, max = 4) => (
+    Array.isArray(value)
+      ? value.map((item) => String(item || '').trim()).filter(Boolean).slice(0, max)
+      : []
+  );
+  const percent = Math.max(0, Math.min(100, Math.round(Number(aiQuality.percent) || 0)));
+  if (!percent) return undefined;
+  return {
+    percent,
+    label: String(aiQuality.label || '').slice(0, 80),
+    tone: ["emerald", "blue", "amber", "rose"].includes(aiQuality.tone) ? aiQuality.tone : "",
+    missing: toArray(aiQuality.missing, 4),
+    warnings: toArray(aiQuality.warnings, 4),
+    strengths: toArray(aiQuality.strengths, 4),
+    measuredAt: new Date()
+  };
+}
+
 const router = express.Router();
 
 router.get("/hint", auth, async (req, res) => {
@@ -199,6 +219,7 @@ router.post("/", auth, async (req, res) => {
       hasGuarantee = false, // MVP: nowe pole
       guaranteeDetails = "", // MVP: nowe pole
       paymentMethod, // Metoda płatności wybrana przez providera (tylko jeśli klient wybrał "both")
+      aiQuality,
       boost = false 
     } = req.body || {};
     
@@ -355,6 +376,7 @@ router.post("/", auth, async (req, res) => {
     const finalCompletionDate = completionDate 
       ? new Date(completionDate) 
       : new Date(Date.now() + finalEtaMinutes * 60 * 1000);
+    const normalizedAiQuality = normalizeOfferAiQuality(aiQuality);
     
     const created = await Offer.create({
       orderId,
@@ -365,6 +387,7 @@ router.post("/", auth, async (req, res) => {
       notes: finalNotes,
       priceInfo: req.body.priceInfo || { includes: [], isFinal: true },
       contactMethod: req.body.contactMethod || null,
+      ...(normalizedAiQuality ? { aiQuality: normalizedAiQuality } : {}),
       paymentMethod: paymentMethod || null, // Metoda płatności (tylko jeśli klient wybrał "both")
       hasGuarantee: hasGuarantee || false,
       guaranteeDetails: guaranteeDetails || "",

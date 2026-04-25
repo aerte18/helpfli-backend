@@ -9,6 +9,7 @@ const Payment = require('../models/Payment');
 const UserSubscription = require('../models/UserSubscription');
 const Coupon = require('../models/Coupon');
 const Event = require('../models/Event');
+const Offer = require('../models/Offer');
 const TelemetryService = require('../services/TelemetryService');
 const AIAnalytics = require('../models/AIAnalytics');
 
@@ -161,7 +162,11 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
       startPromptSearches,
       providerDiscovery,
       aiProviderViews,
-      aiProviderOrderCtas
+      aiProviderOrderCtas,
+      aiProcessAgg,
+      aiOfferStatsAgg,
+      aiOfferQualitySummaryAgg,
+      aiOfferQualityBuckets
     ] = await Promise.all([
       AIAnalytics.aggregate([
         { $match: aiMatch },
@@ -275,7 +280,150 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
         { $limit: 12 }
       ]),
       Event.countDocuments({ ...eventMatch, type: 'provider_view', 'properties.viewType': 'ai_recommendation' }),
-      Event.countDocuments({ ...eventMatch, type: 'provider_contact', 'properties.contactType': 'ai_create_order_cta' })
+      Event.countDocuments({ ...eventMatch, type: 'provider_contact', 'properties.contactType': 'ai_create_order_cta' }),
+      Order.aggregate([
+        { $match: { ...orderMatch, source: 'ai' } },
+        {
+          $lookup: {
+            from: 'offers',
+            localField: '_id',
+            foreignField: 'orderId',
+            as: 'offerDocs'
+          }
+        },
+        {
+          $project: {
+            hasOffer: { $gt: [{ $size: '$offerDocs' }, 0] },
+            offerCount: { $size: '$offerDocs' },
+            accepted: {
+              $or: [
+                { $ne: ['$acceptedOfferId', null] },
+                { $in: ['$status', ['accepted', 'funded', 'in_progress', 'completed', 'released', 'rated']] }
+              ]
+            },
+            completed: { $in: ['$status', ['completed', 'released', 'rated']] },
+            hasBrief: {
+              $or: [
+                { $ne: ['$aiBrief.title', ''] },
+                { $gt: [{ $size: { $ifNull: ['$aiBrief.bullets', []] } }, 0] }
+              ]
+            },
+            hasContextSnapshot: {
+              $or: [
+                { $ne: ['$aiBrief.contextSnapshot.handoffNote', ''] },
+                { $gt: [{ $size: { $ifNull: ['$aiBrief.contextSnapshot.extractedFacts', []] } }, 0] }
+              ]
+            },
+            hasSafety: { $eq: ['$aiBrief.safety.flag', true] }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            aiOrders: { $sum: 1 },
+            aiOrdersWithOffers: { $sum: { $cond: ['$hasOffer', 1, 0] } },
+            aiOrdersAccepted: { $sum: { $cond: ['$accepted', 1, 0] } },
+            aiOrdersCompleted: { $sum: { $cond: ['$completed', 1, 0] } },
+            aiOrdersWithBrief: { $sum: { $cond: ['$hasBrief', 1, 0] } },
+            aiOrdersWithContext: { $sum: { $cond: ['$hasContextSnapshot', 1, 0] } },
+            aiOrdersWithSafety: { $sum: { $cond: ['$hasSafety', 1, 0] } },
+            avgOffersPerAiOrder: { $avg: '$offerCount' }
+          }
+        },
+        {
+          $project: {
+            _id: 0,
+            aiOrders: 1,
+            aiOrdersWithOffers: 1,
+            aiOrdersAccepted: 1,
+            aiOrdersCompleted: 1,
+            aiOrdersWithBrief: 1,
+            aiOrdersWithContext: 1,
+            aiOrdersWithSafety: 1,
+            avgOffersPerAiOrder: { $round: ['$avgOffersPerAiOrder', 2] }
+          }
+        }
+      ]),
+      Offer.aggregate([
+        { $match: { createdAt: { $gte: start, $lte: end } } },
+        {
+          $lookup: {
+            from: 'orders',
+            localField: 'orderId',
+            foreignField: '_id',
+            as: 'order'
+          }
+        },
+        { $unwind: '$order' },
+        { $match: { 'order.source': 'ai' } },
+        {
+          $group: {
+            _id: '$status',
+            count: { $sum: 1 },
+            avgAmount: { $avg: { $ifNull: ['$amount', '$price'] } }
+          }
+        },
+        { $sort: { count: -1 } }
+      ]),
+      Offer.aggregate([
+        { $match: { createdAt: { $gte: start, $lte: end }, 'aiQuality.percent': { $gt: 0 } } },
+        {
+          $group: {
+            _id: null,
+            measuredOffers: { $sum: 1 },
+            avgQuality: { $avg: '$aiQuality.percent' },
+            highQualityOffers: { $sum: { $cond: [{ $gte: ['$aiQuality.percent', 80] }, 1, 0] } },
+            sentWithWarnings: {
+              $sum: {
+                $cond: [
+                  { $gt: [{ $size: { $ifNull: ['$aiQuality.warnings', []] } }, 0] },
+                  1,
+                  0
+                ]
+              }
+            },
+            acceptedMeasuredOffers: { $sum: { $cond: [{ $eq: ['$status', 'accepted'] }, 1, 0] } }
+          }
+        },
+        {
+          $project: {
+            _id: 0,
+            measuredOffers: 1,
+            avgQuality: { $round: ['$avgQuality', 0] },
+            highQualityOffers: 1,
+            sentWithWarnings: 1,
+            acceptedMeasuredOffers: 1
+          }
+        }
+      ]),
+      Offer.aggregate([
+        { $match: { createdAt: { $gte: start, $lte: end }, 'aiQuality.percent': { $gt: 0 } } },
+        {
+          $project: {
+            status: 1,
+            amount: { $ifNull: ['$amount', '$price'] },
+            bucket: {
+              $switch: {
+                branches: [
+                  { case: { $gte: ['$aiQuality.percent', 85] }, then: '85-100 pro' },
+                  { case: { $gte: ['$aiQuality.percent', 70] }, then: '70-84 dobre' },
+                  { case: { $gte: ['$aiQuality.percent', 55] }, then: '55-69 do poprawy' }
+                ],
+                default: '0-54 slabe'
+              }
+            }
+          }
+        },
+        {
+          $group: {
+            _id: '$bucket',
+            count: { $sum: 1 },
+            accepted: { $sum: { $cond: [{ $eq: ['$status', 'accepted'] }, 1, 0] } },
+            avgAmount: { $avg: '$amount' }
+          }
+        },
+        { $sort: { _id: -1 } }
+      ])
     ]);
 
     const aiSummary = aiSummaryAgg[0] || {
@@ -287,6 +435,24 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
       avgConfidence: null
     };
     const avgBriefQuality = avgBriefQualityAgg[0] || { avg: 0, count: 0 };
+    const aiProcess = aiProcessAgg[0] || {
+      aiOrders: 0,
+      aiOrdersWithOffers: 0,
+      aiOrdersAccepted: 0,
+      aiOrdersCompleted: 0,
+      aiOrdersWithBrief: 0,
+      aiOrdersWithContext: 0,
+      aiOrdersWithSafety: 0,
+      avgOffersPerAiOrder: 0
+    };
+    const rate = (part, total) => total ? Number((part / total).toFixed(4)) : null;
+    const aiOfferQualitySummary = aiOfferQualitySummaryAgg[0] || {
+      measuredOffers: 0,
+      avgQuality: 0,
+      highQualityOffers: 0,
+      sentWithWarnings: 0,
+      acceptedMeasuredOffers: 0
+    };
 
     res.json({
       range: { from: from.format('YYYY-MM-DD'), to: to.format('YYYY-MM-DD') },
@@ -317,6 +483,40 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
       aiOrdersByService: aiOrdersByService.map((row) => ({ service: row._id || 'unknown', count: row.count })),
       dailyAiRequests,
       dailyAiOrders,
+      process: {
+        ...aiProcess,
+        aiSessionToOrderRate: rate(ordersFromAi, aiSummary.uniqueSessions),
+        aiOrderOfferRate: rate(aiProcess.aiOrdersWithOffers, aiProcess.aiOrders),
+        aiOrderAcceptedRate: rate(aiProcess.aiOrdersAccepted, aiProcess.aiOrders),
+        aiOrderCompletedRate: rate(aiProcess.aiOrdersCompleted, aiProcess.aiOrders),
+        aiBriefCoverageRate: rate(aiProcess.aiOrdersWithBrief, aiProcess.aiOrders),
+        aiContextCoverageRate: rate(aiProcess.aiOrdersWithContext, aiProcess.aiOrders),
+        funnel: [
+          { step: 'Sesje AI', count: aiSummary.uniqueSessions },
+          { step: 'Zlecenia z AI', count: ordersFromAi },
+          { step: 'AI z ofertami', count: aiProcess.aiOrdersWithOffers },
+          { step: 'AI zaakceptowane', count: aiProcess.aiOrdersAccepted },
+          { step: 'AI ukończone', count: aiProcess.aiOrdersCompleted }
+        ],
+        offerStatuses: aiOfferStatsAgg.map((row) => ({
+          status: row._id || 'unknown',
+          count: row.count,
+          avgAmount: row.avgAmount != null ? Math.round(row.avgAmount) : null
+        })),
+        offerQuality: {
+          ...aiOfferQualitySummary,
+          highQualityRate: rate(aiOfferQualitySummary.highQualityOffers, aiOfferQualitySummary.measuredOffers),
+          warningSendRate: rate(aiOfferQualitySummary.sentWithWarnings, aiOfferQualitySummary.measuredOffers),
+          acceptedMeasuredRate: rate(aiOfferQualitySummary.acceptedMeasuredOffers, aiOfferQualitySummary.measuredOffers),
+          buckets: aiOfferQualityBuckets.map((row) => ({
+            bucket: row._id || 'unknown',
+            count: row.count,
+            accepted: row.accepted || 0,
+            acceptanceRate: rate(row.accepted || 0, row.count),
+            avgAmount: row.avgAmount != null ? Math.round(row.avgAmount) : null
+          }))
+        }
+      },
       topErrors: topErrors.map((row) => ({
         type: row._id?.type || 'other',
         error: row._id?.error || '',

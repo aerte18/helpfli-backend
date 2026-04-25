@@ -64,6 +64,7 @@ async function runOrderDraftAgent({ messages, extracted = {}, detectedService, u
     const quickReplies = buildQuickReplies(nextPrompt, urgency);
     const providerBrief = buildProviderBrief(orderPayload, extracted, missing);
     const quality = calculateDraftQuality(orderPayload, extracted, missing);
+    const contextSnapshot = buildContextSnapshot(orderPayload, extracted, userMessages);
     
     return {
       ok: true,
@@ -79,6 +80,7 @@ async function runOrderDraftAgent({ messages, extracted = {}, detectedService, u
       completion,
       quality,
       providerBrief,
+      contextSnapshot,
       summary: buildSummary(orderPayload, missing)
     };
     
@@ -228,6 +230,36 @@ function buildProviderBrief(orderPayload = {}, extracted = {}, missing = []) {
     questionsForProvider: buildProviderQuestions(orderPayload, extracted),
     missingForBetterOffers: missing.length > 0 ? missing : buildOptionalMissing(extracted, orderPayload)
   };
+}
+
+function buildContextSnapshot(orderPayload = {}, extracted = {}, userMessages = '') {
+  const details = Array.isArray(extracted.details) ? extracted.details.filter(Boolean) : [];
+  const facts = [
+    orderPayload.service ? `Usługa: ${prettifyService(orderPayload.service)}` : null,
+    orderPayload.location ? `Lokalizacja: ${orderPayload.location}` : null,
+    orderPayload.preferredTime ? `Termin: ${orderPayload.preferredTime}` : null,
+    orderPayload.budget ? `Budżet: ${orderPayload.budget}` : null,
+    orderPayload.urgency ? `Pilność: ${orderPayload.urgency}` : null,
+    ...details.slice(0, 4)
+  ].filter(Boolean);
+
+  return {
+    originalProblem: String(userMessages || orderPayload.description || '').slice(0, 500),
+    extractedFacts: Array.from(new Set(facts)).slice(0, 8),
+    handoffNote: buildHandoffNote(orderPayload, extracted),
+    lastUpdatedAt: new Date().toISOString()
+  };
+}
+
+function buildHandoffNote(orderPayload = {}, extracted = {}) {
+  const service = prettifyService(orderPayload.service);
+  const location = orderPayload.location ? ` w lokalizacji: ${orderPayload.location}` : '';
+  const time = orderPayload.preferredTime ? ` Termin: ${orderPayload.preferredTime}.` : '';
+  const budget = orderPayload.budget ? ` Budżet klienta: ${orderPayload.budget}.` : '';
+  const details = Array.isArray(extracted.details) && extracted.details.length
+    ? ` Szczegóły z rozmowy: ${extracted.details.slice(0, 3).join('; ')}.`
+    : '';
+  return `${service}: klient opisał problem jako "${orderPayload.description || 'brak opisu'}"${location}.${time}${budget}${details}`.slice(0, 650);
 }
 
 function buildProviderTitle(orderPayload = {}, details = []) {

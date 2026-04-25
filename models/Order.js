@@ -127,6 +127,12 @@ const orderSchema = new mongoose.Schema({
       actions: [{ type: String }],
       blockDIY: { type: Boolean, default: false }
     },
+    contextSnapshot: {
+      originalProblem: { type: String, default: '' },
+      extractedFacts: [{ type: String }],
+      handoffNote: { type: String, default: '' },
+      lastUpdatedAt: { type: Date }
+    },
     createdAt: { type: Date, default: Date.now }
   },
   createdAt: { type: Date, default: Date.now },

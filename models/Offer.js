@@ -74,6 +74,17 @@ const OfferSchema = new mongoose.Schema({
     position: { type: String, enum: ["below_min", "low", "fair", "optimal", "high", "above_max"], default: "fair" },
     badge: { type: String, enum: ["", "optimal", "fair", "high", "low"], default: "" },
   },
+
+  // AI quality preflight - wynik oceny formularza przed wysłaniem
+  aiQuality: {
+    percent: { type: Number, default: null },
+    label: { type: String, default: "" },
+    tone: { type: String, enum: ["emerald", "blue", "amber", "rose", ""], default: "" },
+    missing: [{ type: String }],
+    warnings: [{ type: String }],
+    strengths: [{ type: String }],
+    measuredAt: { type: Date, default: null }
+  },
   
   // Teleporada - pola dla konsultacji online
   pricePerHour: { type: Number, default: null }, // Cena za godzinę (dla teleporad)
