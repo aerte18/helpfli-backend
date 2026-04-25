@@ -338,15 +338,23 @@ async function conciergeHandler(req, res) {
       }
     }
     
-    // Agent Order Draft - przygotuj zlecenie
-    if (conciergeResult.nextStep === 'create_order') {
+    // Agent Order Draft - przygotuj lub aktualizuj draft zlecenia przy każdej rozmowie usługowej.
+    const shouldBuildOrderDraft = ['service_request', 'pricing', 'providers', 'diy'].includes(conciergeResult.intent)
+      || ['ask_more', 'diagnose', 'show_pricing', 'suggest_diy', 'suggest_providers', 'create_order'].includes(conciergeResult.nextStep);
+    if (shouldBuildOrderDraft) {
       try {
         agentPayload.orderDraft = await runOrderDraftAgent({
-          messages: parsed.messages,
+          messages: finalMessages.length > 0 ? finalMessages : parsed.messages,
           extracted: conciergeResult.extracted,
           detectedService: conciergeResult.detectedService,
           urgency: conciergeResult.urgency || 'standard'
         });
+        if (agentPayload.orderDraft.canCreate && conciergeResult.nextStep === 'ask_more') {
+          conciergeResult.nextStep = 'create_order';
+        }
+        if (agentPayload.orderDraft.questions?.length && (!conciergeResult.questions || conciergeResult.questions.length === 0)) {
+          conciergeResult.questions = agentPayload.orderDraft.questions;
+        }
       } catch (error) {
         console.error('Order draft agent failed:', error.message);
       }
@@ -549,7 +557,8 @@ async function conciergeHandler(req, res) {
         reply: userFriendlyMessage,
         nextStep: 'ask_more',
         questions: ['Czy możesz opisać problem dokładniej?']
-      }
+      },
+      agents: {}
       // Nie zwracamy error.message do klienta - szczegóły tylko w logach
     });
   }
