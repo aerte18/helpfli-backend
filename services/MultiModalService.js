@@ -91,6 +91,36 @@ class MultiModalService {
       }
     }
 
+    if (imageUrl.startsWith('/uploads/')) {
+      const fs = require('fs');
+      const path = require('path');
+      const UPLOAD_DIR = process.env.UPLOAD_DIR || 'uploads';
+      const uploadRoot = path.isAbsolute(UPLOAD_DIR)
+        ? UPLOAD_DIR
+        : path.join(__dirname, '..', UPLOAD_DIR);
+      const relative = imageUrl.replace(/^\/uploads\/?/, '');
+      const filePath = path.normalize(path.join(uploadRoot, relative));
+
+      if (!filePath.startsWith(path.normalize(uploadRoot))) {
+        throw new Error('Invalid local image path');
+      }
+
+      const buffer = await fs.promises.readFile(filePath);
+      const ext = path.extname(filePath).toLowerCase().replace('.', '');
+      const mediaType = ext === 'png'
+        ? 'image/png'
+        : ext === 'webp'
+          ? 'image/webp'
+          : ext === 'gif'
+            ? 'image/gif'
+            : 'image/jpeg';
+      return {
+        type: 'base64',
+        media_type: mediaType,
+        data: buffer.toString('base64')
+      };
+    }
+
     // Jeśli to URL, pobierz i konwertuj
     if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
       try {

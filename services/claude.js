@@ -674,12 +674,8 @@ Respond in JSON format:
     // Dodaj obrazy jeśli są dostępne
     if (imageUrls && imageUrls.length > 0) {
       for (const imageUrl of imageUrls) {
-        content.push({
-          type: 'image_url',
-          image_url: {
-            url: imageUrl
-          }
-        });
+        const imageBlock = this.buildImageContentBlock(imageUrl);
+        if (imageBlock) content.push(imageBlock);
       }
     }
 
@@ -687,6 +683,69 @@ Respond in JSON format:
       role: 'user',
       content: content
     };
+  }
+
+  buildImageContentBlock(imageUrl) {
+    if (!imageUrl) return null;
+    const value = String(imageUrl);
+
+    if (value.startsWith('data:image')) {
+      const matches = value.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+      if (!matches) return null;
+      return {
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: matches[1],
+          data: matches[2]
+        }
+      };
+    }
+
+    if (value.startsWith('/uploads/')) {
+      const fs = require('fs');
+      const path = require('path');
+      const UPLOAD_DIR = process.env.UPLOAD_DIR || 'uploads';
+      const uploadRoot = path.isAbsolute(UPLOAD_DIR)
+        ? UPLOAD_DIR
+        : path.join(__dirname, '..', UPLOAD_DIR);
+      const relative = value.replace(/^\/uploads\/?/, '');
+      const filePath = path.normalize(path.join(uploadRoot, relative));
+
+      if (!filePath.startsWith(path.normalize(uploadRoot))) {
+        throw new Error('Invalid local image path');
+      }
+
+      const ext = path.extname(filePath).toLowerCase();
+      const mediaType = ext === '.png'
+        ? 'image/png'
+        : ext === '.webp'
+          ? 'image/webp'
+          : ext === '.gif'
+            ? 'image/gif'
+            : 'image/jpeg';
+
+      return {
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: mediaType,
+          data: fs.readFileSync(filePath).toString('base64')
+        }
+      };
+    }
+
+    if (value.startsWith('http://') || value.startsWith('https://')) {
+      return {
+        type: 'image',
+        source: {
+          type: 'url',
+          url: value
+        }
+      };
+    }
+
+    return null;
   }
 
   parseClaudeResponse(text) {
