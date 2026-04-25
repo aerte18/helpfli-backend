@@ -30,7 +30,7 @@ async function runPricingAgent({ service, urgency = 'standard', userContext = {}
     
     // Oblicz widełki cenowe (użyj istniejącej funkcji z concierge utils)
       // Sprawdź cache przed obliczaniem
-      const CacheService = require('../services/CacheService');
+      const CacheService = require('../../services/CacheService');
       const cacheKey = `${service}_${locationText || 'default'}`;
       
       let priceHints = await CacheService.getPriceHints(service, locationText || 'default');
@@ -235,6 +235,15 @@ function getBaseRangesForService(service) {
     return {
       basic: [100, 200],
       standard: [200, 400],
+      pro: [400, 700]
+    };
+  }
+
+  // AGD/RTV
+  if (serviceLower.includes('agd') || serviceLower.includes('rtv') || serviceLower.includes('pralk') || serviceLower.includes('zmywark') || serviceLower.includes('lodow') || serviceLower.includes('lodów')) {
+    return {
+      basic: [150, 250],
+      standard: [220, 400],
       pro: [400, 700]
     };
   }

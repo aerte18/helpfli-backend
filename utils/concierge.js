@@ -232,7 +232,7 @@ function pickBestService(services, description = '') {
   if (/(ciekn|zlew|kran|kapie|uszcz|hydraul)/.test(s)) return { code: 'hydraulik', name: 'Hydraulik' };
   if (/(prąd|elektryk|gniazd|iskr|bezpiecznik|zwarc)/.test(s)) return { code: 'elektryk', name: 'Elektryk' };
   if (/(sprzątani|czyszczen|porządk)/.test(s)) return { code: 'sprzatanie', name: 'Sprzątanie' };
-  if (/(agd|pralk|lodówk|kuchenk)/.test(s)) return { code: 'agd', name: 'AGD' };
+  if (/(agd|rtv|pralk|zmywark|lodówk|lodowk|kuchenk|piekarnik|okap|telewizor|\btv\b)/.test(s)) return { code: 'agd-rtv-naprawa-agd', name: 'Naprawa AGD' };
   
   return services[0] || { code: 'inne', name: 'Inne' };
 }
@@ -244,6 +244,9 @@ async function computePriceHints(serviceCode, location = {}) {
     'elektryk': { basic: { min: 100, max: 200 }, standard: { min: 150, max: 300 }, pro: { min: 250, max: 500 } },
     'sprzatanie': { basic: { min: 50, max: 100 }, standard: { min: 80, max: 150 }, pro: { min: 120, max: 250 } },
     'agd': { basic: { min: 80, max: 150 }, standard: { min: 120, max: 250 }, pro: { min: 200, max: 400 } },
+    'agd-rtv': { basic: { min: 120, max: 220 }, standard: { min: 180, max: 350 }, pro: { min: 300, max: 600 } },
+    'agd-rtv-naprawa-agd': { basic: { min: 150, max: 250 }, standard: { min: 220, max: 400 }, pro: { min: 400, max: 700 } },
+    'agd-rtv-naprawa-rtv': { basic: { min: 120, max: 220 }, standard: { min: 180, max: 350 }, pro: { min: 300, max: 600 } },
     'inne': { basic: { min: 60, max: 120 }, standard: { min: 100, max: 200 }, pro: { min: 150, max: 350 } }
   };
   

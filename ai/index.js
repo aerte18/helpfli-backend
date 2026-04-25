@@ -491,6 +491,56 @@ async function conciergeHandler(req, res) {
       ? 'Wystąpił problem z konfiguracją AI. Proszę spróbować ponownie później.'
       : 'Błąd podczas przetwarzania żądania AI. Spróbuj ponownie.';
     
+    if (!isAuthError) {
+      const { detectApplianceIssue } = require('./utils/applianceDiagnostics');
+      const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
+      const lastUserMessage = messages.filter(m => m.role === 'user').pop();
+      const text = lastUserMessage?.content || req.body?.description || '';
+      const applianceIssue = detectApplianceIssue(text);
+      if (applianceIssue) {
+        return res.json({
+          ok: true,
+          agent: 'concierge',
+          result: {
+            ok: true,
+            agent: 'concierge',
+            reply: applianceIssue.reply,
+            intent: 'service_request',
+            detectedService: applianceIssue.service,
+            urgency: applianceIssue.urgency,
+            confidence: applianceIssue.confidence,
+            nextStep: applianceIssue.nextStep,
+            questions: applianceIssue.questions,
+            extracted: {
+              location: null,
+              timeWindow: null,
+              budget: null,
+              details: applianceIssue.details
+            },
+            missing: applianceIssue.questions,
+            safety: applianceIssue.safety
+          },
+          agents: {},
+          serviceCandidate: {
+            code: applianceIssue.service,
+            name: applianceIssue.service,
+            confidence: applianceIssue.confidence
+          },
+          urgency: applianceIssue.urgency,
+          nextStep: applianceIssue.nextStep,
+          reply: applianceIssue.reply,
+          questions: applianceIssue.questions,
+          extracted: {
+            location: null,
+            timeWindow: null,
+            budget: null,
+            details: applianceIssue.details
+          },
+          safety: applianceIssue.safety
+        });
+      }
+    }
+    
     return res.status(500).json({
       ok: false,
       error: 'AI_CONCIERGE_FAILED',

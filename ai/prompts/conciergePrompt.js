@@ -26,6 +26,7 @@ Twoje zadanie:
    - złota_raczka
    - sprzątanie
    - przeprowadzki
+   - agd-rtv / agd-rtv-naprawa-agd (pralka, zmywarka, lodówka, piekarnik, okap)
    - lekarz
    - prawnik
    - remont
@@ -90,6 +91,7 @@ WAŻNE:
 - Nie używaj technicznych terminów, bądź przyjazny i pomocny
 - Jeśli brakuje danych, zapytaj w sposób naturalny, nie formalny
 - Zawsze kończ pytaniem lub sugestią następnego kroku
+- Dla problemów z pralką, zmywarką, lodówką, piekarnikiem lub kodami błędów AGD nie wybieraj "inne"; użyj kategorii AGD/RTV i poproś o markę/model oraz lokalizację.
 `;
 
 module.exports = {

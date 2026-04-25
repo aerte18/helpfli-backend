@@ -8,6 +8,7 @@ const { callAgentLLM, safeParseJSON } = require('../utils/llmAdapter');
 const { guardrailEnforce, enforceSafetyRules } = require('../utils/guardrails');
 const { validateConciergeResponseShape } = require('../schemas/conciergeSchemas');
 const { normalizeServiceName, normalizeUrgency, extractKeywords } = require('../utils/normalize');
+const { detectApplianceIssue } = require('../utils/applianceDiagnostics');
 
 /**
  * Główna funkcja agenta Concierge
@@ -129,6 +130,7 @@ async function runConciergeAgent({ messages, userContext = {}, allowedServicesHi
       .filter(m => m.role === 'user')
       .pop();
     const userText = lastUserMessage?.content || lastUserMessage?.text || '';
+    const applianceIssue = detectApplianceIssue(userText);
     parsed = enforceSafetyRules(parsed, userText);
 
     // Normalizuj i waliduj
@@ -139,6 +141,17 @@ async function runConciergeAgent({ messages, userContext = {}, allowedServicesHi
     parsed.detectedService = normalizeServiceName(parsed.detectedService);
     parsed.urgency = normalizeUrgency(parsed.urgency);
 
+    if (applianceIssue && (parsed.detectedService === 'inne' || parsed.confidence < applianceIssue.confidence || applianceIssue.code)) {
+      parsed.detectedService = applianceIssue.service;
+      parsed.intent = 'service_request';
+      parsed.urgency = applianceIssue.urgency;
+      parsed.nextStep = applianceIssue.nextStep;
+      parsed.confidence = Math.max(parsed.confidence || 0, applianceIssue.confidence);
+      parsed.reply = applianceIssue.reply;
+      parsed.questions = applianceIssue.questions;
+      parsed.safety = applianceIssue.safety.flag ? applianceIssue.safety : parsed.safety;
+    }
+
     // Jeśli nie ma extracted, stwórz z kontekstu
     if (!parsed.extracted || typeof parsed.extracted !== 'object') {
       parsed.extracted = {
@@ -147,6 +160,12 @@ async function runConciergeAgent({ messages, userContext = {}, allowedServicesHi
         budget: null,
         details: []
       };
+    }
+    if (applianceIssue) {
+      parsed.extracted.details = Array.from(new Set([
+        ...(parsed.extracted.details || []),
+        ...applianceIssue.details
+      ].filter(Boolean)));
     }
 
     // Wyekstraktuj keywords dla dodatkowej analizy
@@ -173,6 +192,34 @@ async function runConciergeAgent({ messages, userContext = {}, allowedServicesHi
       ? 'Przepraszam, wystąpił problem z konfiguracją AI. Używam alternatywnego systemu analizy. Spróbuj ponownie opisać problem.'
       : 'Przepraszam, wystąpił błąd podczas przetwarzania. Spróbuj ponownie opisać problem.';
     
+    const lastUserMessage = messages
+      .filter(m => m.role === 'user')
+      .pop();
+    const userText = lastUserMessage?.content || lastUserMessage?.text || '';
+    const applianceIssue = detectApplianceIssue(userText);
+
+    if (applianceIssue) {
+      return {
+        ok: true,
+        agent: 'concierge',
+        reply: applianceIssue.reply,
+        intent: 'service_request',
+        detectedService: applianceIssue.service,
+        urgency: applianceIssue.urgency,
+        confidence: applianceIssue.confidence,
+        nextStep: applianceIssue.nextStep,
+        questions: applianceIssue.questions,
+        extracted: {
+          location: userContext.location?.text || userContext.location || null,
+          timeWindow: null,
+          budget: null,
+          details: applianceIssue.details
+        },
+        missing: applianceIssue.questions,
+        safety: applianceIssue.safety
+      };
+    }
+
     // Fallback response z przyjaznym komunikatem dla użytkownika
     return {
       ok: false,

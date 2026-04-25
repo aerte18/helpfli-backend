@@ -18,7 +18,22 @@ function normalizeServiceName(service) {
     'sprzątanie': 'sprzatanie',
     'cleaning': 'sprzatanie',
     'remont': 'remont',
-    'renovation': 'remont'
+    'renovation': 'remont',
+    'agd': 'agd-rtv-naprawa-agd',
+    'rtv': 'agd-rtv-naprawa-rtv',
+    'agd rtv': 'agd-rtv-naprawa-agd',
+    'agd/rtv': 'agd-rtv-naprawa-agd',
+    'agd-rtv': 'agd-rtv-naprawa-agd',
+    'agd_rtv': 'agd-rtv-naprawa-agd',
+    'naprawa agd': 'agd-rtv-naprawa-agd',
+    'serwis agd': 'agd-rtv-naprawa-agd',
+    'pralka': 'agd-rtv-naprawa-agd',
+    'zmywarka': 'agd-rtv-naprawa-agd',
+    'lodówka': 'agd-rtv-naprawa-agd',
+    'lodowka': 'agd-rtv-naprawa-agd',
+    'piekarnik': 'agd-rtv-naprawa-agd',
+    'telewizor': 'agd-rtv-naprawa-rtv',
+    'tv': 'agd-rtv-naprawa-rtv'
   };
   
   return mappings[s] || s;
@@ -75,6 +90,7 @@ function extractKeywords(text) {
   if (/(prąd|iskr|zwarc|bezpiecznik|porażenie|elektryk)/.test(lower)) keywords.push('electricity');
   if (/(woda|zalanie|wyciek|ciekn)/.test(lower)) keywords.push('water');
   if (/(ogień|płonie|dym|spali)/.test(lower)) keywords.push('fire');
+  if (/(pralk|zmywark|lod[oó]wk|piekarnik|kuchenk|agd|rtv|telewizor|\btv\b)/.test(lower)) keywords.push('appliance');
   
   // Pilność
   if (/(pilne|teraz|natychmiast|awaria|krytyczne)/.test(lower)) keywords.push('urgent');

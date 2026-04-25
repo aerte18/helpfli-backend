@@ -9,6 +9,7 @@ const { validateDIYResponse } = require('../schemas/conciergeSchemas');
 const { deriveSelfHelpSteps } = require('../../utils/concierge');
 const { extractKeywords } = require('../utils/normalize');
 const { enforceSafetyRules } = require('../utils/guardrails');
+const { detectApplianceIssue } = require('../utils/applianceDiagnostics');
 
 /**
  * Główna funkcja agenta DIY
@@ -23,6 +24,7 @@ async function runDIYAgent({ service, messages }) {
       .filter(m => m.role === 'user')
       .pop();
     const userText = (lastUserMessage?.content || lastUserMessage?.text || '').toLowerCase();
+    const applianceIssue = detectApplianceIssue(userText);
     
     // Sprawdź bezpieczeństwo - jeśli niebezpieczne, nie daj instrukcji DIY
     const keywords = extractKeywords(userText);
@@ -49,6 +51,31 @@ async function runDIYAgent({ service, messages }) {
           reason: 'Wykryto niebezpieczną sytuację',
           recommendation: 'Kontakt z fachowcem jest konieczny'
         }
+      };
+    }
+
+    if (applianceIssue && applianceIssue.checks.length > 0) {
+      return {
+        ok: true,
+        agent: 'diy',
+        service: applianceIssue.service,
+        difficulty: applianceIssue.safety.flag ? 'hard' : 'medium',
+        estimatedTimeMinutes: applianceIssue.safety.flag ? 0 : 20,
+        tools: applianceIssue.safety.flag ? [] : ['Latarka', 'Ręcznik/miska', 'Telefon do zdjęcia kodu i tabliczki znamionowej'],
+        steps: applianceIssue.safety.flag ? [] : applianceIssue.checks,
+        stopConditions: [
+          'Jeśli widzisz wodę przy przewodach lub gniazdku',
+          'Jeśli czuć spaleniznę, widać dym albo wybija bezpiecznik',
+          'Jeśli po podstawowych krokach kod błędu wraca',
+          'Jeśli nie możesz bezpiecznie odsunąć lub odłączyć urządzenia'
+        ],
+        fallback: {
+          recommendProvider: true,
+          reason: 'Jeśli kod błędu wraca, potrzebna będzie diagnostyka serwisowa AGD'
+        },
+        missing: [],
+        questions: applianceIssue.questions,
+        safety: applianceIssue.safety
       };
     }
     
