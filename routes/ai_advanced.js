@@ -99,9 +99,10 @@ router.post('/offer-chat', authMiddleware, async (req, res) => {
       const { runPricingProviderAgent } = require('../ai/agents/pricingProviderAgent');
       
       // Przygotuj messages
-      const messages = conversationHistory.length > 0
-        ? conversationHistory.map(m => ({ role: m.role, content: m.text || m.content || m.message }))
-        : [{ role: 'user', content: message }];
+      const messages = [
+        ...conversationHistory.map(m => ({ role: m.role, content: m.text || m.content || m.message })),
+        { role: 'user', content: message }
+      ];
       
       // Przygotuj kontekst
       const orderContext = {
@@ -109,7 +110,11 @@ router.post('/offer-chat', authMiddleware, async (req, res) => {
         description: order.description,
         urgency: order.urgency,
         location: order.location?.city || order.location || 'nieznana',
-        budget: order.budget ? { min: order.budget * 0.8, max: order.budget * 1.2 } : null
+        budget: order.budgetRange || (order.budget ? { min: order.budget * 0.8, max: order.budget * 1.2 } : null),
+        attachments: order.attachments?.length || 0,
+        paymentPreference: order.paymentPreference || 'system',
+        priorityDateTime: order.priorityDateTime || null,
+        clientPreferredTerm: order.priorityDateTime ? new Date(order.priorityDateTime).toISOString() : null
       };
       
       const providerInfo = {
@@ -132,7 +137,7 @@ router.post('/offer-chat', authMiddleware, async (req, res) => {
       const agents = {};
       
       // Routing do agentów
-      if (orchestratorResult.nextStep === 'suggest_offer') {
+      if (orchestratorResult.nextStep === 'suggest_offer' || orchestratorResult.nextStep === 'communication_help') {
         try {
           agents.offer = await runOfferAgent({
             orderContext,

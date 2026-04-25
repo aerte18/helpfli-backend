@@ -157,7 +157,16 @@ router.get("/analyze-order", auth, async (req, res) => {
           'Wymień materiały wliczone w cenę',
           'Zaproponuj gwarancję na wykonane prace',
           'Bądź konkretny co do terminu realizacji'
-        ]
+        ],
+        scope: aiSuggestions?.suggestedScope || [],
+        questions: aiSuggestions?.questions || [],
+        risks: aiSuggestions?.risks || [],
+        checklist: aiSuggestions?.checklist || [],
+        winScore: aiSuggestions?.winScore || null,
+        winLabel: aiSuggestions?.winLabel || null,
+        recommendedIncludes: aiSuggestions?.recommendedIncludes || ['labor', 'transport'],
+        recommendedContactMethod: aiSuggestions?.recommendedContactMethod || 'chat_only',
+        isFinalPriceRecommended: aiSuggestions?.isFinalPriceRecommended ?? true
       },
       marketData: {
         sampleSize: bands?.stats?.sample || 0,

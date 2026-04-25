@@ -212,6 +212,26 @@ function providerFollowup(order, context) {
       actionType: 'provider_schedule'
     });
   }
+  if (context.status === 'in_progress') {
+    return action({
+      priority: 'high',
+      title: 'Pilnuj zakresu realizacji',
+      tip: 'Jeśli pojawią się dodatkowe prace, potwierdź zakres i koszt w czacie przed wykonaniem. To zmniejsza ryzyko sporu.',
+      cta: 'Przygotuj wiadomość',
+      seedQuery: 'Przygotuj wiadomość do klienta o zmianie zakresu lub dodatkowych kosztach.',
+      actionType: 'provider_scope'
+    });
+  }
+  if (context.status === 'completed') {
+    return action({
+      priority: 'medium',
+      title: 'Poproś o odbiór i opinię',
+      tip: 'Wyślij krótką wiadomość z podziękowaniem, prośbą o potwierdzenie odbioru i opinię po wykonaniu.',
+      cta: 'Napisz wiadomość',
+      seedQuery: 'Napisz krótką wiadomość po zakończonym zleceniu z prośbą o odbiór i opinię.',
+      actionType: 'provider_review'
+    });
+  }
   return null;
 }
 

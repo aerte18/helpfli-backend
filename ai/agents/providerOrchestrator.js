@@ -22,8 +22,13 @@ async function runProviderOrchestrator({ messages, orderContext = {}, providerIn
     let nextStep = 'general_help';
     let parsed = null;
     
-    if (userText.includes('oferta') || userText.includes('cena') || userText.includes('ile') || userText.includes('koszt')) {
-      if (userText.includes('oferta') || userText.includes('jak napisać') || userText.includes('pomóż')) {
+    const wantsOffer = /(ofert|propozycj|wiadomo|napisz|przygotuj|wstaw)/i.test(userText);
+    const wantsPrice = /(cena|cenę|wycen|ile|koszt|kwot)/i.test(userText);
+    const wantsWin = /(wygra|szans|konkurenc|lepiej|skuteczn)/i.test(userText);
+    const wantsQuestions = /(pytan|dopyta|zapyta|brakuje|doprecyz)/i.test(userText);
+
+    if (wantsOffer || wantsPrice || wantsWin || wantsQuestions) {
+      if (wantsOffer || wantsWin || wantsQuestions) {
         intent = 'create_offer';
         nextStep = 'suggest_offer';
       } else {

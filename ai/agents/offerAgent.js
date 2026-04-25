@@ -14,6 +14,13 @@ async function runOfferAgent({ orderContext, providerInfo, existingOffers = [], 
   try {
     const service = orderContext.service || 'inne';
     const location = orderContext.location?.city || orderContext.location || '';
+    const lastProviderMessage = (conversationHistory || [])
+      .filter((m) => m.role === 'user')
+      .map((m) => m.content || m.text || '')
+      .pop() || '';
+    const wantsFollowup = /(follow|przypomn|ponowi|odezw|brak odpowiedzi|nie odpowied)/i.test(lastProviderMessage);
+    const wantsSchedule = /(termin|godzin|kiedy|umów|umow|przyjazd)/i.test(lastProviderMessage);
+    const wantsQuestions = /(pytan|dopyta|zapyta|brakuje|doprecyz)/i.test(lastProviderMessage);
     
     // Oblicz sugerowaną cenę na podstawie rynku
     let priceHints = null;
@@ -95,21 +102,79 @@ async function runOfferAgent({ orderContext, providerInfo, existingOffers = [], 
       suggestedTimeline = timelineMap[urgency] || '3-5 dni';
     }
     
+    const isPro = String(providerLevel).toLowerCase().includes('pro');
+    const hasAttachments = Number(orderContext.attachments || 0) > 0;
+    const hasBudget = Boolean(orderContext.budget?.min || orderContext.budget?.max || orderContext.budget);
+    const hasClearDescription = (orderContext.description || '').length >= 80;
+    const winScore = Math.max(45, Math.min(96,
+      58 +
+      (isPro ? 8 : 0) +
+      (providerInfo.rating >= 4.5 ? 7 : 0) +
+      (hasAttachments ? 6 : 0) +
+      (hasBudget ? 5 : 0) +
+      (urgency === 'urgent' || urgency === 'now' || urgency === 'today' ? 5 : 0) +
+      (hasClearDescription ? 4 : 0)
+    ));
+
+    const risks = [
+      !hasAttachments ? 'Brak zdjęć może utrudnić dokładną wycenę - zaznacz, co może zmienić cenę po oględzinach.' : null,
+      !hasBudget ? 'Klient nie podał budżetu - lepiej zaproponować jasny zakres ceny lub cenę ostateczną z założeniami.' : null,
+      (urgency === 'urgent' || urgency === 'now') ? 'Zlecenie jest pilne - podkreśl najbliższy realny termin i dostępność.' : null,
+      (orderContext.description || '').length < 60 ? 'Opis jest krótki - zadaj 1-2 pytania przed ostatecznym zakresem.' : null
+    ].filter(Boolean);
+
+    const questions = [
+      !hasAttachments ? 'Czy klient może dosłać zdjęcie problemu lub miejsca wykonania?' : null,
+      'Czy cena ma obejmować materiały/części, czy tylko robociznę?',
+      'Jaki termin jest dla klienta najwygodniejszy?'
+    ].filter(Boolean).slice(0, 3);
+
+    const checklist = [
+      'Cena i termin są podane konkretnie',
+      'Zakres prac jest jasny dla klienta',
+      'Wiadomo, czy materiały i dojazd są w cenie',
+      'Oferta zawiera krótki powód, dlaczego warto wybrać Ciebie'
+    ];
+
     // Krótkie pierwsze zdanie do klienta (do karty „Komunikacja”)
-    const firstMessageSuggestion = `Witam! Zapoznałem się z opisem zlecenia i chętnie pomogę – mogę zrealizować w podanym terminie.`;
+    let firstMessageSuggestion = `Dzień dobry, zapoznałem się ze zleceniem i mogę pomóc${urgency === 'now' || urgency === 'today' ? ' w szybkim terminie' : ''}.`;
     
     // Generuj przykładową wiadomość
-    const suggestedMessage = `Witam! Zapoznałem się z opisem zlecenia i chętnie pomogę.
+    let suggestedMessage = `Dzień dobry! Zapoznałem się ze zleceniem i mogę je wykonać.
 
 **Zakres prac:**
 - ${service || 'Wykonanie usługi zgodnie z opisem'}
-- Pełna realizacja w terminie
-- Gwarancja jakości
+- diagnoza/problem zgodnie z opisem klienta
+- robocizna i dojazd${hasAttachments ? '' : ' (dokładny zakres potwierdzę po dodatkowym zdjęciu lub krótkim opisie)'}
+- uporządkowanie miejsca pracy po realizacji
 
 **Cena:** ${suggestedPrice.recommended} PLN
 **Termin realizacji:** ${suggestedTimeline}
 
-Jestem gotowy rozpocząć pracę. Czy mogę zadać kilka pytań dotyczących szczegółów?`;
+Cena zakłada standardowy zakres prac. Jeśli po oględzinach okaże się, że potrzebne są dodatkowe części, najpierw potwierdzę to z Państwem.`;
+
+    if (wantsFollowup) {
+      firstMessageSuggestion = 'Dzień dobry, chciałem krótko wrócić do mojej oferty.';
+      suggestedMessage = `Dzień dobry, chciałem krótko wrócić do mojej oferty dotyczącej zlecenia.
+
+Podtrzymuję proponowaną cenę ${suggestedPrice.recommended} PLN i termin: ${suggestedTimeline}. Jeśli coś wymaga doprecyzowania, chętnie odpowiem na pytania albo dopasuję zakres do Państwa potrzeb.
+
+Czy mogę zarezerwować dla Państwa najbliższy dogodny termin?`;
+    } else if (wantsSchedule) {
+      firstMessageSuggestion = 'Dzień dobry, proponuję ustalić dogodny termin realizacji.';
+      suggestedMessage = `Dzień dobry, proponuję ustalić dogodny termin realizacji.
+
+Z mojej strony realny termin to: ${suggestedTimeline}. Przed przyjazdem mogę jeszcze potwierdzić zakres prac i ewentualne materiały/części.
+
+Jaki dzień i godzina będą dla Państwa najwygodniejsze?`;
+    } else if (wantsQuestions) {
+      firstMessageSuggestion = 'Dzień dobry, zanim potwierdzę finalny zakres, mam krótkie pytania.';
+      suggestedMessage = `Dzień dobry, zanim potwierdzę finalny zakres i cenę, potrzebuję krótkiego doprecyzowania:
+
+${questions.map((q, index) => `${index + 1}. ${q}`).join('\n')}
+
+Po odpowiedzi przygotuję konkretną realizację i termin.`;
+    }
     
     // Wskazówki
     const tips = [
@@ -146,12 +211,20 @@ Jestem gotowy rozpocząć pracę. Czy mogę zadać kilka pytań dotyczących szc
       suggestedTimeline,
       suggestedCompletionDate,
       suggestedMessage: suggestedMessage.slice(0, 500),
+      suggestedDescription: suggestedMessage.slice(0, 500),
       firstMessageSuggestion,
       suggestedScope: suggestedScope.slice(0, 5),
       tips: tips.slice(0, 4),
       competition,
-      missing: [],
-      questions: []
+      winScore,
+      winLabel: winScore >= 82 ? 'Bardzo mocna oferta' : winScore >= 68 ? 'Dobra szansa' : 'Wymaga doprecyzowania',
+      risks: risks.slice(0, 3),
+      questions,
+      checklist,
+      recommendedIncludes: hasAttachments ? ['labor', 'transport'] : ['labor', 'transport'],
+      recommendedContactMethod: urgency === 'now' || urgency === 'today' ? 'call_before' : 'chat_only',
+      isFinalPriceRecommended: hasAttachments && hasClearDescription,
+      missing: risks.slice(0, 3)
     };
     
   } catch (error) {

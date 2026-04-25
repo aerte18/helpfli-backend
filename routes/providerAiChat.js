@@ -118,13 +118,10 @@ router.post('/', authMiddleware, async (req, res) => {
       
       // Przygotuj conversationHistory
       const conversationHistory = req.body.conversationHistory || [];
-      const messages = conversationHistory.length > 0
-        ? conversationHistory.map(m => ({ role: m.role, content: m.text || m.content || m.message }))
-        : [{ role: 'user', content: message }];
-      
-      if (conversationHistory.length === 0) {
-        messages.push({ role: 'user', content: message });
-      }
+      const messages = [
+        ...conversationHistory.map(m => ({ role: m.role, content: m.text || m.content || m.message })),
+        { role: 'user', content: message }
+      ];
       
       // Przygotuj kontekst
       const orderContext = orderDetails ? {
@@ -180,7 +177,7 @@ router.post('/', authMiddleware, async (req, res) => {
       }
       
       // Routing do agentów (wyniki w payloadzie, nie wklejane do tekstu)
-      if (orchestratorResult.nextStep === 'suggest_offer' && orderDetails) {
+      if ((orchestratorResult.nextStep === 'suggest_offer' || orchestratorResult.nextStep === 'communication_help') && orderDetails) {
         try {
           const Offer = require('../models/Offer');
           const existingOffers = await Offer.find({
