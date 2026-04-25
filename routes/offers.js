@@ -11,6 +11,9 @@ const { notifyOfferNew, notifyOfferAccepted } = require("../utils/notifier");
 const logger = require("../utils/logger");
 const { evaluateOfferPreflight, normalizeOfferQuality } = require("../ai/utils/preflightQualityEvaluator");
 
+/** Poniżej progu: wysyłka wymaga potwierdzenia „Wyślij mimo to” (tak samo weryfikowane na serwerze). */
+const OFFER_AI_HARD_THRESHOLD = 45;
+
 // Helper function: Calculate distance between two coordinates (Haversine formula)
 function calculateDistance(coord1, coord2) {
   const R = 6371; // Earth radius in km
@@ -29,7 +32,27 @@ function calculateDistance(coord1, coord2) {
 }
 
 function normalizeOfferAiQuality(aiQuality) {
-  return normalizeOfferQuality(aiQuality) || undefined;
+  if (!aiQuality || typeof aiQuality !== "object") return undefined;
+  const base = normalizeOfferQuality(aiQuality);
+  if (!base) return undefined;
+  if (aiQuality.lowQualityOverride === true) {
+    base.lowQualityOverride = true;
+    const th = Number(aiQuality.qualityGateThreshold);
+    if (Number.isFinite(th) && th >= 0 && th <= 100) {
+      base.qualityGateThreshold = th;
+    } else {
+      base.qualityGateThreshold = OFFER_AI_HARD_THRESHOLD;
+    }
+    const scoreAtOverride = Number(aiQuality.scoreAtOverride);
+    if (Number.isFinite(scoreAtOverride) && scoreAtOverride >= 0 && scoreAtOverride <= 100) {
+      base.scoreAtOverride = Math.round(scoreAtOverride);
+    } else if (Number.isFinite(Number(base.percent))) {
+      base.scoreAtOverride = Number(base.percent);
+    }
+    const overrideAt = aiQuality.lowQualityOverrideAt ? new Date(aiQuality.lowQualityOverrideAt) : new Date();
+    base.lowQualityOverrideAt = Number.isNaN(overrideAt.getTime()) ? new Date() : overrideAt;
+  }
+  return base;
 }
 
 const router = express.Router();
@@ -406,7 +429,47 @@ router.post("/", auth, async (req, res) => {
     const finalCompletionDate = completionDate 
       ? new Date(completionDate) 
       : new Date(Date.now() + finalEtaMinutes * 60 * 1000);
-    const normalizedAiQuality = normalizeOfferAiQuality(aiQuality);
+
+    const orderContext = {
+      service: typeof order.service === "object" ? order.service?.code : order.service,
+      description: order.description || "",
+      urgency: order.urgency || "normal",
+      location: order.location?.city || order.location?.address || "",
+      budget: order.budget || order.budgetRange || null
+    };
+    const priceInfoBody = req.body.priceInfo || { includes: [], isFinal: true };
+    const offerDraft = {
+      amount: Number(finalPrice),
+      message: String(finalNotes || ""),
+      completionDate: finalCompletionDate,
+      priceIncludes: Array.isArray(priceInfoBody.includes) ? priceInfoBody.includes : [],
+      isFinalPrice: priceInfoBody.isFinal !== false,
+      contactMethod: String(req.body.contactMethod || ""),
+      providerLevel: provider.providerLevel || provider.providerTier || "standard"
+    };
+    const qualityForStore = await evaluateOfferPreflight({ orderContext, offerDraft });
+    const serverPct = qualityForStore?.percent || 0;
+    const clientOverride = Boolean(aiQuality?.lowQualityOverride);
+    if (serverPct > 0 && serverPct < OFFER_AI_HARD_THRESHOLD && !clientOverride) {
+      return res.status(400).json({
+        message:
+          "Jakość oferty jest poniżej wymaganego progu. Uzupełnij treść oferty albo wybierz „Wyślij mimo to”.",
+        code: "offer_quality_too_low",
+        quality: qualityForStore
+      });
+    }
+    const withOverride = Boolean(clientOverride && serverPct < OFFER_AI_HARD_THRESHOLD);
+    const normalizedAiQuality = normalizeOfferAiQuality({
+      ...qualityForStore,
+      lowQualityOverride: withOverride,
+      qualityGateThreshold: OFFER_AI_HARD_THRESHOLD,
+      ...(withOverride
+        ? {
+            scoreAtOverride: serverPct,
+            lowQualityOverrideAt: new Date().toISOString()
+          }
+        : {})
+    });
     
     const created = await Offer.create({
       orderId,

@@ -169,7 +169,11 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
       aiOfferQualityBuckets,
       aiMessagePreflightBlocked,
       aiMessagePreflightOverride,
-      aiMessagePreflightByMode
+      aiMessagePreflightByMode,
+      aiOfferFormPreflightBlocked,
+      aiOfferFormPreflightOverride,
+      aiOfferFormSubmitStatsAgg,
+      aiOfferFormSubmitDailyAgg
     ] = await Promise.all([
       AIAnalytics.aggregate([
         { $match: aiMatch },
@@ -385,7 +389,8 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
                 ]
               }
             },
-            acceptedMeasuredOffers: { $sum: { $cond: [{ $eq: ['$status', 'accepted'] }, 1, 0] } }
+            acceptedMeasuredOffers: { $sum: { $cond: [{ $eq: ['$status', 'accepted'] }, 1, 0] } },
+            lowQualityOverrideSends: { $sum: { $cond: ['$aiQuality.lowQualityOverride', 1, 0] } }
           }
         },
         {
@@ -395,7 +400,8 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
             avgQuality: { $round: ['$avgQuality', 0] },
             highQualityOffers: 1,
             sentWithWarnings: 1,
-            acceptedMeasuredOffers: 1
+            acceptedMeasuredOffers: 1,
+            lowQualityOverrideSends: 1
           }
         }
       ]),
@@ -445,6 +451,64 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
             count: { $sum: 1 }
           }
         }
+      ]),
+      Event.countDocuments({ ...eventMatch, type: 'offer_form_preflight_blocked' }),
+      Event.countDocuments({ ...eventMatch, type: 'offer_form_preflight_override' }),
+      Event.aggregate([
+        { $match: { ...eventMatch, type: 'offer_form_submit' } },
+        {
+          $group: {
+            _id: null,
+            sent: { $sum: 1 },
+            sentWithOverride: {
+              $sum: {
+                $cond: [{ $eq: ['$properties.sentWithOverride', true] }, 1, 0]
+              }
+            },
+            avgScore: { $avg: '$properties.score' },
+            avgScoreWithOverride: {
+              $avg: {
+                $cond: [
+                  { $eq: ['$properties.sentWithOverride', true] },
+                  '$properties.score',
+                  null
+                ]
+              }
+            }
+          }
+        },
+        {
+          $project: {
+            _id: 0,
+            sent: 1,
+            sentWithOverride: 1,
+            avgScore: { $round: ['$avgScore', 0] },
+            avgScoreWithOverride: { $round: ['$avgScoreWithOverride', 0] }
+          }
+        }
+      ]),
+      Event.aggregate([
+        { $match: { ...eventMatch, type: 'offer_form_submit' } },
+        {
+          $group: {
+            _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+            sent: { $sum: 1 },
+            sentWithOverride: {
+              $sum: {
+                $cond: [{ $eq: ['$properties.sentWithOverride', true] }, 1, 0]
+              }
+            }
+          }
+        },
+        {
+          $project: {
+            _id: 0,
+            date: '$_id',
+            sent: 1,
+            sentWithOverride: 1
+          }
+        },
+        { $sort: { date: 1 } }
       ])
     ]);
 
@@ -473,7 +537,14 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
       avgQuality: 0,
       highQualityOffers: 0,
       sentWithWarnings: 0,
-      acceptedMeasuredOffers: 0
+      acceptedMeasuredOffers: 0,
+      lowQualityOverrideSends: 0
+    };
+    const aiOfferFormSubmitStats = aiOfferFormSubmitStatsAgg[0] || {
+      sent: 0,
+      sentWithOverride: 0,
+      avgScore: null,
+      avgScoreWithOverride: null
     };
     const preflightModeMap = {};
     for (const row of aiMessagePreflightByMode || []) {
@@ -562,6 +633,22 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
           override: aiMessagePreflightOverride,
           overrideRate: rate(aiMessagePreflightOverride, aiMessagePreflightBlocked),
           byMode: preflightByMode
+        },
+        offerFormPreflight: {
+          blocked: aiOfferFormPreflightBlocked,
+          override: aiOfferFormPreflightOverride,
+          overrideRate: rate(aiOfferFormPreflightOverride, aiOfferFormPreflightBlocked),
+          sent: aiOfferFormSubmitStats.sent,
+          sentWithOverride: aiOfferFormSubmitStats.sentWithOverride,
+          submitOverrideRate: rate(aiOfferFormSubmitStats.sentWithOverride, aiOfferFormSubmitStats.sent),
+          avgSubmitScore: aiOfferFormSubmitStats.avgScore,
+          avgSubmitScoreWithOverride: aiOfferFormSubmitStats.avgScoreWithOverride,
+          daily: (aiOfferFormSubmitDailyAgg || []).map((row) => ({
+            date: row.date,
+            sent: Number(row.sent || 0),
+            sentWithOverride: Number(row.sentWithOverride || 0),
+            overrideRate: rate(Number(row.sentWithOverride || 0), Number(row.sent || 0))
+          }))
         }
       },
       topErrors: topErrors.map((row) => ({

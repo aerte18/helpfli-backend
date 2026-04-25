@@ -83,7 +83,11 @@ const OfferSchema = new mongoose.Schema({
     missing: [{ type: String }],
     warnings: [{ type: String }],
     strengths: [{ type: String }],
-    measuredAt: { type: Date, default: null }
+    measuredAt: { type: Date, default: null },
+    lowQualityOverride: { type: Boolean, default: false },
+    qualityGateThreshold: { type: Number, default: null },
+    lowQualityOverrideAt: { type: Date, default: null },
+    scoreAtOverride: { type: Number, default: null }
   },
   
   // Teleporada - pola dla konsultacji online
