@@ -101,7 +101,7 @@ router.post('/chat-suggest-reply', authMiddleware, async (req, res) => {
     const userPrompt = `Kontekst zlecenia: ${(order.description || '').slice(0, 300)}.\n\nOstatnia rozmowa:\n${conversationText}\n\nPodaj ${MAX_SUGGESTIONS} propozycje odpowiedzi, które wykonawca może wysłać do klienta (potwierdzenie terminu, wycena, pytanie o szczegóły, itp.).`;
 
     const response = await client.messages.create({
-      model: process.env.CLAUDE_DEFAULT || 'claude-3-5-haiku-20241022',
+      model: process.env.CLAUDE_DEFAULT || 'claude-haiku-4-5-20251001',
       max_tokens: 400,
       system,
       messages: [{ role: 'user', content: userPrompt }],

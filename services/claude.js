@@ -106,7 +106,7 @@ class ClaudeService {
       messages.push(userMessage);
 
       const response = await this.client.messages.create({
-        model: 'claude-3-5-sonnet-20241022',
+        model: process.env.CLAUDE_DEFAULT || 'claude-sonnet-4-6',
         max_tokens: 4000,
         temperature: 0.3,
         system: systemPrompt,
@@ -825,7 +825,7 @@ Respond in JSON format:
 
     try {
       const response = await this.client.messages.create({
-        model: 'claude-3-5-sonnet-20241022',
+        model: process.env.CLAUDE_DEFAULT || 'claude-sonnet-4-6',
         max_tokens: 100,
         messages: [
           {

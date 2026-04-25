@@ -39,7 +39,7 @@ async function generateReasons(orders, providerServices = [], providerCity = '')
 
   try {
     const response = await client.messages.create({
-      model: process.env.CLAUDE_DEFAULT || 'claude-3-5-haiku-20241022',
+      model: process.env.CLAUDE_DEFAULT || 'claude-haiku-4-5-20251001',
       max_tokens: 600,
       system,
       messages: [{ role: 'user', content: user }],

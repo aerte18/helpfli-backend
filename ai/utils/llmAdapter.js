@@ -147,7 +147,7 @@ JSON powinien być poprawny, parsowalny, bez dodatkowych znaków, bez markdown c
 Zacznij odpowiedź bezpośrednio od { i zakończ na }.`;
 
     const response = await client.messages.create({
-      model: process.env.CLAUDE_DEFAULT || 'claude-3-5-haiku-20241022',
+      model: process.env.CLAUDE_DEFAULT || 'claude-haiku-4-5-20251001',
       max_tokens: 2000,
       temperature: 0.4,
       system: enhancedSystemPrompt,
@@ -289,7 +289,7 @@ async function callLLMWithTools(systemPrompt, messages, agentType, context = {})
     
     // Wywołaj Claude z tools
     const response = await client.messages.create({
-      model: process.env.CLAUDE_DEFAULT || 'claude-3-5-haiku-20241022',
+      model: process.env.CLAUDE_DEFAULT || 'claude-haiku-4-5-20251001',
       max_tokens: 2000,
       temperature: 0.4,
       system: systemPrompt,
@@ -340,7 +340,7 @@ async function callLLMWithTools(systemPrompt, messages, agentType, context = {})
       
       // Druga runda - Claude z wynikiem narzędzia
       const finalResponse = await client.messages.create({
-        model: process.env.CLAUDE_DEFAULT || 'claude-3-5-haiku-20241022',
+        model: process.env.CLAUDE_DEFAULT || 'claude-haiku-4-5-20251001',
         max_tokens: 2000,
         temperature: 0.4,
         system: systemPrompt,
@@ -414,7 +414,7 @@ async function streamLLM(systemPrompt, messages, onToken) {
     
     // Streaming call
     const stream = await client.messages.stream({
-      model: process.env.CLAUDE_DEFAULT || 'claude-3-5-haiku-20241022',
+      model: process.env.CLAUDE_DEFAULT || 'claude-haiku-4-5-20251001',
       max_tokens: 2000,
       temperature: 0.4,
       system: systemPrompt,
