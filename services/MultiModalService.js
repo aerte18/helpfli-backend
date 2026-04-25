@@ -94,16 +94,7 @@ class MultiModalService {
     if (imageUrl.startsWith('/uploads/')) {
       const fs = require('fs');
       const path = require('path');
-      const UPLOAD_DIR = process.env.UPLOAD_DIR || 'uploads';
-      const uploadRoot = path.isAbsolute(UPLOAD_DIR)
-        ? UPLOAD_DIR
-        : path.join(__dirname, '..', UPLOAD_DIR);
-      const relative = imageUrl.replace(/^\/uploads\/?/, '');
-      const filePath = path.normalize(path.join(uploadRoot, relative));
-
-      if (!filePath.startsWith(path.normalize(uploadRoot))) {
-        throw new Error('Invalid local image path');
-      }
+      const filePath = this.resolveLocalUploadPath(imageUrl);
 
       const buffer = await fs.promises.readFile(filePath);
       const ext = path.extname(filePath).toLowerCase().replace('.', '');
@@ -154,6 +145,38 @@ class MultiModalService {
     }
 
     throw new Error('Unsupported image format');
+  }
+
+  resolveLocalUploadPath(publicPath) {
+    const fs = require('fs');
+    const path = require('path');
+    const UPLOAD_DIR = process.env.UPLOAD_DIR || 'uploads';
+    const configuredRoot = path.isAbsolute(UPLOAD_DIR)
+      ? UPLOAD_DIR
+      : path.join(__dirname, '..', UPLOAD_DIR);
+    const relative = String(publicPath).replace(/^\/uploads\/?/, '');
+    const candidates = [
+      path.join(configuredRoot, relative),
+      path.join(__dirname, '..', 'uploads', relative),
+      path.join(process.cwd(), 'uploads', relative),
+      path.join(process.cwd(), 'var', 'data', 'uploads', relative)
+    ].map((candidate) => path.normalize(candidate));
+
+    const normalizedRoots = [
+      configuredRoot,
+      path.join(__dirname, '..', 'uploads'),
+      path.join(process.cwd(), 'uploads'),
+      path.join(process.cwd(), 'var', 'data', 'uploads')
+    ].map((root) => path.normalize(root));
+
+    for (const candidate of candidates) {
+      const isInsideUploadRoot = normalizedRoots.some((root) => candidate.startsWith(root));
+      if (isInsideUploadRoot && fs.existsSync(candidate)) {
+        return candidate;
+      }
+    }
+
+    throw new Error(`Local uploaded image not found: ${publicPath}`);
   }
 
   /**

@@ -30,8 +30,17 @@ const { validate } = require('../middleware/validation');
 const AIFeedback = require('../models/AIFeedback');
 
 const MAX_MB = parseInt(process.env.MAX_FILE_SIZE_MB || '30', 10);
+const UPLOAD_DIR = process.env.UPLOAD_DIR || 'uploads';
+const UPLOAD_DIR_ABS = path.isAbsolute(UPLOAD_DIR)
+  ? UPLOAD_DIR
+  : path.join(__dirname, '..', UPLOAD_DIR);
+function ensureUploadSubdir(subdir) {
+  const dir = path.join(UPLOAD_DIR_ABS, subdir);
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
 const storageDrafts = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, path.join(__dirname, '..', process.env.UPLOAD_DIR || 'uploads', 'drafts')),
+  destination: (req, file, cb) => cb(null, ensureUploadSubdir('drafts')),
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname || '');
     cb(null, 'draft-' + Date.now() + '-' + Math.random().toString(36).slice(2) + ext);
@@ -49,7 +58,7 @@ const toPublicUrl = (filename) => `/uploads/drafts/${filename}`;
 
 // Upload plików dla AI Concierge
 const storageConcierge = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, path.join(__dirname, '..', process.env.UPLOAD_DIR || 'uploads', 'concierge')),
+  destination: (req, file, cb) => cb(null, ensureUploadSubdir('concierge')),
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname || '');
     cb(null, 'concierge-' + Date.now() + '-' + Math.random().toString(36).slice(2) + ext);
