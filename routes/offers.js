@@ -866,8 +866,8 @@ router.get("/of-order", auth, async (req, res) => {
 router.post("/:id/accept", auth, async (req, res) => {
   try {
     const { id } = req.params;
-    const { 
-      paymentMethod = 'system', 
+    const {
+      paymentMethod = 'system',
       includeGuarantee = true, 
       requestInvoice = false,
       totalAmount, 
@@ -934,6 +934,17 @@ router.post("/:id/accept", auth, async (req, res) => {
       });
     }
 
+    // Wyznacz finalny flow płatności dla tej akceptacji.
+    // Gdy klient dopuścił "both", priorytet ma wybór providera zapisany w ofercie.
+    const validFlow = (v) => ["system", "external"].includes(v);
+    const providerFlow = validFlow(offer.paymentMethod) ? offer.paymentMethod : null;
+    const requestFlow = validFlow(paymentMethod) ? paymentMethod : null;
+    const orderFlow = validFlow(order.paymentPreference) ? order.paymentPreference : null;
+    const effectivePaymentFlow =
+      order.paymentPreference === "both"
+        ? (providerFlow || requestFlow || "system")
+        : (orderFlow || requestFlow || "system");
+
     // Oblicz opłaty (bazując na aktualnej subskrypcji klienta, a nie danych z frontu)
     const baseAmount = offer.amount;
     
@@ -949,7 +960,7 @@ router.post("/:id/accept", auth, async (req, res) => {
     const platformFeePercent = zeroCommissionPlans.includes(clientPlanKey) ? 0 : 5;
     const platformFee = Math.round(baseAmount * (platformFeePercent / 100));
     
-    const guaranteeFee = (paymentMethod === 'system' && includeGuarantee)
+    const guaranteeFee = (effectivePaymentFlow === 'system' && includeGuarantee)
       ? Math.round(baseAmount * 0.07)
       : 0;
     
@@ -963,7 +974,10 @@ router.post("/:id/accept", auth, async (req, res) => {
     order.provider = offer.providerId;
     order.status = "accepted"; // MVP status
     
-    // paymentPreference (system vs external) jest już ustawione przy tworzeniu zlecenia; paymentMethod w Order to enum ['card','p24','blik','unknown'] – nie nadpisywać
+    // Persistuj wybrany flow płatności dla zaakceptowanej oferty.
+    // paymentPreference steruje logiką system vs external.
+    order.paymentPreference = effectivePaymentFlow;
+    // paymentMethod w Order to enum ['card','p24','blik','unknown'] – nie nadpisywać tutaj
 
     order.acceptedOfferId = offer._id;
     order.requestInvoice = requestInvoice;
@@ -975,12 +989,12 @@ router.post("/:id/accept", auth, async (req, res) => {
       platformFee,
       total,
       currency: 'PLN',
-      includeGuarantee: includeGuarantee && paymentMethod === 'system'
+      includeGuarantee: includeGuarantee && effectivePaymentFlow === 'system'
     };
     
     // Ustaw gwarancję
-    order.protectionEligible = includeGuarantee && paymentMethod === 'system';
-    order.protectionStatus = includeGuarantee && paymentMethod === 'system' ? 'active' : 'inactive';
+    order.protectionEligible = includeGuarantee && effectivePaymentFlow === 'system';
+    order.protectionStatus = includeGuarantee && effectivePaymentFlow === 'system' ? 'active' : 'inactive';
     
     // Sprawdź czy to teleporada (na podstawie kategorii usługi)
     const isTeleconsultation = order.service && (
@@ -1196,7 +1210,7 @@ router.post("/:id/accept", auth, async (req, res) => {
       ok: true, 
       orderId: order._id, 
       offerId: offer._id,
-      paymentMethod,
+      paymentMethod: effectivePaymentFlow,
       includeGuarantee,
       totalAmount,
       breakdown: order.pricing

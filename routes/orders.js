@@ -2141,9 +2141,10 @@ router.post('/:id/start', auth, requireKycVerified, loadOrderById, async (req, r
       return res.status(400).json({ message: 'Zlecenie musi być zaakceptowane przed rozpoczęciem pracy' });
     }
     
-    // Dla płatności przez system - sprawdź czy płatność została wykonana
-    if (order.paymentMethod === 'system' && order.paymentStatus !== 'succeeded' && !order.paidInSystem) {
-      return res.status(400).json({ message: 'Zlecenie musi być opłacone przed rozpoczęciem pracy (paymentMethod: system)' });
+    // Dla płatności przez system - sprawdź czy płatność została wykonana.
+    // Flow system/external jest przechowywany w paymentPreference.
+    if (order.paymentPreference === 'system' && order.paymentStatus !== 'succeeded' && !order.paidInSystem) {
+      return res.status(400).json({ message: 'Zlecenie musi być opłacone przed rozpoczęciem pracy (paymentPreference: system)' });
     }
     
     order.status = 'in_progress';
