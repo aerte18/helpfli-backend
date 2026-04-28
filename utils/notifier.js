@@ -96,6 +96,24 @@ async function notifyOfferAccepted({ app, orderId, offerId }) {
       console.error("Email error:", e);
     }
   }
+
+  // Zapisz powiadomienie do "dzwonka" providera
+  try {
+    await Notification.create({
+      user: offer.providerId,
+      type: 'order_accepted',
+      title: 'Oferta zaakceptowana',
+      message: `Klient zaakceptował Twoją ofertę (${offer.amount} zł).`,
+      link: orderInAppPath(orderId),
+      metadata: {
+        orderId: orderId.toString(),
+        offerId: offerId.toString(),
+        amount: offer.amount
+      }
+    });
+  } catch (error) {
+    console.error("Error creating accepted-offer notification:", error);
+  }
   
   try {
     await sendPushToUser(offer.providerId, {
@@ -134,6 +152,23 @@ async function notifyOfferRejected({ app, orderId, offerId, providerId }) {
     } catch (e) {
       console.error("Email error:", e);
     }
+  }
+
+  // Zapisz powiadomienie do "dzwonka" providera
+  try {
+    await Notification.create({
+      user: providerId || offer.providerId,
+      type: 'order_updated',
+      title: 'Klient wybrał inną ofertę',
+      message: 'Twoja oferta nie została wybrana. Brak kar - oferta zapisana w statystykach.',
+      link: orderInAppPath(orderId),
+      metadata: {
+        orderId: orderId.toString(),
+        offerId: offerId.toString()
+      }
+    });
+  } catch (error) {
+    console.error("Error creating rejected-offer notification:", error);
   }
   
   try {

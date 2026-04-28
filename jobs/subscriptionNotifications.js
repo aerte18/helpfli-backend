@@ -5,6 +5,34 @@ const { sendMail } = require('../utils/mailer');
 const { sendPushToUser } = require('../utils/push');
 const smsService = require('../services/smsService');
 const NotificationLog = require('../models/NotificationLog');
+const Notification = require('../models/Notification');
+
+async function createInAppSubscriptionNotification({
+  userId,
+  type = 'subscription_expiring',
+  title,
+  message,
+  daysLeft = null,
+  subscriptionId = null,
+  planKey = null
+}) {
+  try {
+    await Notification.create({
+      user: userId,
+      type,
+      title,
+      message,
+      link: '/account/subscriptions',
+      metadata: {
+        ...(daysLeft !== null ? { daysLeft } : {}),
+        ...(subscriptionId ? { subscriptionId: String(subscriptionId) } : {}),
+        ...(planKey ? { planKey } : {})
+      }
+    });
+  } catch (error) {
+    console.error('Error creating in-app subscription notification:', error);
+  }
+}
 
 /**
  * Job do wysyłania powiadomień o wygasaniu subskrypcji
@@ -74,6 +102,15 @@ async function sendSubscriptionExpiryNotifications() {
             console.error(`Push notification error:`, pushError);
           }
         }
+        await createInAppSubscriptionNotification({
+          userId: user._id,
+          type: 'subscription_expiring',
+          title: 'Subskrypcja wygasa za 7 dni',
+          message: `Twoja subskrypcja ${plan?.name || sub.planKey} wygasa za 7 dni. Odnów teraz!`,
+          daysLeft: 7,
+          subscriptionId: sub._id,
+          planKey: sub.planKey
+        });
         
         sub.notifications = sub.notifications || {};
         sub.notifications.expiry7daysSent = true;
@@ -138,6 +175,15 @@ async function sendSubscriptionExpiryNotifications() {
             console.error(`Push notification error:`, pushError);
           }
         }
+        await createInAppSubscriptionNotification({
+          userId: user._id,
+          type: 'subscription_expiring',
+          title: 'Subskrypcja wygasa za 3 dni',
+          message: `Twoja subskrypcja ${plan?.name || sub.planKey} wygasa za 3 dni. Odnów teraz!`,
+          daysLeft: 3,
+          subscriptionId: sub._id,
+          planKey: sub.planKey
+        });
         
         sub.notifications = sub.notifications || {};
         sub.notifications.expiry3daysSent = true;
@@ -202,6 +248,15 @@ async function sendSubscriptionExpiryNotifications() {
             console.error(`Push notification error:`, pushError);
           }
         }
+        await createInAppSubscriptionNotification({
+          userId: user._id,
+          type: 'subscription_expiring',
+          title: 'Subskrypcja wygasa jutro',
+          message: `Twoja subskrypcja ${plan?.name || sub.planKey} wygasa jutro. Odnów teraz!`,
+          daysLeft: 1,
+          subscriptionId: sub._id,
+          planKey: sub.planKey
+        });
         
         sub.notifications = sub.notifications || {};
         sub.notifications.expiry1daySent = true;
@@ -264,6 +319,14 @@ async function sendSubscriptionExpiryNotifications() {
             console.error(`Push notification error:`, pushError);
           }
         }
+        await createInAppSubscriptionNotification({
+          userId: user._id,
+          type: 'subscription_expired',
+          title: 'Subskrypcja wygasła',
+          message: `Twoja subskrypcja ${plan?.name || sub.planKey} wygasła. Przywróć z 20% zniżką!`,
+          subscriptionId: sub._id,
+          planKey: sub.planKey
+        });
         
         sub.notifications = sub.notifications || {};
         sub.notifications.expiredSent = true;

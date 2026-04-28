@@ -11,6 +11,7 @@ const Coupon = require('../models/Coupon');
 const PaymentErrorLog = require('../models/PaymentErrorLog');
 const Invoice = require('../models/Invoice');
 const Revenue = require('../models/Revenue');
+const Notification = require('../models/Notification');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const NotificationService = require('../services/NotificationService');
 const { validateNIP } = require('../utils/companyValidation');
@@ -1497,6 +1498,21 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
           order.protectionStatus = 'inactive';
           order.protectionExpiresAt = null;
           await order.save();
+          try {
+            await Notification.create({
+              user: order.client,
+              type: 'order_updated',
+              title: 'Płatność nieudana',
+              message: 'Płatność za zlecenie nie powiodła się. Spróbuj ponownie inną metodą.',
+              link: `/orders/${order._id}`,
+              metadata: {
+                orderId: String(order._id),
+                paymentIntentId: intent.id
+              }
+            });
+          } catch (notifyError) {
+            console.error('Failed to create payment-failed notification:', notifyError);
+          }
         }
         if (payment) {
           payment.status = 'failed';
