@@ -430,6 +430,9 @@ router.post('/create-commission-intent', authMiddleware, async (req, res) => {
     if (!platformFeePln || platformFeePln <= 0) {
       return res.status(400).json({ message: 'Brak opłaty serwisowej do zapłaty' });
     }
+    if (order.externalCommissionStatus === 'succeeded') {
+      return res.status(400).json({ message: 'Prowizja została już opłacona' });
+    }
 
     // Stripe kwota w groszach
     const amount = Math.round(platformFeePln * 100);
@@ -482,7 +485,7 @@ router.post('/create-commission-intent', authMiddleware, async (req, res) => {
     order.currency = CURRENCY;
     order.platformFeeAmount = amount;
     order.paymentProvider = 'stripe';
-    order.paymentStatus = 'processing';
+    order.externalCommissionStatus = 'processing';
     order.paidInSystem = false;
     order.payment = order.payment || {};
     order.payment.intentId = intent.id;
@@ -1286,6 +1289,30 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
         return res.json({ received: true });
       }
 
+      // Opłata prowizji dla zlecenia rozliczanego poza systemem
+      if (intent.metadata?.type === 'commission_external') {
+        const orderId = intent.metadata?.orderId;
+        try {
+          const order = orderId ? await Order.findById(orderId) : null;
+          const payment = await Payment.findOne({ stripePaymentIntentId: intent.id });
+
+          if (order) {
+            order.externalCommissionStatus = 'succeeded';
+            // External flow nie aktywuje escrow/protection.
+            order.paidInSystem = false;
+            await order.save();
+          }
+          if (payment) {
+            payment.status = 'succeeded';
+            payment.method = intent.payment_method_types?.[0] || payment.method;
+            await payment.save();
+          }
+        } catch (e) {
+          console.error('External commission webhook handling error:', e);
+        }
+        return res.json({ received: true });
+      }
+
       // Obsługa promocji
       if (intent.metadata?.type === 'promotion') {
         const planId = intent.metadata.planId;
@@ -1411,6 +1438,26 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
           }
         } catch (e) {
           console.error('Subscription payment_failed handling error:', e);
+        }
+        return res.json({ received: true });
+      }
+
+      // Błąd płatności prowizji dla rozliczenia poza systemem
+      if (intent.metadata?.type === 'commission_external') {
+        const orderId = intent.metadata?.orderId;
+        try {
+          const order = orderId ? await Order.findById(orderId) : null;
+          const payment = await Payment.findOne({ stripePaymentIntentId: intent.id });
+          if (order) {
+            order.externalCommissionStatus = 'failed';
+            await order.save();
+          }
+          if (payment) {
+            payment.status = 'failed';
+            await payment.save();
+          }
+        } catch (e) {
+          console.error('External commission payment_failed handling error:', e);
         }
         return res.json({ received: true });
       }

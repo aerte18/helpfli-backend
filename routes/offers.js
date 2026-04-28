@@ -977,6 +977,9 @@ router.post("/:id/accept", auth, async (req, res) => {
     // Persistuj wybrany flow płatności dla zaakceptowanej oferty.
     // paymentPreference steruje logiką system vs external.
     order.paymentPreference = effectivePaymentFlow;
+    order.paymentStatus = 'unpaid';
+    order.paidInSystem = false;
+    order.externalCommissionStatus = 'unpaid';
     // paymentMethod w Order to enum ['card','p24','blik','unknown'] – nie nadpisywać tutaj
 
     order.acceptedOfferId = offer._id;

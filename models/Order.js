@@ -156,6 +156,7 @@ const orderSchema = new mongoose.Schema({
   currency: { type: String, default: 'pln' },
   paidInSystem: { type: Boolean, default: false },
   paymentStatus: { type: String, enum: ['unpaid','processing','succeeded','failed','refunded','partial_refund'], default: 'unpaid' },
+  externalCommissionStatus: { type: String, enum: ['unpaid','processing','succeeded','failed','refunded','partial_refund'], default: 'unpaid' },
   paymentMethod: { type: String, enum: ['card','p24','blik','unknown'], default: 'unknown' },
   paymentProvider: { type: String, enum: ['stripe','none'], default: 'none' },
   paymentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Payment', default: null },
