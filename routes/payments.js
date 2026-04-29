@@ -251,8 +251,10 @@ router.post('/create-intent', authMiddleware, async (req, res) => {
     const { orderId, methodHint = 'card', requestInvoice } = req.body;
     const order = await Order.findById(orderId).populate('client').populate('provider');
     if (!order) return res.status(404).json({ message: 'Nie znaleziono zlecenia' });
+    const clientId = order.client?._id || order.client;
+    const clientName = order.client?.name || '';
 
-    if (String(order.client) !== String(req.user._id)) {
+    if (!clientId || String(clientId) !== String(req.user._id)) {
       return res.status(403).json({ message: 'To nie jest Twoje zlecenie' });
     }
     if (order.paymentStatus === 'succeeded') {
@@ -338,7 +340,7 @@ router.post('/create-intent', authMiddleware, async (req, res) => {
     description: `Helpfli Order #${order._id}`,
     metadata: {
       orderId: String(order._id),
-      clientId: String(order.client),
+        clientId: String(clientId),
       providerId: String(providerId || ''),
       platformFeeAmount: String(platformFeeAmount),
       pointsDiscount: String(pointsDiscount),
@@ -367,9 +369,9 @@ router.post('/create-intent', authMiddleware, async (req, res) => {
     const payment = await Payment.create({
       order: order._id,
       provider: providerId || null,
-      client: order.client,
+      client: clientId,
       providerName: providerForConnect?.name || '',
-      clientName: order.client?.name || '',
+      clientName,
       stripePaymentIntentId: intent.id,
       amount,
       currency: CURRENCY,
@@ -422,8 +424,10 @@ router.post('/create-commission-intent', authMiddleware, async (req, res) => {
     const { orderId, methodHint = 'card' } = req.body;
     const order = await Order.findById(orderId).populate('client');
     if (!order) return res.status(404).json({ message: 'Nie znaleziono zlecenia' });
+    const clientId = order.client?._id || order.client;
+    const clientName = order.client?.name || '';
 
-    if (String(order.client) !== String(req.user._id)) {
+    if (!clientId || String(clientId) !== String(req.user._id)) {
       return res.status(403).json({ message: 'To nie jest Twoje zlecenie' });
     }
 
@@ -453,7 +457,7 @@ router.post('/create-commission-intent', authMiddleware, async (req, res) => {
       description: `Opłata serwisowa Helpfli za zlecenie #${order._id}`,
       metadata: {
         orderId: String(order._id),
-        clientId: String(order.client),
+        clientId: String(clientId),
         type: 'commission_external',
         commissionAmountPln: String(platformFeePln),
       },
@@ -463,9 +467,9 @@ router.post('/create-commission-intent', authMiddleware, async (req, res) => {
     const payment = await Payment.create({
       order: order._id,
       provider: null,
-      client: order.client,
+      client: clientId,
       providerName: '',
-      clientName: order.client?.name || '',
+      clientName,
       stripePaymentIntentId: intent.id,
       amount,
       currency: CURRENCY,
