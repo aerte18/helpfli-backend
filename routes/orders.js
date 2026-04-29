@@ -799,7 +799,9 @@ router.get('/open', auth, async (req, res) => {
     const showCompanyOrders = companyId || (isInCompany && req.query.showCompany === 'true');
     const filterProviderId = req.query.providerId; // Filtr po konkretnym providerze z firmy
     
-    // Podstawowe filtrowanie - tylko otwarte zlecenia (open lub collecting_offers)
+    // Podstawowe filtrowanie:
+    // - publiczny rynek: open/collecting_offers
+    // - zapytania direct quote: tylko dla przypisanego providera
     let query = { status: { $in: ['open', 'collecting_offers'] } };
     
     // Jeśli pokazujemy zlecenia dla firmy, pobierz wszystkich wykonawców z firmy
@@ -830,6 +832,15 @@ router.get('/open', auth, async (req, res) => {
         }
       }
     }
+    const visibleProviderIds = Array.isArray(companyProviderIds) && companyProviderIds.length
+      ? companyProviderIds
+      : [req.user._id];
+    query = {
+      $or: [
+        { status: { $in: ['open', 'collecting_offers'] } },
+        { status: 'quote', provider: { $in: visibleProviderIds } },
+      ],
+    };
     
     // Filtry opcjonalne — pojedynczy `service` z toolbara koliduje z tablicą `services` (AND w MongoDB
     // wymagałby dokładnego pola + $or → puste wyniki). Gdy jest lista usług providera, filtr kategorii
