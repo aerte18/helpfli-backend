@@ -270,6 +270,10 @@ router.post("/quote-draft", auth, async (req, res) => {
   try {
     const { providerId } = req.body;
     let { serviceId } = req.body;
+    const description = String(req.body?.description || "").trim();
+    const preferredTime = String(req.body?.preferredTime || "").trim();
+    const budgetRaw = req.body?.budget;
+    const budget = Number.isFinite(Number(budgetRaw)) && Number(budgetRaw) > 0 ? Number(budgetRaw) : null;
 
     if (!providerId) {
       return res.status(400).json({ error: "providerId jest wymagany" });
@@ -338,8 +342,16 @@ router.post("/quote-draft", auth, async (req, res) => {
     });
 
     if (!hasAnyMessage) {
-      const introText =
-        "Klient rozpoczął zapytanie o wycenę. Możecie doprecyzować szczegóły przed złożeniem oferty.";
+      const details = [];
+      if (description) details.push(`Opis: ${description}`);
+      if (budget) details.push(`Budżet: ${budget} zł`);
+      if (preferredTime) details.push(`Preferowany termin: ${preferredTime}`);
+      const introText = [
+        "Klient rozpoczął zapytanie o wycenę.",
+        details.length
+          ? `Szczegóły od klienta:\n${details.map((line) => `- ${line}`).join("\n")}`
+          : "Możecie doprecyzować szczegóły przed złożeniem oferty.",
+      ].join("\n\n");
       const introMessage = await Message.create({
         conversation: conversation._id,
         sender: req.user._id,
