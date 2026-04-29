@@ -421,6 +421,9 @@ router.post('/create-intent', authMiddleware, async (req, res) => {
 // body: { orderId, methodHint: 'card'|'p24'|'blik' }
 router.post('/create-commission-intent', authMiddleware, async (req, res) => {
   try {
+    if (!stripe) {
+      return res.status(503).json({ message: 'Płatności są chwilowo niedostępne (brak konfiguracji Stripe).' });
+    }
     const { orderId, methodHint = 'card' } = req.body;
     const order = await Order.findById(orderId).populate('client');
     if (!order) return res.status(404).json({ message: 'Nie znaleziono zlecenia' });
