@@ -183,7 +183,12 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
       companyAiSlaBreachDetected,
       companyAiSlaBreachFirstOffer,
       companyAiSlaBreachQualifiedOffer,
-      companyPlanComparisonAgg
+      companyPlanComparisonAgg,
+      chatPreofferContactMasked,
+      chatPreofferLimitBlocked,
+      chatPreofferAttachmentsBlocked,
+      chatPreofferTextTruncated,
+      chatModerationBreakdown
     ] = await Promise.all([
       AIAnalytics.aggregate([
         { $match: aiMatch },
@@ -617,6 +622,47 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
             avgOffersPerOrder: { $avg: '$offerCount' }
           }
         }
+      ]),
+      Event.countDocuments({ ...eventMatch, type: 'chat_preoffer_contact_masked' }),
+      Event.countDocuments({ ...eventMatch, type: 'chat_preoffer_limit_blocked' }),
+      Event.countDocuments({ ...eventMatch, type: 'chat_preoffer_attachments_blocked' }),
+      Event.countDocuments({ ...eventMatch, type: 'chat_preoffer_text_truncated' }),
+      Event.aggregate([
+        {
+          $match: {
+            ...eventMatch,
+            type: 'chat_preoffer_contact_masked'
+          }
+        },
+        {
+          $project: {
+            hadPhone: { $cond: [{ $eq: ['$properties.hadPhone', true] }, 1, 0] },
+            hadEmail: { $cond: [{ $eq: ['$properties.hadEmail', true] }, 1, 0] },
+            hadLink: { $cond: [{ $eq: ['$properties.hadLink', true] }, 1, 0] },
+            hadSocial: { $cond: [{ $eq: ['$properties.hadSocial', true] }, 1, 0] },
+            hadObfuscatedContact: { $cond: [{ $eq: ['$properties.hadObfuscatedContact', true] }, 1, 0] }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            phone: { $sum: '$hadPhone' },
+            email: { $sum: '$hadEmail' },
+            link: { $sum: '$hadLink' },
+            social: { $sum: '$hadSocial' },
+            obfuscated: { $sum: '$hadObfuscatedContact' }
+          }
+        },
+        {
+          $project: {
+            _id: 0,
+            phone: 1,
+            email: 1,
+            link: 1,
+            social: 1,
+            obfuscated: 1
+          }
+        }
       ])
     ]);
 
@@ -673,6 +719,13 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
         blockRatePerSent: rate(row.blocked, row.sent)
       }))
       .sort((a, b) => (b.blocked || 0) - (a.blocked || 0));
+    const chatModerationReasons = chatModerationBreakdown?.[0] || {
+      phone: 0,
+      email: 0,
+      link: 0,
+      social: 0,
+      obfuscated: 0
+    };
     const companyPlanComparisonMap = {};
     for (const row of companyPlanComparisonAgg || []) {
       const key = row?._id === 'pro' ? 'pro' : 'non_pro';
@@ -831,6 +884,13 @@ router.get('/ai-insights', authMiddleware, requireRole('admin'), async (req, res
             sentWithOverride: Number(row.sentWithOverride || 0),
             overrideRate: rate(Number(row.sentWithOverride || 0), Number(row.sent || 0))
           }))
+        },
+        chatModeration: {
+          preofferContactMasked: chatPreofferContactMasked,
+          preofferLimitBlocked: chatPreofferLimitBlocked,
+          preofferAttachmentsBlocked: chatPreofferAttachmentsBlocked,
+          preofferTextTruncated: chatPreofferTextTruncated,
+          reasons: chatModerationReasons
         },
         companyPro: {
           shortlistGenerated: companyAiShortlistGenerated,

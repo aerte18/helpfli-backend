@@ -43,6 +43,10 @@ class TelemetryService {
       COMPANY_AI_AUTO_FOLLOWUP_SENT: 'company_ai_auto_followup_sent',
       COMPANY_AI_AUTO_FOLLOWUP_CRON_RUN: 'company_ai_auto_followup_cron_run',
       COMPANY_AI_SLA_BREACH_DETECTED: 'company_ai_sla_breach_detected',
+      CHAT_PREOFFER_CONTACT_MASKED: 'chat_preoffer_contact_masked',
+      CHAT_PREOFFER_LIMIT_BLOCKED: 'chat_preoffer_limit_blocked',
+      CHAT_PREOFFER_ATTACHMENTS_BLOCKED: 'chat_preoffer_attachments_blocked',
+      CHAT_PREOFFER_TEXT_TRUNCATED: 'chat_preoffer_text_truncated',
       
       // Payment flow
       PAYMENT_INTENT_CREATED: 'payment_intent_created',

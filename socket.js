@@ -1,7 +1,64 @@
 const Conversation = require("./models/Conversation");
 const Message = require("./models/Message");
+const Order = require("./models/Order");
+const Offer = require("./models/Offer");
+const User = require("./models/User");
 const socketAuth = require("./middleware/socketAuth");
+const TelemetryService = require("./services/TelemetryService");
 const { notifyChatMessage } = require("./utils/notifier");
+
+const PRE_OFFER_PROVIDER_MESSAGE_LIMIT = 6;
+const MAX_PRE_OFFER_TEXT_LENGTH = 500;
+const phoneRegex = /(?:\+?\d{1,3}[\s\-\.]?)?(?:\(?\d{2,3}\)?[\s\-\.]?)?(?:\d[\s\-\.]?){7,}/gi;
+const emailRegex = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
+const linkRegex = /(https?:\/\/|www\.)\S+/gi;
+const socialRegex = /\b(whatsapp|telegram|messenger|instagram|ig\b|facebook|fb\b|snapchat|tiktok|discord)\b/gi;
+const obfuscatedContactRegex = /\b(małpa|malpa|kropka|dot|at)\b/gi;
+
+function moderatePreOfferText(input) {
+  const text = String(input || "");
+  let moderated = text;
+  const hasMatch = (regex) => {
+    regex.lastIndex = 0;
+    const matched = regex.test(text);
+    regex.lastIndex = 0;
+    return matched;
+  };
+  const flags = {
+    hadPhone: false,
+    hadEmail: false,
+    hadLink: false,
+    hadSocial: false,
+    hadObfuscatedContact: false,
+  };
+
+  if (hasMatch(phoneRegex)) {
+    flags.hadPhone = true;
+    moderated = moderated.replace(phoneRegex, (m) => m.replace(/\d/g, "•"));
+  }
+  if (hasMatch(emailRegex)) {
+    flags.hadEmail = true;
+    moderated = moderated.replace(emailRegex, "•••@•••.••");
+  }
+  if (hasMatch(linkRegex)) {
+    flags.hadLink = true;
+    moderated = moderated.replace(linkRegex, "[link ukryty]");
+  }
+  if (hasMatch(socialRegex)) {
+    flags.hadSocial = true;
+    moderated = moderated.replace(socialRegex, "[kontakt poza platformą ukryty]");
+  }
+  if (hasMatch(obfuscatedContactRegex)) {
+    flags.hadObfuscatedContact = true;
+    moderated = moderated.replace(obfuscatedContactRegex, "•••");
+  }
+
+  return {
+    text: moderated,
+    masked: Object.values(flags).some(Boolean),
+    flags,
+  };
+}
 
 module.exports = function initSocket(io) {
   io.use(socketAuth);
@@ -34,11 +91,116 @@ module.exports = function initSocket(io) {
       const isMember = convo.participants.some((p) => String(p) === String(userId));
       if (!isMember) return;
 
+      let finalText = text || "";
+      let finalAttachments = Array.isArray(attachments) ? attachments : [];
+      let policyNotice = null;
+      const moderationEvents = [];
+
+      if (convo.order) {
+        const [order, sender] = await Promise.all([
+          Order.findById(convo.order).select("status acceptedOfferId").lean(),
+          User.findById(userId).select("role roleInCompany").lean(),
+        ]);
+        const isPreAccepted = order && !order.acceptedOfferId;
+        const isProviderSender =
+          sender?.role === "provider" ||
+          sender?.roleInCompany === "provider" ||
+          sender?.role === "company_owner" ||
+          sender?.role === "company_manager";
+
+        if (isPreAccepted) {
+          const moderation = moderatePreOfferText(finalText);
+          finalText = moderation.text;
+
+          if (moderation.masked) {
+            policyNotice =
+              "Przed akceptacją oferty ukrywamy dane kontaktowe i linki. Ustal szczegóły realizacji po akceptacji.";
+            moderationEvents.push({
+              type: TelemetryService.eventTypes.CHAT_PREOFFER_CONTACT_MASKED,
+              properties: {
+                conversationId: String(conversationId),
+                orderId: String(convo.order || ""),
+                ...moderation.flags,
+              },
+            });
+          }
+
+          if (isProviderSender) {
+            const hasOffer = await Offer.exists({
+              orderId: convo.order,
+              providerId: userId,
+            });
+
+            if (!hasOffer) {
+              const sentCount = await Message.countDocuments({
+                conversation: conversationId,
+                sender: userId,
+                deletedAt: { $exists: false },
+              });
+
+              if (sentCount >= PRE_OFFER_PROVIDER_MESSAGE_LIMIT) {
+                TelemetryService.track(TelemetryService.eventTypes.CHAT_PREOFFER_LIMIT_BLOCKED, {
+                  userId,
+                  properties: {
+                    conversationId: String(conversationId),
+                    orderId: String(convo.order || ""),
+                    sentCount,
+                    limit: PRE_OFFER_PROVIDER_MESSAGE_LIMIT,
+                  },
+                });
+                socket.emit("message:error", {
+                  code: "pre_offer_limit_reached",
+                  message:
+                    "Przed złożeniem oferty możesz wysłać ograniczoną liczbę pytań. Złóż ofertę, aby kontynuować rozmowę.",
+                });
+                return;
+              }
+
+              if (finalAttachments.length > 0) {
+                finalAttachments = [];
+                policyNotice =
+                  "Załączniki są dostępne po złożeniu oferty. Przed ofertą możesz wysyłać tylko krótkie pytania tekstowe.";
+                moderationEvents.push({
+                  type: TelemetryService.eventTypes.CHAT_PREOFFER_ATTACHMENTS_BLOCKED,
+                  properties: {
+                    conversationId: String(conversationId),
+                    orderId: String(convo.order || ""),
+                    attachmentCount: Array.isArray(attachments) ? attachments.length : 0,
+                  },
+                });
+              }
+
+              if (finalText.length > MAX_PRE_OFFER_TEXT_LENGTH) {
+                finalText = finalText.slice(0, MAX_PRE_OFFER_TEXT_LENGTH);
+                policyNotice =
+                  "Przed złożeniem oferty wiadomość została skrócona. Wysyłaj krótkie pytania doprecyzowujące.";
+                moderationEvents.push({
+                  type: TelemetryService.eventTypes.CHAT_PREOFFER_TEXT_TRUNCATED,
+                  properties: {
+                    conversationId: String(conversationId),
+                    orderId: String(convo.order || ""),
+                    originalLength: String(text || "").length,
+                    maxLength: MAX_PRE_OFFER_TEXT_LENGTH,
+                  },
+                });
+              }
+            }
+          }
+        }
+      }
+
+      for (const moderationEvent of moderationEvents) {
+        TelemetryService.track(moderationEvent.type, {
+          userId,
+          properties: moderationEvent.properties || {},
+        });
+      }
+
       const msg = await Message.create({
         conversation: conversationId,
         sender: userId,
-        text: text || "",
-        attachments: attachments || [],
+        text: finalText,
+        attachments: finalAttachments,
         readBy: [userId],
       });
 
@@ -66,6 +228,13 @@ module.exports = function initSocket(io) {
         } catch (error) {
           console.error("Error creating chat notification:", error);
         }
+      }
+
+      if (policyNotice) {
+        socket.emit("message:policy", {
+          conversationId,
+          message: policyNotice,
+        });
       }
     });
 
