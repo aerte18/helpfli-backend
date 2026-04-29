@@ -342,24 +342,31 @@ router.post("/quote-draft", auth, async (req, res) => {
     });
 
     if (!hasAnyMessage) {
-      const details = [];
-      if (description) details.push(`Opis: ${description}`);
-      if (budget) details.push(`Budżet: ${budget} zł`);
-      if (preferredTime) details.push(`Preferowany termin: ${preferredTime}`);
-      const introText = [
-        "Klient rozpoczął zapytanie o wycenę.",
-        details.length
-          ? `Szczegóły od klienta:\n${details.map((line) => `- ${line}`).join("\n")}`
-          : "Możecie doprecyzować szczegóły przed złożeniem oferty.",
-      ].join("\n\n");
       const introMessage = await Message.create({
         conversation: conversation._id,
         sender: req.user._id,
-        text: introText,
+        text: "Klient rozpoczął zapytanie o wycenę. Możecie doprecyzować szczegóły przed złożeniem oferty.",
         readBy: [req.user._id],
       });
       conversation.lastMessage = introMessage._id;
       conversation.lastMessageAt = introMessage.createdAt;
+      await conversation.save();
+    }
+
+    const detailLines = [];
+    if (description) detailLines.push(`Opis: ${description}`);
+    if (budget) detailLines.push(`Budżet: ${budget} zł`);
+    if (preferredTime) detailLines.push(`Preferowany termin: ${preferredTime}`);
+
+    if (detailLines.length > 0) {
+      const detailsMessage = await Message.create({
+        conversation: conversation._id,
+        sender: req.user._id,
+        text: `Szczegóły zapytania:\n${detailLines.map((line) => `- ${line}`).join("\n")}`,
+        readBy: [req.user._id],
+      });
+      conversation.lastMessage = detailsMessage._id;
+      conversation.lastMessageAt = detailsMessage.createdAt;
       await conversation.save();
     }
 
