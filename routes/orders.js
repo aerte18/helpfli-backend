@@ -12,6 +12,8 @@ const { requireKycVerified } = require("../middleware/kyc");
 const Order = require("../models/Order");
 const User = require("../models/User");
 const Service = require("../models/Service");
+const Conversation = require("../models/Conversation");
+const Message = require("../models/Message");
 const { buildServiceSlugPrefixRegex, escapeRegex } = require("../utils/serviceSlugRegex");
 const Revenue = require("../models/Revenue");
 const NotificationService = require("../services/NotificationService");
@@ -319,8 +321,37 @@ router.post("/quote-draft", auth, async (req, res) => {
       });
       created = true;
     }
+    let conversation = await Conversation.findOne({
+      order: order._id,
+      participants: { $all: [req.user._id, providerId] },
+    });
+    if (!conversation) {
+      conversation = await Conversation.create({
+        participants: [req.user._id, providerId],
+        order: order._id,
+      });
+    }
 
-    res.json({ orderId: order._id, created });
+    const hasAnyMessage = await Message.exists({
+      conversation: conversation._id,
+      deletedAt: { $exists: false },
+    });
+
+    if (!hasAnyMessage) {
+      const introText =
+        "Klient rozpoczął zapytanie o wycenę. Możecie doprecyzować szczegóły przed złożeniem oferty.";
+      const introMessage = await Message.create({
+        conversation: conversation._id,
+        sender: req.user._id,
+        text: introText,
+        readBy: [req.user._id],
+      });
+      conversation.lastMessage = introMessage._id;
+      conversation.lastMessageAt = introMessage.createdAt;
+      await conversation.save();
+    }
+
+    res.json({ orderId: order._id, conversationId: conversation._id, created });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Nie udało się utworzyć/pobrać draftu" });
@@ -2126,8 +2157,8 @@ router.post('/:id/confirm-receipt', auth, loadOrderById, async (req, res) => {
   }
 });
 
-// Start pracy / oznaczenie „in progress" - wymaga KYC
-router.post('/:id/start', auth, requireKycVerified, loadOrderById, async (req, res) => {
+// Start pracy / oznaczenie „in progress"
+router.post('/:id/start', auth, loadOrderById, async (req, res) => {
   try {
     const order = req.order;
     
@@ -2145,6 +2176,13 @@ router.post('/:id/start', auth, requireKycVerified, loadOrderById, async (req, r
     // Flow system/external jest przechowywany w paymentPreference.
     if (order.paymentPreference === 'system' && order.paymentStatus !== 'succeeded' && !order.paidInSystem) {
       return res.status(400).json({ message: 'Zlecenie musi być opłacone przed rozpoczęciem pracy (paymentPreference: system)' });
+    }
+    if (order.paymentPreference === 'external') {
+      const platformFee = Number(order?.pricing?.platformFee || 0);
+      const externalCommissionPaid = order.externalCommissionStatus === 'succeeded';
+      if (platformFee > 0 && !externalCommissionPaid) {
+        return res.status(400).json({ message: 'Zlecenie wymaga opłacenia prowizji platformy przez klienta przed rozpoczęciem pracy' });
+      }
     }
     
     order.status = 'in_progress';
