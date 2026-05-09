@@ -265,8 +265,10 @@ router.get('/config', (req, res) => {
   res.json({ publishableKey: process.env.STRIPE_PUBLISHABLE_KEY });
 });
 
+const DEFAULT_PAYMENT_METHOD_TYPES = ['card', 'blik', 'p24'];
+
 // POST /api/payments/create-intent
-// body: { orderId, methodHint: 'card'|'p24'|'blik', requestInvoice?: boolean }
+// body: { orderId, requestInvoice?: boolean }
 router.post('/create-intent', authMiddleware, async (req, res) => {
   try {
     if (!stripe) {
@@ -344,11 +346,7 @@ router.post('/create-intent', authMiddleware, async (req, res) => {
   }
 
   // Stripe PaymentIntent
-  const payment_method_types = (methodHint === 'p24')
-      ? ['p24','card']
-      : (methodHint === 'blik')
-        ? ['blik','card']
-        : ['card','p24']; // domyślnie card + p24
+  const payment_method_types = DEFAULT_PAYMENT_METHOD_TYPES;
 
   // Jeżeli Stripe Connect jest włączony i provider ma konto – użyj destination charges
   // WAŻNE: Jeśli klient użył punktów, musimy zwiększyć amount w Stripe o pointsDiscount,
@@ -478,11 +476,7 @@ router.post('/create-additional-intent', authMiddleware, async (req, res) => {
     }
 
     const amount = Math.round(additionalAmountPln * 100);
-    const payment_method_types = (methodHint === 'p24')
-      ? ['p24', 'card']
-      : (methodHint === 'blik')
-        ? ['blik', 'card']
-        : ['card', 'p24'];
+    const payment_method_types = DEFAULT_PAYMENT_METHOD_TYPES;
 
     const providerId = order.provider?._id || order.provider;
     const providerForConnect = providerId
@@ -571,7 +565,7 @@ router.post('/create-additional-intent', authMiddleware, async (req, res) => {
 
 // POST /api/payments/create-commission-intent
 // Tworzy PaymentIntent tylko na opłatę serwisową (platform fee) przy płatności poza systemem.
-// body: { orderId, methodHint: 'card'|'p24'|'blik' }
+// body: { orderId }
 router.post('/create-commission-intent', authMiddleware, async (req, res) => {
   try {
     if (!stripe) {
@@ -598,11 +592,7 @@ router.post('/create-commission-intent', authMiddleware, async (req, res) => {
     // Stripe kwota w groszach
     const amount = Math.round(platformFeePln * 100);
 
-    const payment_method_types = (methodHint === 'p24')
-      ? ['p24', 'card']
-      : (methodHint === 'blik')
-        ? ['blik', 'card']
-        : ['card', 'p24'];
+    const payment_method_types = DEFAULT_PAYMENT_METHOD_TYPES;
 
     const intent = await stripe.paymentIntents.create({
       amount,
