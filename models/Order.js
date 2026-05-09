@@ -55,6 +55,8 @@ const orderSchema = new mongoose.Schema({
   completionNotes: { type: String, default: null }, // Uwagi od wykonawcy przy zakończeniu
   additionalAmount: { type: Number, default: null }, // Kwota dopłaty (w PLN)
   paymentReason: { type: String, default: null }, // Uzasadnienie dopłaty
+  additionalPaymentStatus: { type: String, enum: ['none', 'processing', 'succeeded', 'failed', 'refunded', 'partial_refund'], default: 'none' },
+  additionalPaymentPaidAt: { type: Date, default: null },
   // Email Marketing
   emailMarketing: {
     abandonedCartSent: { type: Boolean, default: false },
@@ -174,6 +176,8 @@ const orderSchema = new mongoose.Schema({
     status: { type: String, enum: ['requires_payment','paid','refunded','failed'], default: 'requires_payment' },
     method: { type: String },
     intentId: { type: String },
+    additionalIntentId: { type: String, default: null },
+    additionalPaymentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Payment', default: null },
     protected: { type: Boolean, default: false }, // Gwarancja Helpfli tylko przy płatności w systemie
   },
   

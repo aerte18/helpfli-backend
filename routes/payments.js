@@ -13,6 +13,7 @@ const Invoice = require('../models/Invoice');
 const Revenue = require('../models/Revenue');
 const Notification = require('../models/Notification');
 const { authMiddleware } = require('../middleware/authMiddleware');
+const { requireRole } = require('../middleware/roles');
 const NotificationService = require('../services/NotificationService');
 const { validateNIP } = require('../utils/companyValidation');
 
@@ -413,6 +414,135 @@ router.post('/create-intent', authMiddleware, async (req, res) => {
       metadata: { action: 'create-intent', methodHint: req.body?.methodHint }
     });
     res.status(500).json({ message: 'Błąd tworzenia płatności' });
+  }
+});
+
+// POST /api/payments/create-additional-intent
+// Dodatkowa płatność klienta po zakończeniu zlecenia (dopłata)
+router.post('/create-additional-intent', authMiddleware, async (req, res) => {
+  try {
+    if (!stripe) {
+      return res.status(503).json({ message: 'Płatności są chwilowo niedostępne (brak konfiguracji Stripe).' });
+    }
+
+    const { orderId, methodHint = 'card' } = req.body;
+    const order = await Order.findById(orderId).populate('client').populate('provider');
+    if (!order) return res.status(404).json({ message: 'Nie znaleziono zlecenia' });
+
+    const clientId = order.client?._id || order.client;
+    const clientName = order.client?.name || '';
+    if (!clientId || String(clientId) !== String(req.user._id)) {
+      return res.status(403).json({ message: 'Tylko klient może opłacić dopłatę' });
+    }
+
+    if (order.completionType !== 'with_payment') {
+      return res.status(400).json({ message: 'To zlecenie nie wymaga dopłaty' });
+    }
+    if (!['completed', 'funded'].includes(order.status)) {
+      return res.status(400).json({ message: 'Dopłatę można opłacić dopiero po oznaczeniu zlecenia jako zakończone' });
+    }
+
+    const additionalAmountPln = Number(order.additionalAmount || 0);
+    if (!additionalAmountPln || additionalAmountPln <= 0) {
+      return res.status(400).json({ message: 'Brak poprawnej kwoty dopłaty' });
+    }
+
+    if (order.additionalPaymentStatus === 'succeeded') {
+      return res.status(400).json({ message: 'Dopłata została już opłacona' });
+    }
+    if (order.additionalPaymentStatus === 'processing') {
+      return res.status(400).json({ message: 'Dopłata jest już w trakcie płatności. Dokończ lub odśwież status.' });
+    }
+
+    const amount = Math.round(additionalAmountPln * 100);
+    const payment_method_types = (methodHint === 'p24')
+      ? ['p24', 'card']
+      : (methodHint === 'blik')
+        ? ['blik', 'card']
+        : ['card', 'p24'];
+
+    const providerId = order.provider?._id || order.provider;
+    const providerForConnect = providerId
+      ? await User.findById(providerId)
+          .select('stripeAccountId stripeConnectStatus name')
+          .lean()
+      : null;
+    const paysThroughHelpfli =
+      order.paymentPreference === 'system' || order.paymentPreference === 'both';
+    const platformFeeAmount = Math.round(amount * (order.platformFeePercent || PLATFORM_FEE_PERCENT));
+
+    let intentPayload = {
+      amount,
+      currency: CURRENCY,
+      payment_method_types,
+      capture_method: 'automatic',
+      description: `Helpfli Additional Payment for Order #${order._id}`,
+      metadata: {
+        type: 'additional_payment',
+        orderId: String(order._id),
+        clientId: String(clientId),
+        providerId: String(providerId || ''),
+        additionalAmount: String(amount),
+      },
+      statement_descriptor: 'HELPFLI',
+    };
+
+    if (
+      ENABLE_STRIPE_CONNECT &&
+      paysThroughHelpfli &&
+      providerForConnect?.stripeAccountId &&
+      providerForConnect?.stripeConnectStatus?.payoutsEnabled
+    ) {
+      intentPayload = {
+        ...intentPayload,
+        application_fee_amount: Math.min(platformFeeAmount, amount),
+        transfer_data: {
+          destination: providerForConnect.stripeAccountId,
+        },
+      };
+    }
+
+    const intent = await stripe.paymentIntents.create(intentPayload);
+
+    const payment = await Payment.create({
+      order: order._id,
+      provider: providerId || null,
+      client: clientId,
+      providerName: providerForConnect?.name || '',
+      clientName,
+      stripePaymentIntentId: intent.id,
+      amount,
+      currency: CURRENCY,
+      method: methodHint,
+      status: intent.status,
+      platformFeePercent: order.platformFeePercent || PLATFORM_FEE_PERCENT,
+      platformFeeAmount,
+      pointsDiscount: 0,
+      metadata: {
+        ...intent.metadata,
+        subtype: 'additional_payment',
+      },
+    });
+
+    order.additionalPaymentStatus = 'processing';
+    order.payment = order.payment || {};
+    order.payment.additionalIntentId = intent.id;
+    order.payment.additionalPaymentId = payment._id;
+    await order.save();
+
+    res.json({ clientSecret: intent.client_secret, paymentIntentId: intent.id });
+  } catch (e) {
+    console.error(e);
+    await logPaymentError({
+      errorType: 'other',
+      errorMessage: e.message,
+      errorStack: e.stack,
+      orderId: req.body?.orderId,
+      userId: req.user?._id,
+      retryable: true,
+      metadata: { action: 'create-additional-intent', methodHint: req.body?.methodHint }
+    });
+    res.status(500).json({ message: 'Błąd tworzenia płatności dopłaty' });
   }
 });
 
@@ -1274,6 +1404,29 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
         }
         return res.json({ received: true });
       }
+
+      // Obsługa dopłat do zleceń (additional payment)
+      if (intent.metadata?.type === 'additional_payment') {
+        const orderId = intent.metadata?.orderId;
+        try {
+          const order = orderId ? await Order.findById(orderId) : null;
+          const payment = await Payment.findOne({ stripePaymentIntentId: intent.id });
+
+          if (order) {
+            order.additionalPaymentStatus = 'succeeded';
+            order.additionalPaymentPaidAt = new Date();
+            await order.save();
+          }
+          if (payment) {
+            payment.status = 'succeeded';
+            payment.method = intent.payment_method_types?.[0] || payment.method;
+            await payment.save();
+          }
+        } catch (e) {
+          console.error('Additional payment webhook handling error:', e);
+        }
+        return res.json({ received: true });
+      }
       
       // Obsługa subscription upgrade przez PaymentIntent (fallback)
       if (intent.metadata?.type === 'subscription_upgrade') {
@@ -1317,6 +1470,26 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
           }
         } catch (e) {
           console.error('External commission webhook handling error:', e);
+        }
+        return res.json({ received: true });
+      }
+
+      // Błąd płatności dopłaty
+      if (intent.metadata?.type === 'additional_payment') {
+        const orderId = intent.metadata?.orderId;
+        try {
+          const order = orderId ? await Order.findById(orderId) : null;
+          const payment = await Payment.findOne({ stripePaymentIntentId: intent.id });
+          if (order) {
+            order.additionalPaymentStatus = 'failed';
+            await order.save();
+          }
+          if (payment) {
+            payment.status = 'failed';
+            await payment.save();
+          }
+        } catch (e) {
+          console.error('Additional payment payment_failed handling error:', e);
         }
         return res.json({ received: true });
       }
@@ -1532,6 +1705,7 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
       const charge = event.data.object;
       const pi = charge.payment_intent;
       const payment = await Payment.findOne({ stripePaymentIntentId: pi });
+      const isAdditionalPayment = payment?.metadata?.type === 'additional_payment' || payment?.metadata?.subtype === 'additional_payment';
       
       if (payment?.purpose === 'promotion') {
         const purchase = await require('../models/promotionPurchase').findById(payment.promotionPurchase);
@@ -1559,11 +1733,15 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
         await payment.save();
 
         if (order) {
-          order.paymentStatus = payment.status;
-          // Gwarancja wygasa po pełnym zwrocie
-          if (payment.status === 'refunded') {
-            order.protectionStatus = 'void';
-            order.protectionEligible = false;
+          if (isAdditionalPayment) {
+            order.additionalPaymentStatus = payment.status;
+          } else {
+            order.paymentStatus = payment.status;
+            // Gwarancja wygasa po pełnym zwrocie
+            if (payment.status === 'refunded') {
+              order.protectionStatus = 'void';
+              order.protectionEligible = false;
+            }
           }
           await order.save();
         }
@@ -1587,10 +1765,13 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
   }
 });
 
-// (Opcjonalnie) POST /api/payments/refund – tylko admin
-router.post('/refund', authMiddleware, async (req, res) => {
-  // Wersja demo – dodaj weryfikację roli admin
+// POST /api/payments/refund – tylko admin
+router.post('/refund', authMiddleware, requireRole(['admin', 'superadmin']), async (req, res) => {
   try {
+    if (!stripe) {
+      return res.status(503).json({ message: 'Stripe nie jest skonfigurowany' });
+    }
+
     const { paymentId, amount } = req.body; // amount w groszach (opcjonalnie)
     const payment = await Payment.findById(paymentId);
     if (!payment || !payment.stripePaymentIntentId) return res.status(404).json({ message: 'Payment not found' });
