@@ -85,6 +85,21 @@ const PLATFORM_FEE_PERCENT = parseFloat(process.env.PLATFORM_FEE_PERCENT || '0.0
 
 const FRONTEND_URL = process.env.FRONTEND_URL || process.env.APP_URL || 'http://localhost:5173';
 
+function normalizeUrl(value) {
+  if (!value || typeof value !== 'string') return '';
+  return value.trim().replace(/\/+$/, '');
+}
+
+function resolveFrontendUrl(req) {
+  const envUrl = normalizeUrl(process.env.FRONTEND_URL || process.env.APP_URL || '');
+  if (envUrl) return envUrl;
+
+  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  if (!host) return 'http://localhost:5173';
+  const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+  return `${proto}://${host}`;
+}
+
 // Feature flag – umożliwia stopniowe włączanie Stripe Connect
 const ENABLE_STRIPE_CONNECT = process.env.ENABLE_STRIPE_CONNECT === 'true';
 
@@ -177,8 +192,9 @@ router.post('/connect/account-link', authMiddleware, async (req, res) => {
       return res.status(400).json({ message: 'Brak konta Stripe. Najpierw wywołaj /connect/create-account.' });
     }
 
-    const refreshUrl = `${FRONTEND_URL}/account?tab=wallet`;
-    const returnUrl = `${FRONTEND_URL}/account?tab=wallet&stripe_connected=1`;
+    const frontendUrl = resolveFrontendUrl(req);
+    const refreshUrl = `${frontendUrl}/account?tab=wallet`;
+    const returnUrl = `${frontendUrl}/account?tab=wallet&stripe_connected=1`;
 
     const accountLink = await stripe.accountLinks.create({
       account: user.stripeAccountId,
@@ -190,7 +206,14 @@ router.post('/connect/account-link', authMiddleware, async (req, res) => {
     res.json({ url: accountLink.url });
   } catch (e) {
     console.error('Stripe Connect account-link error:', e);
-    res.status(500).json({ message: 'Nie udało się wygenerować linku onboardingowego Stripe' });
+    const stripeMessage = e?.raw?.message || e?.message || '';
+    const stripeCode = e?.code || e?.raw?.code || '';
+    const details = [stripeCode, stripeMessage].filter(Boolean).join(': ');
+    res.status(500).json({
+      message: details
+        ? `Nie udało się wygenerować linku onboardingowego Stripe (${details})`
+        : 'Nie udało się wygenerować linku onboardingowego Stripe'
+    });
   }
 });
 
