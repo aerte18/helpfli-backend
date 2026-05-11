@@ -5,6 +5,7 @@ const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SEC
 const { authMiddleware } = require('../middleware/authMiddleware');
 const VideoSession = require('../models/VideoSession');
 const Payment = require('../models/Payment');
+const { paymentIntentStatusForPaymentModel } = require('../utils/paymentIntentStatusForPaymentModel');
 const User = require('../models/User');
 const Order = require('../models/Order');
 const { createRoom, createToken, getRoom, deleteRoom, getRecordings, isConfigured } = require('../services/dailyService');
@@ -97,7 +98,7 @@ router.post('/sessions/create-payment-intent', authMiddleware, async (req, res) 
 
     // Zapisz Payment (pending)
     const payment = await Payment.create({
-      purpose: 'video',
+      purpose: 'promotion',
       provider: providerId,
       client: clientId,
       providerName: provider.name || provider.email,
@@ -106,8 +107,8 @@ router.post('/sessions/create-payment-intent', authMiddleware, async (req, res) 
       amount,
       currency: CURRENCY,
       method: 'unknown',
-      status: intent.status,
-      metadata: intent.metadata,
+      status: paymentIntentStatusForPaymentModel(intent.status),
+      metadata: { ...(intent.metadata || {}), billingSubtype: 'video_visit' },
     });
 
     res.json({

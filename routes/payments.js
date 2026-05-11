@@ -16,6 +16,7 @@ const { authMiddleware } = require('../middleware/authMiddleware');
 const { requireRole } = require('../middleware/roles');
 const NotificationService = require('../services/NotificationService');
 const { validateNIP } = require('../utils/companyValidation');
+const { paymentIntentStatusForPaymentModel } = require('../utils/paymentIntentStatusForPaymentModel');
 
 // Helper do logowania błędów płatności
 async function logPaymentError({
@@ -432,7 +433,7 @@ router.post('/create-intent', authMiddleware, async (req, res) => {
       amount,
       currency: CURRENCY,
       method: methodHint,
-      status: intent.status, // najczęściej "requires_payment_method" lub "requires_confirmation"
+      status: paymentIntentStatusForPaymentModel(intent.status),
       platformFeePercent: order.platformFeePercent || PLATFORM_FEE_PERCENT,
       platformFeeAmount: platformFeeAmount, // PlatformFee obliczane od baseAmount (przed zniżkami z punktów)
       pointsDiscount: pointsDiscount || 0, // Zniżka z punktów pokrywana przez platformę jako koszt marketingowy
@@ -563,7 +564,7 @@ router.post('/create-additional-intent', authMiddleware, async (req, res) => {
       amount,
       currency: CURRENCY,
       method: methodHint,
-      status: intent.status,
+      status: paymentIntentStatusForPaymentModel(intent.status),
       platformFeePercent: order.platformFeePercent || PLATFORM_FEE_PERCENT,
       platformFeeAmount,
       pointsDiscount: 0,
@@ -658,7 +659,7 @@ router.post('/create-commission-intent', authMiddleware, async (req, res) => {
       amount,
       currency: CURRENCY,
       method: payMethod,
-      status: intent.status,
+      status: paymentIntentStatusForPaymentModel(intent.status),
       // Cała kwota to opłata serwisowa
       platformFeePercent: 1,
       platformFeeAmount: amount,

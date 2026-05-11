@@ -43,7 +43,7 @@ router.post('/webhook', async (req, res) => {
         if (session.metadata?.type === 'order') {
           const payment = await Payment.findOne({ stripeCheckoutSessionId: session.id });
           if (payment && session.payment_status === 'paid') {
-            payment.status = 'paid';
+            payment.status = 'succeeded';
             await payment.save();
 
             const order = await Order.findById(payment.order);

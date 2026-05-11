@@ -8,6 +8,7 @@ const { auth } = require('../middleware/auth');
 const Payment = require('../models/Payment');
 const PointTransaction = require('../models/PointTransaction');
 const Stripe = require('stripe');
+const { paymentIntentStatusForPaymentModel } = require('../utils/paymentIntentStatusForPaymentModel');
 
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 const CURRENCY = process.env.CURRENCY || 'pln';
@@ -69,10 +70,14 @@ router.post('/subscribe', auth, async (req, res) => {
   // Sprawdź performance discount dla providerów
   const { getCurrentPerformanceDiscount } = require('../utils/performancePricing');
   let performanceDiscount = 0;
+  let performanceDiscountOrders = 0;
+  let performanceDiscountTier = 'none';
   if (req.user.role === 'provider') {
     const perfDiscount = await getCurrentPerformanceDiscount(req.user._id);
     performanceDiscount = perfDiscount.discountPercent;
-  } 
+    performanceDiscountOrders = perfDiscount.ordersCompleted || 0;
+    performanceDiscountTier = perfDiscount.tier || 'none';
+  }
   // billingPeriod: 'monthly' lub 'yearly'
   // referralCode: kod polecający (opcjonalny)
   // earlyAdopter: czy użytkownik jest early adopterem (pierwsze 1000 użytkowników)
@@ -302,7 +307,14 @@ router.post('/subscribe', auth, async (req, res) => {
       ? (plan.priceYearly || plan.priceMonthly * 12 * 0.8)
       : (plan.priceMonthly || 0);
     const maxDiscountProd = Math.max(earlyAdopterDiscount, referralDiscount, loyaltyDiscount);
-    const finalPriceProd = Math.round(basePriceProd * (1 - maxDiscountProd / 100) * 100);
+    let finalPriceProd = Math.round(basePriceProd * (1 - maxDiscountProd / 100) * 100);
+    if (performanceDiscount > 0) {
+      finalPriceProd = Math.round(finalPriceProd * (1 - performanceDiscount / 100));
+    }
+
+    if (finalPriceProd <= 0) {
+      return res.status(400).json({ message: 'Brak kwoty do pobrania dla tego planu (plan darmowy?)' });
+    }
 
     // Utwórz lub pobierz Stripe Customer
     let customerId = user.stripeCustomerId;
@@ -332,7 +344,7 @@ router.post('/subscribe', auth, async (req, res) => {
       },
       product_data: {
         name: `${plan.name} - ${billingPeriod === 'yearly' ? 'Roczna' : 'Miesięczna'}`,
-        description: plan.perks?.join(', ') || ''
+        description: (plan.perks?.join(', ') || '').slice(0, 4500),
       },
       metadata: {
         planKey: plan.key,
@@ -347,9 +359,10 @@ router.post('/subscribe', auth, async (req, res) => {
       customer: customerId,
       items: [{ price: stripePrice.id }],
       payment_behavior: 'default_incomplete',
+      // Nie wymuszaj p24 przy tworzeniu subskrypcji — na wielu kontach powoduje błąd Stripe;
+      // typy faktur biorą się z konfiguracji konta (Dashboard / domyślne metody).
       payment_settings: {
-        payment_method_types: ['card', 'p24'],
-        save_default_payment_method: 'on_subscription'
+        save_default_payment_method: 'on_subscription',
       },
       expand: ['latest_invoice.payment_intent'],
       metadata: {
@@ -473,7 +486,7 @@ router.post('/subscribe', auth, async (req, res) => {
       amount: finalPriceProd,
       currency: CURRENCY,
       method: 'unknown',
-      status: paymentIntent?.status || 'processing',
+      status: paymentIntentStatusForPaymentModel(paymentIntent?.status),
       stripeSubscriptionId: subscription.id,
       stripeCustomerId: customerId,
       stripeInvoiceId: invoice?.id,

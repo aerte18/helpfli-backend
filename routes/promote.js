@@ -9,6 +9,7 @@ const { requireKycVerified } = require('../middleware/kyc');
 const PromotionPlan = require('../models/promotionPlan');
 const PromotionPurchase = require('../models/promotionPurchase');
 const Payment = require('../models/Payment');
+const { paymentIntentStatusForPaymentModel } = require('../utils/paymentIntentStatusForPaymentModel');
 const User = require('../models/User');
 
 const CURRENCY = process.env.CURRENCY || 'pln';
@@ -115,7 +116,7 @@ router.post('/create-intent', authMiddleware, requireKycVerified, async (req, re
       amount,
       currency: CURRENCY,
       method: 'unknown',
-      status: intent.status,
+      status: paymentIntentStatusForPaymentModel(intent.status),
       platformFeePercent: 0, // brak prowizji platformy przy prostym wariancie
       platformFeeAmount: 0,
       metadata: intent.metadata,

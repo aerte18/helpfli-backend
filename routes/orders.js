@@ -2902,28 +2902,36 @@ router.post('/:id/boost', auth, async (req, res) => {
         return res.status(500).json({ message: 'Płatności nie są skonfigurowane' });
       }
       
+      const { paymentIntentStatusForPaymentModel } = require('../utils/paymentIntentStatusForPaymentModel');
+
       // Utwórz Payment Intent
       const paymentIntent = await stripe.paymentIntents.create({
         amount: paymentAmount,
         currency: 'pln',
+        payment_method_types: ['card', 'p24', 'blik'],
+        description: `Helpfli podbicie zlecenia #${order._id}`,
+        statement_descriptor_suffix: 'HELPFLI BOOST',
         metadata: {
           userId: userId.toString(),
-          orderId: orderId,
-          type: 'order_boost'
-        }
+          orderId: String(orderId),
+          type: 'order_boost',
+        },
       });
-      
-      // Zapisz płatność w bazie
-      const payment = new Payment({
-        user: userId,
-        order: orderId,
+
+      const payment = await Payment.create({
+        purpose: 'order',
+        order: order._id,
+        client: userId,
+        provider: order.provider,
+        providerName: '',
+        clientName: req.user.name || req.user.email || '',
+        stripePaymentIntentId: paymentIntent.id,
         amount: paymentAmount,
         currency: 'pln',
-        status: 'requires_payment',
-        type: 'order_boost',
-        stripePaymentIntentId: paymentIntent.id
+        method: 'unknown',
+        status: paymentIntentStatusForPaymentModel(paymentIntent.status),
+        metadata: { type: 'order_boost', orderId: String(orderId) },
       });
-      await payment.save();
       
       // Zaktualizuj zlecenie
       const now = new Date();
