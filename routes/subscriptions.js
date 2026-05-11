@@ -35,6 +35,9 @@ async function resolveSubscriptionFirstPaymentIntent(stripeClient, subscription)
   if (typeof inv === 'string') {
     inv = await stripeClient.invoices.retrieve(inv, { expand: ['payment_intent'] });
   }
+  if (inv && inv.status === 'draft' && inv.id) {
+    inv = await stripeClient.invoices.finalizeInvoice(inv.id, { expand: ['payment_intent'] });
+  }
   let pi = inv?.payment_intent;
   if (typeof pi === 'string') {
     pi = await stripeClient.paymentIntents.retrieve(pi);
@@ -330,12 +333,25 @@ router.post('/subscribe', auth, async (req, res) => {
       return res.status(400).json({ message: 'Brak kwoty do pobrania dla tego planu (plan darmowy?)' });
     }
 
-    // Utwórz lub pobierz Stripe Customer
+    // Utwórz lub pobierz Stripe Customer (stary cus_* w DB po migracji / czyszczeniu Stripe → resource_missing)
     let customerId = user.stripeCustomerId;
+    if (customerId) {
+      try {
+        await stripe.customers.retrieve(customerId);
+      } catch (e) {
+        if (e?.code === 'resource_missing') {
+          customerId = null;
+          user.stripeCustomerId = null;
+          await user.save();
+        } else {
+          throw e;
+        }
+      }
+    }
     if (!customerId) {
       const customer = await stripe.customers.create({
         email: user.email,
-        name: user.name,
+        name: user.name || undefined,
         metadata: {
           userId: String(user._id),
           role: user.role || 'client'
@@ -390,6 +406,8 @@ router.post('/subscribe', auth, async (req, res) => {
     const priceData = {
       unit_amount: finalPriceProd,
       currency: CURRENCY.toLowerCase(),
+      // Przy włączonym Stripe Tax często wymagane; kwoty planów są „netto” względem Stripe
+      tax_behavior: 'exclusive',
       recurring: {
         interval: billingPeriod === 'yearly' ? 'year' : 'month',
         interval_count: 1
@@ -416,6 +434,8 @@ router.post('/subscribe', auth, async (req, res) => {
       payment_settings: {
         save_default_payment_method: 'on_subscription',
       },
+      // Unikaj 500 gdy Stripe Tax nie jest w pełni skonfigurowany na koncie
+      automatic_tax: { enabled: false },
       expand: ['latest_invoice.payment_intent'],
       metadata: {
         userId: String(req.user._id),
@@ -575,7 +595,16 @@ router.post('/subscribe', auth, async (req, res) => {
     });
   } catch (err) {
     console.error('Subscription payment error:', err);
-    return res.status(500).json({ message: 'Błąd inicjowania płatności za subskrypcję', error: err.message });
+    const raw = err?.raw || {};
+    const requestId = err?.requestId || raw?.request_log_url || undefined;
+    const stripeCode = raw?.code || err?.code;
+    const hint = typeof err?.message === 'string' ? err.message : '';
+    return res.status(500).json({
+      message: 'Błąd inicjowania płatności za subskrypcję',
+      error: hint,
+      stripeCode: stripeCode || undefined,
+      requestId: requestId || undefined,
+    });
   }
 });
 
