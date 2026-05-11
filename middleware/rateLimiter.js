@@ -1,4 +1,5 @@
 const rateLimit = require('express-rate-limit');
+const { ipKeyGenerator } = rateLimit;
 const slowDown = require('express-slow-down');
 
 // In development, disable all rate limiters unless explicitly enabled
@@ -53,8 +54,11 @@ const authLimiter = DISABLE_LIMITERS ? passThrough : rateLimit({
   // Ograniczaj per login (email + IP), żeby shared NAT/VPN nie blokował wszystkich.
   keyGenerator: (req) => {
     const email = normalizeEmail(req?.body?.email);
-    const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
-    return `auth:${email || 'anon'}:${ip}`;
+    const forwarded = req.headers['x-forwarded-for'];
+    const firstForwarded =
+      typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : '';
+    const rawIp = req.ip || firstForwarded || 'unknown';
+    return `auth:${email || 'anon'}:${ipKeyGenerator(rawIp)}`;
   },
   // Udane logowania (2xx) nie zużywają limitu — zostaje ochrona przed brute-force na złe hasło
   skipSuccessfulRequests: true,

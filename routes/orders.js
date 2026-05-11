@@ -2081,6 +2081,24 @@ router.post('/:id/fund', auth, loadOrderById, async (req, res) => {
     if (String(order.client) !== String(req.user._id)) {
       return res.status(403).json({ message: 'Tylko klient może opłacić zlecenie' });
     }
+    if (order.status !== 'accepted') {
+      return res.status(400).json({ message: 'Zlecenie musi być zaakceptowane przed zabezpieczeniem środków' });
+    }
+    if (order.paymentPreference === 'system') {
+      const payment = await Payment.findOne({ order: order._id }).sort({ createdAt: -1 });
+      if (!payment || !payment.stripePaymentIntentId) {
+        return res.status(400).json({ message: 'Brak płatności Stripe powiązanej z tym zleceniem' });
+      }
+      if (stripe) {
+        const intent = await stripe.paymentIntents.retrieve(payment.stripePaymentIntentId);
+        const allowedIntentStatuses = ['requires_capture', 'processing', 'succeeded'];
+        if (!allowedIntentStatuses.includes(intent.status)) {
+          return res.status(400).json({
+            message: `Płatność nie jest gotowa do zabezpieczenia środków (status: ${intent.status})`,
+          });
+        }
+      }
+    }
     // status przejściowy
     order.status = 'funded';
     // Enum paymentStatus nie zawiera "requires_capture"; używamy stanu przejściowego "processing".
@@ -2119,6 +2137,19 @@ router.post('/:id/confirm-receipt', auth, loadOrderById, async (req, res) => {
     if (String(order.client) !== String(req.user._id)) {
       return res.status(403).json({ message: 'Tylko klient może potwierdzić odbiór' });
     }
+    if (!['completed', 'funded'].includes(order.status)) {
+      return res.status(400).json({ message: 'Potwierdzenie odbioru jest dostępne po zakończeniu zlecenia' });
+    }
+    const isExternalPayment = order.paymentMethod === 'external' || order.paymentPreference === 'external';
+    if (order.completionType === 'with_payment' && !isExternalPayment && order.additionalPaymentStatus !== 'succeeded') {
+      return res.status(400).json({ message: 'Najpierw opłać dopłatę, aby potwierdzić odbiór zlecenia' });
+    }
+    if (order.paymentPreference === 'system') {
+      const paymentForOrder = await Payment.findOne({ order: order._id }).sort({ createdAt: -1 });
+      if (!paymentForOrder || !paymentForOrder.stripePaymentIntentId) {
+        return res.status(400).json({ message: 'Brak płatności Stripe do rozliczenia tego zlecenia' });
+      }
+    }
 
     // 1) Jeśli mamy płatność Stripe powiązaną ze zleceniem – wykonaj capture (prawdziwy escrow)
     if (stripe) {
@@ -2127,6 +2158,12 @@ router.post('/:id/confirm-receipt', auth, loadOrderById, async (req, res) => {
         if (payment && payment.stripePaymentIntentId) {
           try {
             const intent = await stripe.paymentIntents.retrieve(payment.stripePaymentIntentId);
+            const disallowedIntentStatuses = ['canceled', 'requires_payment_method', 'requires_action'];
+            if (disallowedIntentStatuses.includes(intent.status)) {
+              return res.status(400).json({
+                message: `Płatność nie może zostać rozliczona (status: ${intent.status})`,
+              });
+            }
             if (intent.status === "requires_capture") {
               const captured = await stripe.paymentIntents.capture(payment.stripePaymentIntentId);
               if (captured.status === "succeeded") {
