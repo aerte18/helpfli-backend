@@ -471,17 +471,12 @@ router.post('/subscribe', auth, async (req, res) => {
 
     const stripePrice = await stripe.prices.create(priceData);
 
-    // Utwórz Subscription w Stripe
-    const subscription = await stripe.subscriptions.create({
+    // Subskrypcja: jak przy zleceniach — najpierw wymuś karta+BLIK+P24 na fakturze (wtedy PaymentElement je pokaże).
+    // Gdy Stripe odrzuci (np. P24 niedopuszczalny dla tego konta), druga próba: domyślne metody z Dashboard.
+    const subscriptionBase = {
       customer: customerId,
       items: [{ price: stripePrice.id }],
       payment_behavior: 'default_incomplete',
-      // Nie wymuszaj p24 przy tworzeniu subskrypcji — na wielu kontach powoduje błąd Stripe;
-      // typy faktur biorą się z konfiguracji konta (Dashboard / domyślne metody).
-      payment_settings: {
-        save_default_payment_method: 'on_subscription',
-      },
-      // Unikaj 500 gdy Stripe Tax nie jest w pełni skonfigurowany na koncie
       automatic_tax: { enabled: false },
       expand: ['latest_invoice.confirmation_secret', 'latest_invoice.payment_intent'],
       metadata: {
@@ -491,12 +486,38 @@ router.post('/subscribe', auth, async (req, res) => {
         referralCode: referralCode || '',
         earlyAdopter: String(isEarlyAdopter),
         loyaltyMonths: String(loyaltyMonths),
-        loyaltyDiscount: String(loyaltyDiscount)
+        loyaltyDiscount: String(loyaltyDiscount),
       },
-      // Automatyczne odnawianie
-      collection_method: 'charge_automatically'
-      // Stripe automatycznie retry'uje failed payments (3 próby w ciągu 7 dni)
-    });
+      collection_method: 'charge_automatically',
+    };
+    const paymentSettingsAttempts = [
+      {
+        save_default_payment_method: 'on_subscription',
+        payment_method_types: ['card', 'blik', 'p24'],
+      },
+      { save_default_payment_method: 'on_subscription' },
+    ];
+    let subscription;
+    let subscriptionCreateError;
+    for (const payment_settings of paymentSettingsAttempts) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        subscription = await stripe.subscriptions.create({
+          ...subscriptionBase,
+          payment_settings,
+        });
+        subscriptionCreateError = null;
+        break;
+      } catch (e) {
+        subscriptionCreateError = e;
+        if (payment_settings.payment_method_types) {
+          console.warn('[subscribe] create with card+blik+p24 failed, retry defaults:', e?.message);
+        }
+      }
+    }
+    if (!subscription) {
+      throw subscriptionCreateError || new Error('Stripe subscriptions.create failed');
+    }
 
     const payCtx = await resolveSubscriptionInvoicePayment(stripe, subscription);
     if (!payCtx?.clientSecret) {
