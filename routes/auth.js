@@ -626,13 +626,30 @@ router.get('/me', authMiddleware, async (req, res) => {
     }
     
     // Zwróć dane użytkownika z informacją o subskrypcji
+    const doc = req.user.toObject();
+    const stripeAcct = doc.stripeAccountId && String(doc.stripeAccountId).trim();
+    const sc = doc.stripeConnectStatus || {};
     res.json({
-      ...req.user.toObject(),
-      subscription: subscriptionInfo
+      ...doc,
+      subscription: subscriptionInfo,
+      // Jawna flaga dla frontu (portfel / integracje) — „połączone” = utworzono konto Connect na platformie
+      isStripeConnected: Boolean(stripeAcct),
+      stripeOnboardingCompleted: Boolean(sc.detailsSubmitted),
+      stripeChargesEnabled: Boolean(sc.chargesEnabled),
+      stripePayoutsEnabled: Boolean(sc.payoutsEnabled),
     });
   } catch (error) {
     logger.error('Error in /me endpoint:', error);
-    res.json(req.user);
+    const doc = req.user?.toObject?.() || req.user;
+    const stripeAcct = doc?.stripeAccountId && String(doc.stripeAccountId).trim();
+    const sc = doc?.stripeConnectStatus || {};
+    res.json({
+      ...doc,
+      isStripeConnected: Boolean(stripeAcct),
+      stripeOnboardingCompleted: Boolean(sc.detailsSubmitted),
+      stripeChargesEnabled: Boolean(sc.chargesEnabled),
+      stripePayoutsEnabled: Boolean(sc.payoutsEnabled),
+    });
   }
 });
 

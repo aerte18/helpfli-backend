@@ -581,6 +581,7 @@ try {
   safeUse('/api/subscriptions', subscriptionRoutes, 'subscriptions');
   safeUse('/api/boosts', boostsRoutes, 'boosts');
   safeUse('/api/points', pointsRoutes, 'points');
+  safeUse('/api/usage', loadRoute('usageAnalytics', './routes/usageAnalytics'), 'usageAnalytics');
   safeUse('/api/checkout', checkoutRoutes, 'checkout');
   safeUse('/api/admin/promos', adminPromos, 'adminPromos');
   safeUse('/api/admin/config', adminConfigRoutes, 'adminConfig');
