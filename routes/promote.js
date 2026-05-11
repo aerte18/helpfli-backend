@@ -90,7 +90,7 @@ router.post('/create-intent', authMiddleware, requireKycVerified, async (req, re
         amount: String(amount),
         appliedCouponId: appliedCouponId ? String(appliedCouponId) : '',
       },
-      statement_descriptor: 'HELPFLI PROMO',
+      statement_descriptor_suffix: 'HELPFLI PROMO',
     });
 
     // Wstępny zapis zakupu + płatności (pending)

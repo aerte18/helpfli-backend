@@ -377,7 +377,7 @@ router.post('/create-intent', authMiddleware, async (req, res) => {
       pointsDiscount: String(pointsDiscount),
       clientPaidAmount: String(amount), // Rzeczywista kwota którą zapłacił klient
     },
-    statement_descriptor: 'HELPFLI',
+    statement_descriptor_suffix: 'HELPFLI',
   };
 
   if (
@@ -510,7 +510,7 @@ router.post('/create-additional-intent', authMiddleware, async (req, res) => {
         providerId: String(providerId || ''),
         additionalAmount: String(amount),
       },
-      statement_descriptor: 'HELPFLI',
+      statement_descriptor_suffix: 'HELPFLI',
     };
 
     if (
@@ -619,7 +619,7 @@ router.post('/create-commission-intent', authMiddleware, async (req, res) => {
         type: 'commission_external',
         commissionAmountPln: String(platformFeePln),
       },
-      statement_descriptor: 'HELPFLI',
+      statement_descriptor_suffix: 'HELPFLI',
     };
 
     const intent = await stripe.paymentIntents.create(intentPayload);

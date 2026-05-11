@@ -92,7 +92,7 @@ router.post('/sessions/create-payment-intent', authMiddleware, async (req, res) 
         orderId: orderId ? String(orderId) : '',
         amount: String(amount),
       },
-      statement_descriptor: 'HELPFLI VIDEO',
+      statement_descriptor_suffix: 'HELPFLI VIDEO',
     });
 
     // Zapisz Payment (pending)
