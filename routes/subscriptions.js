@@ -28,21 +28,68 @@ async function ensureDefaultPlansInDb() {
   }
 }
 
-/** Pełny PaymentIntent z pierwszej faktury — po API Stripe `expand` bywa tylko id, wtedy brak `client_secret` w odpowiedzi. */
-async function resolveSubscriptionFirstPaymentIntent(stripeClient, subscription) {
+/** Z client_secret PaymentIntent (format `pi_…_secret_…`) wyciąga id PI. */
+function paymentIntentIdFromClientSecret(clientSecret) {
+  if (!clientSecret || typeof clientSecret !== 'string') return null;
+  const m = clientSecret.indexOf('_secret_');
+  if (m <= 0) return null;
+  return clientSecret.slice(0, m);
+}
+
+/**
+ * Pierwsza płatność subskrypcji: starsze API — invoice.payment_intent + client_secret;
+ * od ~2025-03 (SDK 18+) — invoice.confirmation_secret.client_secret (payment_intent na fakturze bywa puste).
+ */
+async function resolveSubscriptionInvoicePayment(stripeClient, subscription) {
   let inv = subscription.latest_invoice;
-  if (!inv) return null;
-  if (typeof inv === 'string') {
-    inv = await stripeClient.invoices.retrieve(inv, { expand: ['payment_intent'] });
+  const invId = typeof inv === 'string' ? inv : inv?.id;
+  if (!invId) return null;
+
+  inv = await stripeClient.invoices.retrieve(invId, {
+    expand: ['payment_intent', 'confirmation_secret'],
+  });
+  if (inv.status === 'draft') {
+    inv = await stripeClient.invoices.finalizeInvoice(inv.id, {
+      expand: ['payment_intent', 'confirmation_secret'],
+    });
   }
-  if (inv && inv.status === 'draft' && inv.id) {
-    inv = await stripeClient.invoices.finalizeInvoice(inv.id, { expand: ['payment_intent'] });
+
+  const confirmCs = inv?.confirmation_secret?.client_secret;
+  if (confirmCs) {
+    let piId = paymentIntentIdFromClientSecret(confirmCs);
+    const refPi = inv.payment_intent;
+    if (!piId) {
+      piId = typeof refPi === 'string' ? refPi : refPi?.id || null;
+    }
+    let pi = null;
+    if (piId) {
+      try {
+        pi = await stripeClient.paymentIntents.retrieve(piId);
+      } catch (_) {
+        /* status do Payment i tak z fallbacku */
+      }
+    }
+    return {
+      clientSecret: confirmCs,
+      paymentIntentId: piId,
+      paymentIntent: pi,
+      invoice: inv,
+    };
   }
+
   let pi = inv?.payment_intent;
   if (typeof pi === 'string') {
     pi = await stripeClient.paymentIntents.retrieve(pi);
   }
-  return pi || null;
+  if (pi?.client_secret) {
+    return {
+      clientSecret: pi.client_secret,
+      paymentIntentId: pi.id,
+      paymentIntent: pi,
+      invoice: inv,
+    };
+  }
+  return null;
 }
 
 function getPlanAudience(planKey = '') {
@@ -436,7 +483,7 @@ router.post('/subscribe', auth, async (req, res) => {
       },
       // Unikaj 500 gdy Stripe Tax nie jest w pełni skonfigurowany na koncie
       automatic_tax: { enabled: false },
-      expand: ['latest_invoice.payment_intent'],
+      expand: ['latest_invoice.confirmation_secret', 'latest_invoice.payment_intent'],
       metadata: {
         userId: String(req.user._id),
         planKey: plan.key,
@@ -451,11 +498,11 @@ router.post('/subscribe', auth, async (req, res) => {
       // Stripe automatycznie retry'uje failed payments (3 próby w ciągu 7 dni)
     });
 
-    const paymentIntent = await resolveSubscriptionFirstPaymentIntent(stripe, subscription);
-    if (!paymentIntent?.client_secret) {
-      console.error('[subscribe] Brak client_secret PI', {
+    const payCtx = await resolveSubscriptionInvoicePayment(stripe, subscription);
+    if (!payCtx?.clientSecret) {
+      console.error('[subscribe] Brak client_secret (PI / confirmation_secret)', {
         subscriptionId: subscription.id,
-        invoice: subscription.latest_invoice,
+        invoiceId: typeof subscription.latest_invoice === 'string' ? subscription.latest_invoice : subscription.latest_invoice?.id,
       });
       return res.status(500).json({
         message:
@@ -559,10 +606,7 @@ router.post('/subscribe', auth, async (req, res) => {
     }
 
     // Zapisz Payment record
-    let invoice = subscription.latest_invoice;
-    if (typeof invoice === 'string') {
-      invoice = await stripe.invoices.retrieve(invoice);
-    }
+    const invoice = payCtx.invoice;
 
     await Payment.create({
       purpose: 'subscription',
@@ -571,11 +615,11 @@ router.post('/subscribe', auth, async (req, res) => {
       amount: finalPriceProd,
       currency: CURRENCY,
       method: 'unknown',
-      status: paymentIntentStatusForPaymentModel(paymentIntent?.status),
+      status: paymentIntentStatusForPaymentModel(payCtx.paymentIntent?.status),
       stripeSubscriptionId: subscription.id,
       stripeCustomerId: customerId,
       stripeInvoiceId: invoice?.id,
-      stripePaymentIntentId: paymentIntent?.id,
+      stripePaymentIntentId: payCtx.paymentIntentId,
       metadata: {
         type: 'subscription',
         planKey: plan.key,
@@ -587,8 +631,8 @@ router.post('/subscribe', auth, async (req, res) => {
     return res.json({
       message: 'Subskrypcja utworzona - wymagana płatność',
       subscriptionId: subscription.id,
-      clientSecret: paymentIntent.client_secret,
-      paymentIntentId: paymentIntent.id,
+      clientSecret: payCtx.clientSecret,
+      paymentIntentId: payCtx.paymentIntentId,
       planKey: plan.key,
       amount: finalPriceProd / 100,
       status: subscription.status
