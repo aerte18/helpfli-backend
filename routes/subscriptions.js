@@ -414,11 +414,11 @@ router.post('/subscribe', auth, async (req, res) => {
       },
       product_data: {
         name: `${plan.name} - ${billingPeriod === 'yearly' ? 'Roczna' : 'Miesięczna'}`,
-        description: (plan.perks?.join(', ') || '').slice(0, 4500),
       },
       metadata: {
         planKey: plan.key,
-        billingPeriod: billingPeriod
+        billingPeriod: billingPeriod,
+        perksPreview: (plan.perks?.join(', ') || '').slice(0, 450),
       }
     };
 
@@ -759,10 +759,10 @@ router.post('/upgrade', auth, async (req, res) => {
           },
           product_data: {
             name: `${newPlan.name} - Miesięczna`,
-            description: newPlan.perks?.join(', ') || ''
           },
           metadata: {
-            planKey: newPlan.key
+            planKey: newPlan.key,
+            perksPreview: (newPlan.perks?.join(', ') || '').slice(0, 450),
           }
         };
         
@@ -912,10 +912,10 @@ router.post('/downgrade', auth, async (req, res) => {
           },
           product_data: {
             name: `${newPlan.name} - Miesięczna`,
-            description: newPlan.perks?.join(', ') || ''
           },
           metadata: {
-            planKey: newPlan.key
+            planKey: newPlan.key,
+            perksPreview: (newPlan.perks?.join(', ') || '').slice(0, 450),
           }
         };
         

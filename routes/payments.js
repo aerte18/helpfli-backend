@@ -1127,11 +1127,11 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
                   },
                   product_data: {
                     name: `${plan.name} - Performance Discount ${performanceDiscount}%`,
-                    description: `Zniżka za osiągnięcie ${performanceDiscountOrders} zleceń w poprzednim miesiącu`
                   },
                   metadata: {
                     planKey: plan.key,
-                    performanceDiscount: String(performanceDiscount)
+                    performanceDiscount: String(performanceDiscount),
+                    discountNote: `Zniżka za ${performanceDiscountOrders} zleceń (poprz. miesiąc)`.slice(0, 450),
                   }
                 };
                 
@@ -1220,7 +1220,151 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
       
       return res.json({ received: true });
     }
-    
+
+    // Stripe Checkout — wcześniej tylko w osobnym payments.webhook.js (nienamontowanym na /api/payments)
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object;
+      const md = session.metadata || {};
+      const paid = session.payment_status === 'paid';
+
+      try {
+        // Ranking TOP z /api/promotions/checkout (Promotion + metadata.plan)
+        if (paid && md.type === 'promotion' && md.plan) {
+          const Promotion = require('../models/promotion');
+          const PLAN_CFG = {
+            PROMO_24H: { days: 1, points: 20 },
+            TOP_7: { days: 7, points: 40 },
+            TOP_14: { days: 14, points: 60 },
+            TOP_31: { days: 31, points: 100 },
+          };
+          const rec = await Promotion.findOne({ stripeCheckoutSessionId: session.id });
+          if (rec) {
+            const cfg = PLAN_CFG[rec.plan];
+            if (cfg) {
+              const now = new Date();
+              const to = new Date(now.getTime() + cfg.days * 24 * 60 * 60 * 1000);
+              rec.status = 'active';
+              rec.activeFrom = now;
+              rec.activeTo = to;
+              rec.pointsGranted = cfg.points;
+              await rec.save();
+
+              const u = await User.findById(rec.user);
+              if (u) {
+                u.rankingPoints = (u.rankingPoints || 0) + cfg.points;
+                u.badges = u.badges || {};
+                u.badges.topUntil = to;
+                await u.save();
+              }
+            }
+          }
+          return res.json({ received: true });
+        }
+
+        // PRO badge (/api/pro/checkout)
+        if (paid && md.type === 'pro' && md.userId) {
+          const ProSubscription = require('../models/proSubscription');
+          let periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+          const subRef = session.subscription;
+          const subId = typeof subRef === 'string' ? subRef : subRef?.id;
+          if (stripe && subId) {
+            try {
+              const stripeSub = await stripe.subscriptions.retrieve(subId);
+              periodEnd = new Date(stripeSub.current_period_end * 1000);
+            } catch (e) {
+              console.error('checkout.session.completed PRO: retrieve subscription', e);
+            }
+          }
+          const pending = await ProSubscription.findOne({ user: md.userId, status: 'incomplete' }).sort({
+            createdAt: -1,
+          });
+          if (pending) {
+            pending.status = 'active';
+            pending.stripeSubscriptionId = subId || pending.stripeSubscriptionId;
+            pending.currentPeriodEnd = periodEnd;
+            await pending.save();
+          } else {
+            await ProSubscription.create({
+              user: md.userId,
+              tier: md.tier === 'PRO_YEARLY' ? 'PRO_YEARLY' : 'PRO_MONTHLY',
+              status: 'active',
+              stripeSubscriptionId: subId,
+              currentPeriodEnd: periodEnd,
+            });
+          }
+          await User.findByIdAndUpdate(md.userId, { $set: { 'badges.pro': true } });
+          return res.json({ received: true });
+        }
+
+        // Pakiety wyróżnień providera (/api/promo/checkout — metadata.productKey)
+        if (paid && md.productKey && md.userId) {
+          const { activatePromo } = require('./promo');
+          await activatePromo(md.userId, md.productKey);
+          if (md.autoRenew === 'true' && session.subscription) {
+            const subId = typeof session.subscription === 'string' ? session.subscription : session.subscription?.id;
+            await User.findByIdAndUpdate(md.userId, {
+              $set: {
+                'promo.autoRenew': true,
+                'promo.subscriptionId': subId,
+                'promo.subscriptionProductKey': md.productKey,
+              },
+            });
+          }
+          return res.json({ received: true });
+        }
+
+        // Kampanie sponsorowane w wynikach (/api/sponsor/checkout — metadata.kind)
+        if (paid && md.kind === 'sponsor' && md.userId && md.startAt && md.endAt) {
+          const SponsorCampaign = require('../models/SponsorCampaign');
+          const positions = String(md.positions || '2,7')
+            .split(',')
+            .map((x) => Number(String(x).trim()))
+            .filter((n) => !Number.isNaN(n) && n > 0);
+          await SponsorCampaign.create({
+            provider: md.userId,
+            service: md.service || '*',
+            positions: positions.length ? positions : [2, 7],
+            startAt: new Date(md.startAt),
+            endAt: new Date(md.endAt),
+            dailyCap: 1,
+            isActive: true,
+          });
+          return res.json({ received: true });
+        }
+
+        // Zamówienie opłacone Checkoutem (wymaga zapisania stripeCheckoutSessionId przy tworzeniu sesji)
+        if (paid && md.type === 'order') {
+          const payment = await Payment.findOne({ stripeCheckoutSessionId: session.id });
+          if (payment) {
+            payment.status = 'succeeded';
+            const piRef = session.payment_intent;
+            const piId = typeof piRef === 'string' ? piRef : piRef?.id;
+            if (piId) payment.stripePaymentIntentId = payment.stripePaymentIntentId || piId;
+            const pm0 = session.payment_method_types?.[0];
+            if (pm0 && ['card', 'p24', 'blik'].includes(pm0)) payment.method = pm0;
+            await payment.save();
+
+            const order = await Order.findById(payment.order);
+            if (order) {
+              order.payment = {
+                status: 'paid',
+                method: pm0 || order.payment?.method || 'card',
+                intentId: piId || order.payment?.intentId || null,
+                protected: true,
+              };
+              if (order.status === 'awaiting_payment') order.status = 'paid';
+              await order.save();
+            }
+          }
+          return res.json({ received: true });
+        }
+      } catch (e) {
+        console.error('checkout.session.completed webhook error:', e);
+      }
+
+      return res.json({ received: true });
+    }
+
     if (event.type === 'payment_intent.succeeded') {
       const intent = event.data.object;
       
@@ -1762,8 +1906,9 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 
     if (event.type === 'charge.refunded' || event.type === 'charge.refund.updated') {
       const charge = event.data.object;
-      const pi = charge.payment_intent;
-      const payment = await Payment.findOne({ stripePaymentIntentId: pi });
+      const piRaw = charge.payment_intent;
+      const pi = typeof piRaw === 'string' ? piRaw : piRaw?.id;
+      const payment = pi ? await Payment.findOne({ stripePaymentIntentId: pi }) : null;
       const isAdditionalPayment = payment?.metadata?.type === 'additional_payment' || payment?.metadata?.subtype === 'additional_payment';
       
       if (payment?.purpose === 'promotion') {
