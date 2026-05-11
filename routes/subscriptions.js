@@ -28,6 +28,20 @@ async function ensureDefaultPlansInDb() {
   }
 }
 
+/** Pełny PaymentIntent z pierwszej faktury — po API Stripe `expand` bywa tylko id, wtedy brak `client_secret` w odpowiedzi. */
+async function resolveSubscriptionFirstPaymentIntent(stripeClient, subscription) {
+  let inv = subscription.latest_invoice;
+  if (!inv) return null;
+  if (typeof inv === 'string') {
+    inv = await stripeClient.invoices.retrieve(inv, { expand: ['payment_intent'] });
+  }
+  let pi = inv?.payment_intent;
+  if (typeof pi === 'string') {
+    pi = await stripeClient.paymentIntents.retrieve(pi);
+  }
+  return pi || null;
+}
+
 function getPlanAudience(planKey = '') {
   if (planKey.startsWith('CLIENT_')) return 'client';
   if (planKey.startsWith('PROV_')) return 'provider';
@@ -332,6 +346,44 @@ router.post('/subscribe', auth, async (req, res) => {
       await user.save();
     }
 
+    // Niedokończone subskrypcje (np. porzucony checkout) blokują nową płatność — anuluj je.
+    try {
+      const pending = await stripe.subscriptions.list({
+        customer: customerId,
+        status: 'incomplete',
+        limit: 20,
+      });
+      for (const s of pending.data) {
+        try {
+          await stripe.subscriptions.cancel(s.id);
+        } catch (e) {
+          console.warn('[subscribe] cancel incomplete subscription', s.id, e?.message);
+        }
+      }
+    } catch (e) {
+      console.warn('[subscribe] list incomplete subscriptions', e?.message);
+    }
+
+    if (existingSub?.stripeSubscriptionId) {
+      try {
+        const prev = await stripe.subscriptions.retrieve(existingSub.stripeSubscriptionId);
+        if (prev.status === 'active' || prev.status === 'trialing') {
+          return res.status(409).json({
+            message:
+              'Masz już aktywną subskrypcję. Aby zmienić plan, użyj opcji w ustawieniach konta.',
+          });
+        }
+        if (prev.status === 'past_due' || prev.status === 'unpaid') {
+          return res.status(402).json({
+            message:
+              'Subskrypcja wymaga uregulowania poprzedniej płatności. Zaktualizuj metodę płatności lub skontaktuj się z pomocą.',
+          });
+        }
+      } catch (_) {
+        /* brak subskrypcji w Stripe — kontynuuj */
+      }
+    }
+
     // Utwórz lub znajdź Price w Stripe
     // W produkcji powinieneś mieć wcześniej utworzone Prices w Stripe Dashboard
     // Tutaj tworzymy Price dynamicznie (można też użyć istniejących Price IDs)
@@ -379,6 +431,19 @@ router.post('/subscribe', auth, async (req, res) => {
       // Stripe automatycznie retry'uje failed payments (3 próby w ciągu 7 dni)
     });
 
+    const paymentIntent = await resolveSubscriptionFirstPaymentIntent(stripe, subscription);
+    if (!paymentIntent?.client_secret) {
+      console.error('[subscribe] Brak client_secret PI', {
+        subscriptionId: subscription.id,
+        invoice: subscription.latest_invoice,
+      });
+      return res.status(500).json({
+        message:
+          'Nie udało się przygotować płatności (brak klucza sesji Stripe). Spróbuj ponownie za chwilę lub skontaktuj się z pomocą.',
+        error: 'missing_subscription_payment_client_secret',
+      });
+    }
+
     // Zapisz Subscription ID w UserSubscription
     const isBusinessPlan = planKey.startsWith('BUSINESS_');
     
@@ -390,8 +455,6 @@ router.post('/subscribe', auth, async (req, res) => {
         companyId = user.company._id;
       }
     }
-    
-    const existingSub = await UserSubscription.findOne({ user: req.user._id });
     
     if (existingSub) {
       existingSub.stripeSubscriptionId = subscription.id;
@@ -476,9 +539,11 @@ router.post('/subscribe', auth, async (req, res) => {
     }
 
     // Zapisz Payment record
-    const invoice = subscription.latest_invoice;
-    const paymentIntent = invoice?.payment_intent;
-    
+    let invoice = subscription.latest_invoice;
+    if (typeof invoice === 'string') {
+      invoice = await stripe.invoices.retrieve(invoice);
+    }
+
     await Payment.create({
       purpose: 'subscription',
       subscriptionUser: req.user._id,
@@ -502,8 +567,8 @@ router.post('/subscribe', auth, async (req, res) => {
     return res.json({
       message: 'Subskrypcja utworzona - wymagana płatność',
       subscriptionId: subscription.id,
-      clientSecret: paymentIntent?.client_secret,
-      paymentIntentId: paymentIntent?.id,
+      clientSecret: paymentIntent.client_secret,
+      paymentIntentId: paymentIntent.id,
       planKey: plan.key,
       amount: finalPriceProd / 100,
       status: subscription.status
@@ -1065,8 +1130,6 @@ router.get('/me', auth, async (req, res) => {
   res.json(sub || null);
 });
 
-module.exports = router;
-
 // --- Seed plans (optional helper) ---
 // POST /api/subscriptions/seed
 router.post('/seed', async (_req, res) => {
@@ -1224,5 +1287,5 @@ router.post('/seed', async (_req, res) => {
 	res.json({ ok: true, count: created.length });
 });
 
-
+module.exports = router;
 
