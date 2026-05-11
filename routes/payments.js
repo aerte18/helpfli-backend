@@ -606,11 +606,11 @@ router.post('/create-commission-intent', authMiddleware, async (req, res) => {
       });
     }
 
-    // Prowizja: bez Connect — tylko karta (najmniej problemów z konfiguracją Stripe PL / BLIK-P24)
+    // Prowizja: bez Connect — te same typy co przy zleceniu (karta / BLIK / P24), z fallbackiem na kartę
     const intentPayload = {
       amount,
       currency: CURRENCY,
-      payment_method_types: ['card'],
+      payment_method_types: DEFAULT_PAYMENT_METHOD_TYPES,
       capture_method: 'automatic',
       description: `Opłata serwisowa Helpfli za zlecenie #${order._id}`,
       metadata: {
@@ -622,7 +622,25 @@ router.post('/create-commission-intent', authMiddleware, async (req, res) => {
       statement_descriptor_suffix: 'HELPFLI',
     };
 
-    const intent = await stripe.paymentIntents.create(intentPayload);
+    let intent;
+    try {
+      intent = await stripe.paymentIntents.create(intentPayload);
+    } catch (stripeErr) {
+      const code = stripeErr?.code || stripeErr?.raw?.code || '';
+      const msg = String(stripeErr?.message || '');
+      const useCardOnly =
+        /payment_method_type|blik|p24|przelewy|payment_method_types/i.test(msg) ||
+        /payment_method_type/i.test(code) ||
+        code === 'parameter_invalid_empty';
+      if (useCardOnly) {
+        intent = await stripe.paymentIntents.create({
+          ...intentPayload,
+          payment_method_types: ['card'],
+        });
+      } else {
+        throw stripeErr;
+      }
+    }
 
     const allowedMethods = ['card', 'p24', 'blik', 'unknown'];
     const payMethod = allowedMethods.includes(methodHint) ? methodHint : 'card';
