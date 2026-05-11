@@ -276,6 +276,39 @@ router.get('/config', (req, res) => {
 
 const DEFAULT_PAYMENT_METHOD_TYPES = ['card', 'blik', 'p24'];
 
+/**
+ * PaymentIntent z BLIK / Przelewy24 — wymaga włączenia metod w Stripe Dashboard (PL + pln).
+ * Kolejność: opcjonalna pmc_* → automatic_payment_methods → jawne typy → tylko karta.
+ */
+async function createPaymentIntentPreferLocalWallets(stripe, basePayload) {
+  const core = { ...basePayload };
+  delete core.payment_method_types;
+  delete core.automatic_payment_methods;
+  delete core.payment_method_configuration;
+
+  const attempts = [];
+  const pmc = process.env.STRIPE_PAYMENT_METHOD_CONFIGURATION_ID;
+  if (pmc && String(pmc).trim().startsWith('pmc_')) {
+    attempts.push({ ...core, payment_method_configuration: String(pmc).trim() });
+  }
+  attempts.push(
+    { ...core, automatic_payment_methods: { enabled: true, allow_redirects: 'always' } },
+    { ...core, payment_method_types: [...DEFAULT_PAYMENT_METHOD_TYPES] },
+    { ...core, payment_method_types: ['card'] }
+  );
+
+  let lastErr;
+  for (const body of attempts) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      return await stripe.paymentIntents.create(body);
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr;
+}
+
 // POST /api/payments/create-intent
 // body: { orderId, requestInvoice?: boolean }
 router.post('/create-intent', authMiddleware, async (req, res) => {
@@ -354,9 +387,6 @@ router.post('/create-intent', authMiddleware, async (req, res) => {
     });
   }
 
-  // Stripe PaymentIntent
-  const payment_method_types = DEFAULT_PAYMENT_METHOD_TYPES;
-
   // Jeżeli Stripe Connect jest włączony i provider ma konto – użyj destination charges
   // WAŻNE: Jeśli klient użył punktów, musimy zwiększyć amount w Stripe o pointsDiscount,
   // żeby provider otrzymał pełną kwotę. Platforma pokrywa różnicę jako koszt marketingowy.
@@ -365,7 +395,6 @@ router.post('/create-intent', authMiddleware, async (req, res) => {
   let intentPayload = {
     amount: stripeAmount, // Kwota w Stripe = kwota którą płaci klient + zniżka z punktów (pokrywana przez platformę)
     currency: CURRENCY,
-    payment_method_types,
     // Pełny escrow – najpierw autoryzacja, później capture po potwierdzeniu zakończenia zlecenia
     capture_method: 'manual',
     description: `Helpfli Order #${order._id}`,
@@ -394,7 +423,7 @@ router.post('/create-intent', authMiddleware, async (req, res) => {
     };
   }
 
-  const intent = await stripe.paymentIntents.create(intentPayload);
+  const intent = await createPaymentIntentPreferLocalWallets(stripe, intentPayload);
 
     // Zapis w Payment (status wstępny)
     const payment = await Payment.create({
@@ -485,7 +514,6 @@ router.post('/create-additional-intent', authMiddleware, async (req, res) => {
     }
 
     const amount = Math.round(additionalAmountPln * 100);
-    const payment_method_types = DEFAULT_PAYMENT_METHOD_TYPES;
 
     const providerId = order.provider?._id || order.provider;
     const providerForConnect = providerId
@@ -500,7 +528,6 @@ router.post('/create-additional-intent', authMiddleware, async (req, res) => {
     let intentPayload = {
       amount,
       currency: CURRENCY,
-      payment_method_types,
       capture_method: 'automatic',
       description: `Helpfli Additional Payment for Order #${order._id}`,
       metadata: {
@@ -528,7 +555,7 @@ router.post('/create-additional-intent', authMiddleware, async (req, res) => {
       };
     }
 
-    const intent = await stripe.paymentIntents.create(intentPayload);
+    const intent = await createPaymentIntentPreferLocalWallets(stripe, intentPayload);
 
     const payment = await Payment.create({
       order: order._id,
@@ -606,11 +633,9 @@ router.post('/create-commission-intent', authMiddleware, async (req, res) => {
       });
     }
 
-    // Prowizja: bez Connect — te same typy co przy zleceniu (karta / BLIK / P24), z fallbackiem na kartę
     const intentPayload = {
       amount,
       currency: CURRENCY,
-      payment_method_types: DEFAULT_PAYMENT_METHOD_TYPES,
       capture_method: 'automatic',
       description: `Opłata serwisowa Helpfli za zlecenie #${order._id}`,
       metadata: {
@@ -622,25 +647,7 @@ router.post('/create-commission-intent', authMiddleware, async (req, res) => {
       statement_descriptor_suffix: 'HELPFLI',
     };
 
-    let intent;
-    try {
-      intent = await stripe.paymentIntents.create(intentPayload);
-    } catch (stripeErr) {
-      const code = stripeErr?.code || stripeErr?.raw?.code || '';
-      const msg = String(stripeErr?.message || '');
-      const useCardOnly =
-        /payment_method_type|blik|p24|przelewy|payment_method_types/i.test(msg) ||
-        /payment_method_type/i.test(code) ||
-        code === 'parameter_invalid_empty';
-      if (useCardOnly) {
-        intent = await stripe.paymentIntents.create({
-          ...intentPayload,
-          payment_method_types: ['card'],
-        });
-      } else {
-        throw stripeErr;
-      }
-    }
+    const intent = await createPaymentIntentPreferLocalWallets(stripe, intentPayload);
 
     const allowedMethods = ['card', 'p24', 'blik', 'unknown'];
     const payMethod = allowedMethods.includes(methodHint) ? methodHint : 'card';
