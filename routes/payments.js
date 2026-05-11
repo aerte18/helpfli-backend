@@ -100,6 +100,15 @@ function resolveFrontendUrl(req) {
   return `${proto}://${host}`;
 }
 
+/** Order.payment.status ma enum: requires_payment | paid | refunded | failed — Stripe zwraca m.in. requires_payment_method. */
+function orderPaymentSubStatusFromStripePi(stripeStatus) {
+  if (!stripeStatus || typeof stripeStatus !== 'string') return 'requires_payment';
+  if (stripeStatus === 'succeeded') return 'paid';
+  if (stripeStatus === 'failed' || stripeStatus === 'canceled') return 'failed';
+  if (stripeStatus === 'refunded' || stripeStatus === 'partial_refund') return 'refunded';
+  return 'requires_payment';
+}
+
 // Feature flag – umożliwia stopniowe włączanie Stripe Connect
 const ENABLE_STRIPE_CONNECT = process.env.ENABLE_STRIPE_CONNECT === 'true';
 
@@ -418,7 +427,7 @@ router.post('/create-intent', authMiddleware, async (req, res) => {
     // Zapamiętaj podstawowe info o płatności również w polu order.payment
     order.payment = order.payment || {};
     order.payment.intentId = intent.id;
-    order.payment.status = payment.status;
+    order.payment.status = orderPaymentSubStatusFromStripePi(payment.status);
     order.payment.method = methodHint;
     await order.save();
 
@@ -591,14 +600,17 @@ router.post('/create-commission-intent', authMiddleware, async (req, res) => {
 
     // Stripe kwota w groszach
     const amount = Math.round(platformFeePln * 100);
+    if (!amount || amount < 50) {
+      return res.status(400).json({
+        message: 'Kwota opłaty serwisowej jest za niska do płatności online (minimum 0,50 zł).',
+      });
+    }
 
-    const payment_method_types = DEFAULT_PAYMENT_METHOD_TYPES;
-
-    const intent = await stripe.paymentIntents.create({
+    // Prowizja: bez Connect; automatic_payment_methods unika błędów gdy BLIK/P24 nie są włączone na koncie Stripe
+    const intentPayload = {
       amount,
       currency: CURRENCY,
-      payment_method_types,
-      // Dla prowizji nie używamy escrow ani Stripe Connect – całość trafia do Helpfli
+      automatic_payment_methods: { enabled: true },
       capture_method: 'automatic',
       description: `Opłata serwisowa Helpfli za zlecenie #${order._id}`,
       metadata: {
@@ -608,7 +620,28 @@ router.post('/create-commission-intent', authMiddleware, async (req, res) => {
         commissionAmountPln: String(platformFeePln),
       },
       statement_descriptor: 'HELPFLI',
-    });
+    };
+
+    let intent;
+    try {
+      intent = await stripe.paymentIntents.create(intentPayload);
+    } catch (stripeErr) {
+      const code = stripeErr?.code || stripeErr?.raw?.code || '';
+      const msg = String(stripeErr?.message || '');
+      const fallback =
+        code === 'parameter_invalid_empty' ||
+        /payment_method|automatic_payment/i.test(msg) ||
+        /blik|p24|przelewy24/i.test(msg);
+      if (fallback) {
+        const { automatic_payment_methods: _ignored, ...withoutAuto } = intentPayload;
+        intent = await stripe.paymentIntents.create({
+          ...withoutAuto,
+          payment_method_types: ['card'],
+        });
+      } else {
+        throw stripeErr;
+      }
+    }
 
     const payment = await Payment.create({
       order: order._id,
@@ -640,7 +673,7 @@ router.post('/create-commission-intent', authMiddleware, async (req, res) => {
     order.paidInSystem = false;
     order.payment = order.payment || {};
     order.payment.intentId = intent.id;
-    order.payment.status = payment.status;
+    order.payment.status = orderPaymentSubStatusFromStripePi(payment.status);
     order.payment.method = methodHint;
     await order.save();
 
