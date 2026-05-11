@@ -606,11 +606,11 @@ router.post('/create-commission-intent', authMiddleware, async (req, res) => {
       });
     }
 
-    // Prowizja: bez Connect; automatic_payment_methods unika błędów gdy BLIK/P24 nie są włączone na koncie Stripe
+    // Prowizja: bez Connect — tylko karta (najmniej problemów z konfiguracją Stripe PL / BLIK-P24)
     const intentPayload = {
       amount,
       currency: CURRENCY,
-      automatic_payment_methods: { enabled: true },
+      payment_method_types: ['card'],
       capture_method: 'automatic',
       description: `Opłata serwisowa Helpfli za zlecenie #${order._id}`,
       metadata: {
@@ -622,26 +622,10 @@ router.post('/create-commission-intent', authMiddleware, async (req, res) => {
       statement_descriptor: 'HELPFLI',
     };
 
-    let intent;
-    try {
-      intent = await stripe.paymentIntents.create(intentPayload);
-    } catch (stripeErr) {
-      const code = stripeErr?.code || stripeErr?.raw?.code || '';
-      const msg = String(stripeErr?.message || '');
-      const fallback =
-        code === 'parameter_invalid_empty' ||
-        /payment_method|automatic_payment/i.test(msg) ||
-        /blik|p24|przelewy24/i.test(msg);
-      if (fallback) {
-        const { automatic_payment_methods: _ignored, ...withoutAuto } = intentPayload;
-        intent = await stripe.paymentIntents.create({
-          ...withoutAuto,
-          payment_method_types: ['card'],
-        });
-      } else {
-        throw stripeErr;
-      }
-    }
+    const intent = await stripe.paymentIntents.create(intentPayload);
+
+    const allowedMethods = ['card', 'p24', 'blik', 'unknown'];
+    const payMethod = allowedMethods.includes(methodHint) ? methodHint : 'card';
 
     const payment = await Payment.create({
       order: order._id,
@@ -652,7 +636,7 @@ router.post('/create-commission-intent', authMiddleware, async (req, res) => {
       stripePaymentIntentId: intent.id,
       amount,
       currency: CURRENCY,
-      method: methodHint,
+      method: payMethod,
       status: intent.status,
       // Cała kwota to opłata serwisowa
       platformFeePercent: 1,
@@ -674,7 +658,7 @@ router.post('/create-commission-intent', authMiddleware, async (req, res) => {
     order.payment = order.payment || {};
     order.payment.intentId = intent.id;
     order.payment.status = orderPaymentSubStatusFromStripePi(payment.status);
-    order.payment.method = methodHint;
+    order.payment.method = payMethod;
     await order.save();
 
     res.json({ clientSecret: intent.client_secret, paymentIntentId: intent.id });
@@ -689,7 +673,14 @@ router.post('/create-commission-intent', authMiddleware, async (req, res) => {
       retryable: true,
       metadata: { action: 'create-commission-intent', methodHint: req.body?.methodHint }
     });
-    res.status(500).json({ message: 'Błąd tworzenia płatności za prowizję' });
+    const stripeMsg = e?.raw?.message || e?.message || '';
+    const hint =
+      e?.name === 'ValidationError'
+        ? 'Błąd zapisu danych zlecenia — skontaktuj się z pomocą.'
+        : stripeMsg
+          ? `Błąd tworzenia płatności za prowizję: ${stripeMsg}`
+          : 'Błąd tworzenia płatności za prowizję';
+    res.status(500).json({ message: hint });
   }
 });
 
