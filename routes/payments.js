@@ -278,7 +278,8 @@ const DEFAULT_PAYMENT_METHOD_TYPES = ['card', 'blik', 'p24'];
 
 /**
  * PaymentIntent z BLIK / Przelewy24 — wymaga włączenia metod w Stripe Dashboard (PL + pln).
- * Kolejność: opcjonalna pmc_* → automatic_payment_methods → jawne typy → tylko karta.
+ * Kolejność: automatic_payment_methods → jawne typy → tylko karta.
+ * Nie wymuszamy pmc_* na starcie, bo może ograniczać metody do samej karty/Link.
  */
 async function createPaymentIntentPreferLocalWallets(stripe, basePayload) {
   const core = { ...basePayload };
@@ -286,16 +287,11 @@ async function createPaymentIntentPreferLocalWallets(stripe, basePayload) {
   delete core.automatic_payment_methods;
   delete core.payment_method_configuration;
 
-  const attempts = [];
-  const pmc = process.env.STRIPE_PAYMENT_METHOD_CONFIGURATION_ID;
-  if (pmc && String(pmc).trim().startsWith('pmc_')) {
-    attempts.push({ ...core, payment_method_configuration: String(pmc).trim() });
-  }
-  attempts.push(
+  const attempts = [
     { ...core, automatic_payment_methods: { enabled: true, allow_redirects: 'always' } },
     { ...core, payment_method_types: [...DEFAULT_PAYMENT_METHOD_TYPES] },
     { ...core, payment_method_types: ['card'] }
-  );
+  ];
 
   let lastErr;
   for (const body of attempts) {
