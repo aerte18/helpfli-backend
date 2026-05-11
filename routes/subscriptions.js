@@ -99,6 +99,15 @@ function getPlanAudience(planKey = '') {
   return 'unknown';
 }
 
+/** FREE w tym samym segmencie co kupowany plan — efektywny plan do czasu zaksięgowania płatności. */
+function defaultFreePlanKeyForPurchasedPlan(purchasedPlanKey = '') {
+  if (typeof purchasedPlanKey !== 'string') return 'CLIENT_FREE';
+  if (purchasedPlanKey.startsWith('CLIENT_')) return 'CLIENT_FREE';
+  if (purchasedPlanKey.startsWith('PROV_')) return 'PROV_FREE';
+  if (purchasedPlanKey.startsWith('BUSINESS_')) return 'BUSINESS_FREE';
+  return 'CLIENT_FREE';
+}
+
 router.get('/plans', async (req, res) => {
   try {
     await ensureDefaultPlansInDb();
@@ -532,98 +541,61 @@ router.post('/subscribe', auth, async (req, res) => {
       });
     }
 
-    // Zapisz Subscription ID w UserSubscription
+    // Zapisz Stripe na koncie — bez zmiany planKey / benefitów do czasu udanej płatności (webhook).
     const isBusinessPlan = planKey.startsWith('BUSINESS_');
-    
-    // Jeśli to business plan, pobierz companyId użytkownika
     let companyId = null;
     if (isBusinessPlan) {
-      const user = await User.findById(req.user._id).populate('company');
-      if (user && user.company) {
-        companyId = user.company._id;
+      const uBiz = await User.findById(req.user._id).populate('company');
+      if (uBiz?.company) {
+        companyId = uBiz.company._id;
       }
     }
-    
+
+    const freePlanKey = defaultFreePlanKeyForPurchasedPlan(plan.key);
+    const freePlanDoc = await SubscriptionPlan.findOne({ key: freePlanKey, active: true });
+    const freeValidUntil = new Date(now);
+    freeValidUntil.setFullYear(freeValidUntil.getFullYear() + 3);
+
     if (existingSub) {
       existingSub.stripeSubscriptionId = subscription.id;
       existingSub.stripeCustomerId = customerId;
       existingSub.stripePriceId = stripePrice.id;
-      existingSub.planKey = plan.key;
-      existingSub.isBusinessPlan = isBusinessPlan;
-      existingSub.companyId = companyId; // Zapisz companyId dla business planów
-      existingSub.useCompanyResourcePool = isBusinessPlan; // Automatycznie włącz dla business planów
-      
-      // Zaktualizuj limity boostów przy zmianie planu (z planu)
-      const resetDate = new Date(now.getFullYear(), now.getMonth(), 1);
-      const freeBoostsPerMonth = plan.freeBoostsPerMonth || 0;
-      existingSub.freeOrderBoostsLimit = freeBoostsPerMonth;
-      existingSub.freeOrderBoostsLeft = freeBoostsPerMonth;
-      existingSub.freeOrderBoostsResetDate = resetDate;
-      existingSub.freeOfferBoostsLimit = 0; // Dla providerów - na razie bez darmowych boostów
-      existingSub.freeOfferBoostsLeft = 0;
-      
+      existingSub.pendingPlanKey = plan.key;
+      existingSub.pendingBillingPeriod = billingPeriod;
+      if (isBusinessPlan && companyId) {
+        existingSub.companyId = companyId;
+      }
       await existingSub.save();
     } else {
-      // Inicjalizuj limity boostów dla nowej subskrypcji (z planu)
       const resetDate = new Date(now.getFullYear(), now.getMonth(), 1);
-      const freeBoostsPerMonth = plan.freeBoostsPerMonth || 0;
-      let freeOrderBoostsLimit = freeBoostsPerMonth;
-      let freeOrderBoostsLeft = freeBoostsPerMonth;
-      let freeOfferBoostsLimit = 0; // Dla providerów - na razie bez darmowych boostów
-      let freeOfferBoostsLeft = 0;
-      
-      // Stary kod dla kompatybilności (do usunięcia później)
-      if (false && (plan.key === 'CLIENT_PRO' || plan.key === 'PROV_PRO')) {
-        freeOrderBoostsLimit = 10;
-        freeOrderBoostsLeft = 10;
-        freeOfferBoostsLimit = 10;
-        freeOfferBoostsLeft = 10;
-      } else if (plan.key === 'CLIENT_STD' || plan.key === 'PROV_STD') {
-        freeOrderBoostsLimit = 5;
-        freeOrderBoostsLeft = 5;
-        freeOfferBoostsLimit = 5;
-        freeOfferBoostsLeft = 5;
-      }
-      
+      const freeBoostsPerMonth = freePlanDoc?.freeBoostsPerMonth || 0;
       await UserSubscription.create({
         user: req.user._id,
-        planKey: plan.key,
+        planKey: freePlanKey,
+        pendingPlanKey: plan.key,
+        pendingBillingPeriod: billingPeriod,
         startedAt: now,
-        validUntil: validUntil,
+        validUntil: freeValidUntil,
         renews: true,
-        freeExpressLeft: plan.freeExpressPerMonth || 0,
+        freeExpressLeft: freePlanDoc?.freeExpressPerMonth || 0,
         earlyAdopter: isEarlyAdopter,
         earlyAdopterDiscount: earlyAdopterDiscount,
         loyaltyMonths: loyaltyMonths,
         loyaltyDiscount: loyaltyDiscount,
         referralCodeUsed: referralCode ? referralCode.toUpperCase() : null,
-        isBusinessPlan: isBusinessPlan,
-        companyId: companyId, // Zapisz companyId dla business planów
-        useCompanyResourcePool: isBusinessPlan, // Automatycznie włącz dla business planów
+        isBusinessPlan: false,
+        companyId: isBusinessPlan ? companyId : null,
+        useCompanyResourcePool: false,
         stripeSubscriptionId: subscription.id,
-        freeOrderBoostsLimit,
-        freeOrderBoostsLeft,
+        freeOrderBoostsLimit: freeBoostsPerMonth,
+        freeOrderBoostsLeft: freeBoostsPerMonth,
         freeOrderBoostsResetDate: resetDate,
-        freeOfferBoostsLimit,
-        freeOfferBoostsLeft,
+        freeOfferBoostsLimit: 0,
+        freeOfferBoostsLeft: 0,
         freeOfferBoostsResetDate: resetDate,
         stripeCustomerId: customerId,
-        stripePriceId: stripePrice.id
+        stripePriceId: stripePrice.id,
       });
-    }
-    
-    // Jeśli to business plan, zainicjalizuj resource pool dla firmy użytkownika
-    if (isBusinessPlan && companyId) {
-      const { initializeCompanyResourcePool } = require('../utils/resourcePool');
-      await initializeCompanyResourcePool(companyId, planKey);
-      
-      // Aktualizuj krok onboardingu - plan został wybrany
-      const Company = require('../models/Company');
-      const company = await Company.findById(companyId);
-      if (company && !company.onboardingSteps.planSelected) {
-        company.onboardingSteps.planSelected = true;
-        await company.save();
-      }
     }
 
     // Zapisz Payment record
@@ -645,16 +617,37 @@ router.post('/subscribe', auth, async (req, res) => {
         type: 'subscription',
         planKey: plan.key,
         billingPeriod: billingPeriod,
-        userId: String(req.user._id)
+        userId: String(req.user._id),
+        referralCode: referralCode ? String(referralCode) : '',
+        earlyAdopter: String(isEarlyAdopter),
       }
     });
 
+    if (payCtx.paymentIntentId) {
+      try {
+        await stripe.paymentIntents.update(payCtx.paymentIntentId, {
+          metadata: {
+            type: 'subscription',
+            userId: String(req.user._id),
+            planKey: plan.key,
+            billingPeriod: String(billingPeriod),
+            referralCode: referralCode ? String(referralCode) : '',
+            earlyAdopter: String(isEarlyAdopter),
+          },
+        });
+      } catch (e) {
+        console.warn('[subscribe] paymentIntents.update metadata:', e?.message);
+      }
+    }
+
+    const effectivePlanKey = existingSub ? existingSub.planKey : freePlanKey;
     return res.json({
       message: 'Subskrypcja utworzona - wymagana płatność',
       subscriptionId: subscription.id,
       clientSecret: payCtx.clientSecret,
       paymentIntentId: payCtx.paymentIntentId,
-      planKey: plan.key,
+      planKey: effectivePlanKey,
+      pendingPlanKey: plan.key,
       amount: finalPriceProd / 100,
       status: subscription.status
     });

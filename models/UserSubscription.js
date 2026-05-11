@@ -40,6 +40,9 @@ const UserSubscriptionSchema = new mongoose.Schema({
 		fastTrackLimit: { type: Number, default: null },
 		providerResponsesLimit: { type: Number, default: null }
 	},
+	// Checkout w toku (plan płatny dopiero po payment_intent.succeeded)
+	pendingPlanKey: { type: String, default: null, index: true },
+	pendingBillingPeriod: { type: String, default: null },
 	// Stripe Subscriptions
 	stripeSubscriptionId: { type: String, default: null, index: true }, // Stripe Subscription ID
 	stripeCustomerId: { type: String, default: null, index: true }, // Stripe Customer ID
