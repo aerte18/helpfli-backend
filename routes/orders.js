@@ -2029,6 +2029,16 @@ async function loadOrderById(req, res, next) {
   }
 }
 
+/** KYC tylko przy rozliczeniu przez Helpfli (escrow). Płatność poza systemem — jak przy POST /start, bez blokady KYC. */
+function requireKycForOrderComplete(req, res, next) {
+  const order = req.order;
+  if (!order) return res.status(500).json({ message: "Błąd ładowania zlecenia" });
+  const externalLike =
+    order.paymentMethod === "external" || order.paymentPreference === "external";
+  if (externalLike) return next();
+  return requireKycVerified(req, res, next);
+}
+
 // Endpoint statusu ochrony — do UI
 router.get('/:id/protection', auth, loadOrderById, async (req, res) => {
   const o = req.order;
@@ -2324,14 +2334,23 @@ router.post('/:id/extend', auth, loadOrderById, async (req, res) => {
   }
 });
 
-// Zakończenie zlecenia (rozliczenie) - wymaga KYC
-router.post('/:id/complete', auth, requireKycVerified, loadOrderById, async (req, res) => {
+// Zakończenie zlecenia — KYC wymagane tylko przy płatności w systemie (spójnie z możliwością startu pracy bez KYC przy external)
+router.post('/:id/complete', auth, loadOrderById, requireKycForOrderComplete, async (req, res) => {
   try {
     const order = req.order;
     
     // Sprawdź czy użytkownik to provider
-    if (order.provider && String(order.provider) !== String(req.user._id)) {
+    const assignedProviderId = order.provider?._id
+      ? String(order.provider._id)
+      : order.provider
+        ? String(order.provider)
+        : "";
+    const userId = String(req.user._id);
+    if (assignedProviderId && assignedProviderId !== userId) {
       return res.status(403).json({ message: 'Tylko przypisany wykonawca może zakończyć zlecenie' });
+    }
+    if (!assignedProviderId) {
+      return res.status(400).json({ message: 'Brak przypisanego wykonawcy do zlecenia' });
     }
     
     // Sprawdź status zlecenia
