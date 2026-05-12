@@ -1,8 +1,25 @@
 const express = require('express');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const Rating = require('../models/Rating');
-const User = require('../models/User');
 const router = express.Router();
+
+/** Czy użytkownik jest przypisanym wykonawcą albo należy do zespołu firmy tego wykonawcy (owner/manager/provider w Company). */
+async function userActsAsOrderProvider(user, order) {
+  const pid =
+    order.provider == null ? null : String(order.provider._id || order.provider);
+  if (!pid) return false;
+  if (String(user._id) === pid) return true;
+  if (!user.company) return false;
+  const Company = require('../models/Company');
+  const company = await Company.findById(user.company).lean();
+  if (!company) return false;
+  const memberIds = [
+    company.owner?.toString(),
+    ...(company.managers || []).map((m) => m.toString()),
+    ...(company.providers || []).map((p) => p.toString()),
+  ].filter(Boolean);
+  return memberIds.includes(pid);
+}
 
 // Dodaj ocenę (np. klient ocenia wykonawcę)
 router.post('/', authMiddleware, async (req, res) => {
@@ -19,18 +36,27 @@ router.post('/', authMiddleware, async (req, res) => {
       const order = await Order.findById(orderId);
       if (!order) return res.status(404).json({ message: 'Zlecenie nie istnieje' });
       const isClientRatingProvider = String(order.client) === String(req.user._id) && String(order.provider) === String(ratedUser);
-      const isProviderRatingClient = String(order.provider) === String(req.user._id) && String(order.client) === String(ratedUser);
+      const actsAsProvider = await userActsAsOrderProvider(req.user, order);
+      const isProviderRatingClient =
+        actsAsProvider && String(order.client) === String(ratedUser);
       if (!isClientRatingProvider && !isProviderRatingClient) {
         return res.status(403).json({ message: 'Brak uprawnień do oceny w tym zleceniu' });
       }
-      const doneStatuses = ['completed','done','closed','released'];
+      const doneStatuses = ['completed', 'done', 'closed', 'released', 'rated'];
       if (!doneStatuses.includes(order.status)) {
         return res.status(400).json({ message: 'Zlecenie nie zostało zakończone' });
       }
     }
-    const existing = await Rating.findOne({ from: req.user._id, to: ratedUser });
+    // Jedna ocena na parę użytkowników **w ramach danego zlecenia** (gdy jest orderId).
+    // Bez orderId zostaje dotychczasowe zachowanie: jedna ocena na odbiorcę (kompatybilność wsteczna).
+    const existingQuery = orderId
+      ? { from: req.user._id, to: ratedUser, orderId }
+      : { from: req.user._id, to: ratedUser };
+    const existing = await Rating.findOne(existingQuery);
     if (existing) {
-      return res.status(400).json({ message: 'Już oceniłeś tego wykonawcę' });
+      return res.status(400).json({
+        message: orderId ? 'Już wystawiłeś ocenę dla tego zlecenia' : 'Już oceniłeś tego użytkownika',
+      });
     }
 
     const newRating = await Rating.create({
@@ -76,23 +102,24 @@ router.post('/', authMiddleware, async (req, res) => {
   }
 });
 
-// Pobierz oceny danego użytkownika
-router.get('/:userId', async (req, res) => {
+// Konkretne ścieżki przed `/:userId`, inaczej Express dopasuje np. "eligible" lub "avg" jako userId.
+// Sprawdź, czy zalogowany użytkownik może ocenić wskazanego użytkownika (czy mają zakończone zlecenie)
+router.get('/eligible', authMiddleware, async (req, res) => {
   try {
-    const ratings = await Rating.find({ to: req.params.userId })
-      .populate('from', 'name')
-      .sort({ createdAt: -1 });
-
-    const avg =
-      ratings.reduce((sum, r) => sum + r.rating, 0) / (ratings.length || 1);
-
-    res.json({
-      average: avg.toFixed(2),
-      total: ratings.length,
-      ratings
-    });
-  } catch (err) {
-    res.status(500).json({ message: 'Błąd przy pobieraniu ocen' });
+    const otherUser = req.query.otherUser;
+    if (!otherUser) return res.status(400).json({ eligible: false, reason: 'Brak otherUser' });
+    const Order = require('../models/Order');
+    const doneStatuses = ['completed', 'done', 'closed', 'released', 'rated'];
+    const order = await Order.findOne({
+      status: { $in: doneStatuses },
+      $or: [
+        { client: req.user._id, provider: otherUser },
+        { client: otherUser, provider: req.user._id }
+      ]
+    }).lean();
+    res.json({ eligible: !!order });
+  } catch (e) {
+    res.status(500).json({ eligible: false });
   }
 });
 
@@ -166,23 +193,23 @@ router.get('/avg/:id', async (req, res) => {
   }
 });
 
-// Sprawdź, czy zalogowany użytkownik może ocenić wskazanego użytkownika (czy mają zakończone zlecenie)
-router.get('/eligible', authMiddleware, async (req, res) => {
+// Pobierz oceny danego użytkownika
+router.get('/:userId', async (req, res) => {
   try {
-    const otherUser = req.query.otherUser;
-    if (!otherUser) return res.status(400).json({ eligible: false, reason: 'Brak otherUser' });
-    const Order = require('../models/Order');
-    const doneStatuses = ['completed','done','closed'];
-    const order = await Order.findOne({
-      status: { $in: doneStatuses },
-      $or: [
-        { client: req.user._id, provider: otherUser },
-        { client: otherUser, provider: req.user._id }
-      ]
-    }).lean();
-    res.json({ eligible: !!order });
-  } catch (e) {
-    res.status(500).json({ eligible: false });
+    const ratings = await Rating.find({ to: req.params.userId })
+      .populate('from', 'name')
+      .sort({ createdAt: -1 });
+
+    const avg =
+      ratings.reduce((sum, r) => sum + r.rating, 0) / (ratings.length || 1);
+
+    res.json({
+      average: avg.toFixed(2),
+      total: ratings.length,
+      ratings
+    });
+  } catch (err) {
+    res.status(500).json({ message: 'Błąd przy pobieraniu ocen' });
   }
 });
 

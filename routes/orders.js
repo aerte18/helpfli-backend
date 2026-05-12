@@ -1902,22 +1902,71 @@ router.get('/:orderId/attachments/:attachmentId/file', auth, async (req, res) =>
   }
 });
 
-function disputeCaseParty(order, userId) {
-  const uid = String(userId);
+async function companyTeamHasOrderProvider(companyId, orderProviderId) {
+  if (!companyId || !orderProviderId) return false;
+  const Company = require("../models/Company");
+  const company = await Company.findById(companyId).lean();
+  if (!company) return false;
+  const pid = String(orderProviderId);
+  const memberIds = [
+    company.owner?.toString(),
+    ...(company.managers || []).map((m) => m.toString()),
+    ...(company.providers || []).map((p) => p.toString()),
+  ].filter(Boolean);
+  return memberIds.includes(pid);
+}
+
+async function userIsCompanyMemberForOrderProvider(user, order) {
+  if (!user?.company || !order?.provider) return false;
+  const prov = order.provider._id || order.provider;
+  return companyTeamHasOrderProvider(user.company, prov);
+}
+
+/** Klient albo wykonawca przypisany albo zespół firmy przypisanego wykonawcy */
+async function disputeCasePartyAsync(order, user) {
+  const uid = String(user._id);
   const isClient = String(order.client) === uid;
-  const isProvider = order.provider && String(order.provider) === uid;
-  return { ok: isClient || isProvider, isClient, isProvider };
+  const isAssignedProvider = order.provider && String(order.provider) === uid;
+  if (isClient) return { ok: true, isClient: true, isProvider: false };
+  if (isAssignedProvider) return { ok: true, isClient: false, isProvider: true };
+  if (await userIsCompanyMemberForOrderProvider(user, order)) {
+    return { ok: true, isClient: false, isProvider: true };
+  }
+  return { ok: false, isClient: false, isProvider: false };
+}
+
+function resolveWorkflowStatusAfterDisputeSettlement(order) {
+  if (order.completedAt || order.completionType || order.completionNotes) return "completed";
+  return "in_progress";
 }
 
 function hasActiveDisputeTimeline(order) {
+  if (order.disputeStatus === "closed") return false;
+  if (["reported", "refund_requested", "resolved"].includes(order.disputeStatus)) return true;
+  if (order.status === "disputed") return true;
+  return false;
+}
+
+function disputeTimelineOpenForActions(order) {
+  if (order.disputeStatus === "resolved" || order.disputeStatus === "closed") return false;
   if (order.status === "disputed") return true;
   return ["reported", "refund_requested"].includes(order.disputeStatus);
+}
+
+async function disputeNotifyRecipientUserId(order, actorUser) {
+  const cid = order.client._id || order.client;
+  const pid = order.provider._id || order.provider;
+  const uid = String(actorUser._id);
+  if (uid === String(cid)) return pid;
+  if (uid === String(pid)) return cid;
+  if (await userIsCompanyMemberForOrderProvider(actorUser, order)) return cid;
+  return null;
 }
 
 router.get("/:id/dispute-case", auth, loadOrderById, async (req, res) => {
   try {
     const order = req.order;
-    const party = disputeCaseParty(order, req.user._id);
+    const party = await disputeCasePartyAsync(order, req.user);
     if (!party.ok) return res.status(403).json({ message: "Brak dostępu" });
     if (!hasActiveDisputeTimeline(order)) {
       return res.status(404).json({ message: "Brak aktywnej sprawy" });
@@ -1974,6 +2023,8 @@ router.get("/:id/dispute-case", auth, loadOrderById, async (req, res) => {
       youAre: party.isClient ? "client" : "provider",
       youCanRespondToSettlement,
       youOfferedPendingSettlement,
+      disputeResolved: order.disputeStatus === "resolved",
+      mediationOpen: disputeTimelineOpenForActions(order),
     });
   } catch (e) {
     console.error("GET_DISPUTE_CASE", e);
@@ -1984,7 +2035,7 @@ router.get("/:id/dispute-case", auth, loadOrderById, async (req, res) => {
 router.post("/:id/dispute-case/message", auth, loadOrderById, async (req, res) => {
   try {
     const order = req.order;
-    const party = disputeCaseParty(order, req.user._id);
+    const party = await disputeCasePartyAsync(order, req.user);
     if (!party.ok) return res.status(403).json({ message: "Brak dostępu" });
     if (!hasActiveDisputeTimeline(order)) {
       return res.status(400).json({ message: "Brak aktywnej sprawy" });
@@ -2000,6 +2051,19 @@ router.post("/:id/dispute-case/message", auth, loadOrderById, async (req, res) =
       createdAt: new Date(),
     });
     await order.save();
+    try {
+      const rid = await disputeNotifyRecipientUserId(order, req.user);
+      if (rid) {
+        await NotificationService.notifyDisputeCaseMessage({
+          orderId: String(order._id),
+          recipientId: rid,
+          service: order.service,
+          preview: text.slice(0, 200),
+        });
+      }
+    } catch (nErr) {
+      console.error("DISPUTE_MESSAGE_NOTIFY", nErr);
+    }
     res.json({ message: "Dodano wiadomość", count: order.disputeMessages.length });
   } catch (e) {
     console.error("DISPUTE_MESSAGE", e);
@@ -2010,10 +2074,15 @@ router.post("/:id/dispute-case/message", auth, loadOrderById, async (req, res) =
 router.post("/:id/dispute-case/settlement-offer", auth, loadOrderById, async (req, res) => {
   try {
     const order = req.order;
-    const party = disputeCaseParty(order, req.user._id);
+    const party = await disputeCasePartyAsync(order, req.user);
     if (!party.ok) return res.status(403).json({ message: "Brak dostępu" });
     if (!hasActiveDisputeTimeline(order)) {
       return res.status(400).json({ message: "Brak aktywnej sprawy" });
+    }
+    if (!disputeTimelineOpenForActions(order)) {
+      return res.status(400).json({
+        message: "Sprawa nie przyjmuje już propozycji ugody (np. zamknięta ugodą lub po eskalacji).",
+      });
     }
     if (order.disputeEscalatedAt) {
       return res.status(400).json({
@@ -2042,6 +2111,36 @@ router.post("/:id/dispute-case/settlement-offer", auth, loadOrderById, async (re
         message: `Kwota ugody nie może przekraczać ${maxPln.toFixed(2)} PLN (wartość zlecenia).`,
       });
     }
+
+    let paidCapPln = maxPln;
+    try {
+      const Payment = require("../models/Payment");
+      let totalGrosze = 0;
+      if (order.paymentId) {
+        const pm = await Payment.findById(order.paymentId).select("amount status").lean();
+        if (pm && ["succeeded", "processing", "partial_refund"].includes(pm.status)) {
+          totalGrosze += Number(pm.amount) || 0;
+        }
+      }
+      const addPid = order.payment?.additionalPaymentId;
+      if (addPid && order.additionalPaymentStatus === "succeeded") {
+        const ap = await Payment.findById(addPid).select("amount status").lean();
+        if (ap && ap.status === "succeeded") {
+          totalGrosze += Number(ap.amount) || 0;
+        }
+      }
+      if (totalGrosze > 0) {
+        paidCapPln = Math.min(maxPln, Math.round(totalGrosze) / 100);
+      }
+    } catch (_) {
+      /* cap zostaje z oferty */
+    }
+    if (rounded > paidCapPln + 0.005) {
+      return res.status(400).json({
+        message: `Kwota ugody nie może przekraczać ${paidCapPln.toFixed(2)} PLN (łącznie opłacone w systemie).`,
+      });
+    }
+
     const msg = String(req.body?.message || "").trim().slice(0, 4000);
     order.disputeSettlement = {
       status: "pending",
@@ -2059,6 +2158,22 @@ router.post("/:id/dispute-case/settlement-offer", auth, loadOrderById, async (re
       createdAt: new Date(),
     });
     await order.save();
+    try {
+      const cid = order.client._id || order.client;
+      const pid = order.provider._id || order.provider;
+      const offerer = String(req.user._id);
+      const recipientId = String(cid) === offerer ? pid : cid;
+      if (recipientId) {
+        await NotificationService.notifyDisputeSettlementOffer({
+          orderId: String(order._id),
+          recipientId,
+          service: order.service,
+          amountPln: rounded,
+        });
+      }
+    } catch (nErr) {
+      console.error("SETTLEMENT_OFFER_NOTIFY", nErr);
+    }
     res.json({ message: "Wysłano propozycję ugody", settlement: order.disputeSettlement });
   } catch (e) {
     console.error("SETTLEMENT_OFFER", e);
@@ -2070,7 +2185,7 @@ router.post("/:id/dispute-case/settlement-respond", auth, loadOrderById, async (
   try {
     const { applyDisputeSettlementRefund } = require("../utils/disputeSettlementRefund");
     const order = req.order;
-    const party = disputeCaseParty(order, req.user._id);
+    const party = await disputeCasePartyAsync(order, req.user);
     if (!party.ok) return res.status(403).json({ message: "Brak dostępu" });
     const st = order.disputeSettlement || {};
     if (st.status !== "pending") {
@@ -2104,7 +2219,13 @@ router.post("/:id/dispute-case/settlement-respond", auth, loadOrderById, async (
         order.payment = order.payment || {};
         order.payment.status = refundSummary.orderPaymentSubStatus;
       }
-      if (refundSummary.orderPaymentStatus === "refunded") {
+      if (refundSummary.additionalPaymentStatus) {
+        order.additionalPaymentStatus = refundSummary.additionalPaymentStatus;
+      }
+      if (
+        ["refunded", "partial_refund"].includes(refundSummary.orderPaymentStatus || "") ||
+        ["refunded", "partial_refund"].includes(refundSummary.additionalPaymentStatus || "")
+      ) {
         order.protectionEligible = false;
         order.protectionStatus = "void";
       }
@@ -2121,6 +2242,8 @@ router.post("/:id/dispute-case/settlement-respond", auth, loadOrderById, async (
         settlementBody = `Ugoda zaakceptowana. Anulowano autoryzację płatności — ${pln} PLN wraca na metodę płatności klienta (w praktyce bankowej zwykle 5–10 dni roboczych).`;
       } else if (refundSummary.method === "partial_capture") {
         settlementBody = `Ugoda zaakceptowana. Część autoryzacji (${pln} PLN) została zwolniona do klienta; pozostała kwota została pobrana zgodnie z ugodą.`;
+      } else if (refundSummary.method === "split_refund") {
+        settlementBody = `Ugoda zaakceptowana. Wykonano zwrot łącznie ${pln} PLN (główna płatność i/lub dopłata) na metodę płatności klienta (Stripe).`;
       } else {
         settlementBody = `Ugoda zaakceptowana. Wykonano zwrot ${pln} PLN na metodę płatności klienta (Stripe).`;
       }
@@ -2129,6 +2252,26 @@ router.post("/:id/dispute-case/settlement-respond", auth, loadOrderById, async (
         body: settlementBody,
         createdAt: new Date(),
       });
+      order.disputeStatus = "resolved";
+      if (order.status === "disputed") {
+        const nextStatus = resolveWorkflowStatusAfterDisputeSettlement(order);
+        order.status = nextStatus;
+        const labelPl =
+          nextStatus === "completed"
+            ? "ukończone"
+            : "w realizacji";
+        order.disputeMessages.push({
+          kind: "system",
+          body: `Spór zamknięty ugodą. Status zlecenia ustawiono na: ${labelPl}. Centrum sprawy nadal możesz otworzyć, aby przeczytać archiwum wątku.`,
+          createdAt: new Date(),
+        });
+      } else {
+        order.disputeMessages.push({
+          kind: "system",
+          body: "Spór oznaczono jako zamknięty ugodą. Centrum sprawy pozostaje dostępne do wglądu.",
+          createdAt: new Date(),
+        });
+      }
     } else {
       order.disputeMessages.push({
         kind: "system",
@@ -2153,6 +2296,19 @@ router.post("/:id/dispute-case/settlement-respond", auth, loadOrderById, async (
       };
     }
     await order.save();
+    if (accept && refundSummary) {
+      try {
+        const cid = order.client._id || order.client;
+        const pid = order.provider._id || order.provider;
+        await NotificationService.notifyDisputeSettlementResolved({
+          orderId: String(order._id),
+          recipientIds: [cid, pid].filter(Boolean),
+          service: order.service,
+        });
+      } catch (nErr) {
+        console.error("SETTLEMENT_RESOLVED_NOTIFY", nErr);
+      }
+    }
     res.json({
       message: "Zapisano odpowiedź",
       settlement: order.disputeSettlement,
@@ -2161,6 +2317,7 @@ router.post("/:id/dispute-case/settlement-respond", auth, loadOrderById, async (
             method: refundSummary.method,
             amountGrosze: refundSummary.amountGrosze,
             stripeRef: refundSummary.stripeRef,
+            additionalPaymentStatus: refundSummary.additionalPaymentStatus || null,
           }
         : null,
     });
@@ -2175,8 +2332,13 @@ router.post("/:id/dispute-case/settlement-respond", auth, loadOrderById, async (
 router.post("/:id/dispute-case/escalate", auth, loadOrderById, async (req, res) => {
   try {
     const order = req.order;
-    const party = disputeCaseParty(order, req.user._id);
+    const party = await disputeCasePartyAsync(order, req.user);
     if (!party.ok) return res.status(403).json({ message: "Brak dostępu" });
+    if (!disputeTimelineOpenForActions(order)) {
+      return res.status(400).json({
+        message: "Nie można eskalować — sprawa została zamknięta lub nie jest już w mediacji.",
+      });
+    }
     if (!hasActiveDisputeTimeline(order)) {
       return res.status(400).json({ message: "Brak aktywnej sprawy" });
     }
@@ -2195,6 +2357,51 @@ router.post("/:id/dispute-case/escalate", auth, loadOrderById, async (req, res) 
   } catch (e) {
     console.error("DISPUTE_ESCALATE", e);
     res.status(500).json({ message: "Błąd eskalacji" });
+  }
+});
+
+/** Oceny przypięte do zlecenia (np. starsze klienty / prefetch); spójne z polem `ratings` w GET /api/orders/:id */
+router.get("/:id/ratings", auth, async (req, res) => {
+  try {
+    const orderId = req.params.id;
+    if (!orderId || orderId === "my" || !/^[0-9a-fA-F]{24}$/.test(orderId)) {
+      return res.status(400).json({ message: "Nieprawidłowy identyfikator zlecenia" });
+    }
+    const order = await Order.findById(orderId)
+      .populate("client", "name email phone")
+      .populate("provider", "name email phone")
+      .lean();
+    if (!order) {
+      return res.status(404).json({ message: "Zlecenie nie zostało znalezione" });
+    }
+    const isOwner = order.client._id.toString() === req.user._id.toString();
+    const isProvider = req.user.role === "provider";
+    const isAssignedProvider =
+      order.provider && (order.provider._id?.toString() || order.provider.toString()) === req.user._id.toString();
+    let isCompanyView = false;
+    if (!isOwner && !isAssignedProvider && req.user.company) {
+      const Company = require("../models/Company");
+      const company = await Company.findById(req.user.company).lean();
+      if (company) {
+        const providerId = order.provider?._id?.toString() || order.provider?.toString();
+        const memberIds = [
+          company.owner?.toString(),
+          ...(company.managers || []).map((m) => m.toString()),
+          ...(company.providers || []).map((p) => p.toString()),
+        ].filter(Boolean);
+        if (providerId && memberIds.includes(providerId)) isCompanyView = true;
+      }
+    }
+    if (!isOwner && !isProvider && !isCompanyView) {
+      return res.status(403).json({ message: "Brak dostępu do tego zlecenia" });
+    }
+    const Rating = require("../models/Rating");
+    const ratings = await Rating.find({ orderId: order._id })
+      .select("from to orderId rating comment createdAt")
+      .lean();
+    res.json({ ratings });
+  } catch (e) {
+    res.status(500).json({ message: "Błąd pobierania ocen" });
   }
 });
 
@@ -2246,6 +2453,9 @@ router.get('/:id', auth, async (req, res) => {
       return res.status(403).json({ message: 'Brak dostępu do tego zlecenia' });
     }
 
+    // Frontend: ten sam panel co wykonawca dla ownera/menedżera firmy przy zleceniach pracownika
+    order.viewerIsCompanyTeamForOrderProvider = Boolean(isCompanyView);
+
     // Pobierz oferty
     let offers = [];
     if (isOwner || isCompanyView) {
@@ -2285,6 +2495,11 @@ router.get('/:id', auth, async (req, res) => {
         order.guaranteeReasons = [];
       }
     }
+
+    const Rating = require("../models/Rating");
+    order.ratings = await Rating.find({ orderId: order._id })
+      .select("from to orderId rating comment createdAt")
+      .lean();
     
     res.json(order);
   } catch (err) {
@@ -3395,9 +3610,15 @@ router.post('/:id/dispute', auth, loadOrderById, async (req, res) => {
       return res.status(500).json({ message: "Nie udało się zweryfikować uprawnień do sporu" });
     }
     
-    if (order.status === "disputed" || (order.disputeStatus && order.disputeStatus !== "none")) {
+    if (order.disputeStatus === "resolved" || order.disputeStatus === "closed") {
       return res.status(400).json({
-        message: "Sprawa jest już otwarta lub została zakończona. Otwórz widok sprawy zamiast zgłaszać ponownie.",
+        message:
+          "Ta sprawa została już zamknięta ugodą. Jeśli problem wrócił, skontaktuj się z pomocą Helpfli.",
+      });
+    }
+    if (order.status === "disputed" || ["reported", "refund_requested"].includes(order.disputeStatus)) {
+      return res.status(400).json({
+        message: "Sprawa jest już otwarta. Otwórz centrum sprawy zamiast zgłaszać ponownie.",
       });
     }
 
