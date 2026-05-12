@@ -450,6 +450,135 @@ router.get('/order-tags/:orderId', authMiddleware, async (req, res) => {
   }
 });
 
+function offerAmountPln(o) {
+  const v = o?.amount ?? o?.price;
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function isOfferAwaitingDecision(o) {
+  const s = String(o?.status || 'sent').toLowerCase();
+  return s === 'sent' || s === 'submitted';
+}
+
+/**
+ * Heurystyka pod widok „szansa / wskazówki” dla wykonawcy (bez osobnego wywołania LLM).
+ * Zwraca successProbability w skali 0–100 (procent), pola pod frontend: positiveFactors, negativeFactors, actionableTips.
+ */
+function buildProviderOrderWinPreview(order, offers, userId) {
+  const uid = userId != null ? String(userId) : '';
+  const pending = (offers || []).filter(isOfferAwaitingDecision);
+  const mine = uid ? pending.find((o) => String(o.providerId) === uid) : null;
+  const competitors = mine ? pending.filter((o) => String(o.providerId) !== uid) : pending;
+
+  const positiveFactors = [];
+  const negativeFactors = [];
+  const actionableTips = [];
+
+  const amounts = pending.map(offerAmountPln).filter((n) => n != null);
+  const minAm = amounts.length ? Math.min(...amounts) : null;
+  const maxAm = amounts.length ? Math.max(...amounts) : null;
+  const avgAm = amounts.length ? amounts.reduce((a, b) => a + b, 0) / amounts.length : null;
+
+  let score = 46;
+
+  if (mine) {
+    const myAm = offerAmountPln(mine);
+    const msg = String(mine.message || mine.notes || '').trim();
+
+    if (competitors.length >= 4) {
+      negativeFactors.push('Na zleceniu jest bardzo dużo ofert — klient ma szeroki wybór.');
+      actionableTips.push('Zadbaj o krótką, konkretną wiadomość i jasny termin realizacji, żeby Twoja oferta nie zginęła w tłoku.');
+      score -= 18;
+    } else if (competitors.length >= 2) {
+      negativeFactors.push('Są inne aktywne oferty obok Twojej.');
+      actionableTips.push('W opisie dopisz: doświadczenie z podobnymi zleceniami, co dokładnie obejmuje cena i kiedy możesz zacząć.');
+      score -= 10;
+    } else if (competitors.length === 1) {
+      actionableTips.push('Porównaj się z drugą ofertą — dopisz jednozdaniowe wyróżnienie (np. szybszy termin, gwarancja, dojazd).');
+      score -= 4;
+    } else {
+      positiveFactors.push('Przy tym zleceniu nie widać jeszcze konkurencyjnych ofert obok Twojej.');
+      actionableTips.push('Utrzymaj konkurencyjną cenę i czytelny opis, zanim pojawią się kolejne oferty.');
+      score += 8;
+    }
+
+    if (msg.length < 25) {
+      negativeFactors.push('Opis oferty jest bardzo krótki albo go brakuje.');
+      actionableTips.push('Dodaj 2–4 zdania: co zrobisz, czego dotyczy sprawa klienta oraz czy w cenie są części / dojazd.');
+      score -= 12;
+    } else if (msg.length >= 90) {
+      positiveFactors.push('Masz rozbudowany opis — ułatwia to klientowi ocenę oferty.');
+      score += 6;
+    }
+
+    if (myAm != null && avgAm != null && myAm > avgAm * 1.12) {
+      negativeFactors.push('Twoja kwota jest wyraźnie wyższa niż średnia złożonych ofert.');
+      actionableTips.push('Jeśli zostajesz przy wyższej cenie — uzasadnij: oryginalne części, gwarancja, szybszy termin lub dojazd.');
+      score -= 14;
+    } else if (myAm != null && minAm != null && competitors.length > 0 && myAm <= minAm * 1.03) {
+      positiveFactors.push('Jesteś w najniższym (lub bardzo bliskim) przedziale cenowym wśród ofert.');
+      score += 8;
+    } else if (myAm != null && maxAm != null && competitors.length > 0 && myAm >= maxAm * 0.98) {
+      actionableTips.push('Rozważ nieco niższą kwotę albo pakiet usług w jednej cenie, jeśli chcesz być bardziej konkurencyjny.');
+      score -= 6;
+    }
+
+    const completion = mine.completionDate ? new Date(mine.completionDate) : null;
+    const pref = order.priorityDateTime ? new Date(order.priorityDateTime) : null;
+    if (completion && pref && !Number.isNaN(completion.getTime()) && !Number.isNaN(pref.getTime())) {
+      if (completion.getTime() > pref.getTime() + 36 * 60 * 60 * 1000) {
+        negativeFactors.push('Proponowany przez Ciebie termin jest wyraźnie późniejszy niż preferencja klienta.');
+        actionableTips.push('Jeśli możesz wcześniej — zmień termin w edycji oferty albo napisz, że da się przyspieszyć.');
+        score -= 10;
+      }
+    }
+
+    const urg = String(order.urgency || '').toLowerCase();
+    if (urg === 'urgent' || urg === 'high' || urg === 'pilne') {
+      actionableTips.push('Zlecenie wygląda na pilne — podkreśl szybką reakcję (np. dziś/jutro) i potwierdź możliwość kontaktu.');
+      score -= competitors.length > 0 ? 3 : 0;
+    }
+  } else {
+    actionableTips.push('Gdy złożysz ofertę, wrócimy z wskazówkami dopasowanymi do kwoty, opisu i konkurencji.');
+    score = 34;
+  }
+
+  const acceptedId = order.acceptedOfferId && String(order.acceptedOfferId);
+  const mineId = mine && mine._id && String(mine._id);
+  const terminal = ['accepted', 'completed', 'closed', 'paid'].includes(String(order.status || '').toLowerCase());
+  if (terminal && acceptedId && mineId && acceptedId === mineId) {
+    score = Math.max(score, 93);
+    positiveFactors.push('Twoja oferta została zaakceptowana.');
+  } else if (terminal && mine) {
+    score = Math.min(score, 6);
+    negativeFactors.push('Zlecenie zostało już obsadzone (inna oferta).');
+  }
+
+  const successProbability = Math.round(Math.min(91, Math.max(5, score)));
+  const isTopChoice = Boolean(mine && successProbability >= 68 && negativeFactors.length <= 1);
+
+  const dedup = (arr) => [...new Set((arr || []).filter(Boolean))];
+  const actionableTipsU = dedup(actionableTips).slice(0, 6);
+
+  return {
+    successProbability,
+    confidence: 0.55,
+    positiveFactors: dedup(positiveFactors).slice(0, 5),
+    negativeFactors: dedup(negativeFactors).slice(0, 5),
+    recommendations: actionableTipsU,
+    actionableTips: actionableTipsU,
+    factors: {
+      positive: dedup(positiveFactors).slice(0, 5),
+      negative: dedup(negativeFactors).slice(0, 5)
+    },
+    estimatedTimeToAccept: pending.length >= 4 ? '1–3 dni' : '3–7 dni',
+    aiEnhanced: false,
+    isTopChoice
+  };
+}
+
 /**
  * GET /api/ai/advanced/order-prediction/:orderId
  * Pobierz predykcję sukcesu zlecenia (jeśli istnieje)
@@ -467,31 +596,10 @@ router.get('/order-prediction/:orderId', authMiddleware, async (req, res) => {
       return res.status(404).json({ message: 'Zlecenie nie znalezione' });
     }
 
-    // Pobierz podstawowe statystyki
     const offers = await Offer.find({ orderId }).lean();
-    const offerCount = offers.length;
-    const avgOfferAmount = offerCount > 0
-      ? offers.reduce((sum, o) => sum + o.amount, 0) / offerCount
-      : 0;
+    const preview = buildProviderOrderWinPreview(order, offers, req.user?._id);
 
-    // Oblicz podstawowy wskaźnik sukcesu (fallback)
-    const successRate = order.status === 'accepted' || order.status === 'completed' ? 1.0 : 0.5;
-
-    // Jeśli istnieje zapisana predykcja, zwróć ją
-    // (można dodać pole aiPrediction w modelu Order w przyszłości)
-    
-    // Na razie zwróć podstawową predykcję
-    res.json({
-      successProbability: successRate,
-      confidence: 0.6,
-      factors: {
-        positive: offerCount > 0 ? ['Zlecenie ma oferty'] : [],
-        negative: []
-      },
-      recommendations: [],
-      estimatedTimeToAccept: '3-7 dni',
-      aiEnhanced: false
-    });
+    res.json(preview);
   } catch (error) {
     console.error('Get order prediction error:', error);
     res.status(500).json({ message: error.message || 'Błąd pobierania predykcji' });
