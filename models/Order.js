@@ -327,6 +327,11 @@ orderSchema.index({ provider: 1, createdAt: -1 });
 orderSchema.index({ status: 1, createdAt: -1 });
 orderSchema.index({ service: 1 });
 orderSchema.index({ acceptedOfferId: 1 });
+// Admin: lista sporów / sort po dacie zgłoszenia
+orderSchema.index({ disputeReportedAt: -1 });
+orderSchema.index({ disputeStatus: 1, disputeReportedAt: -1 });
+orderSchema.index({ status: 1, disputeReportedAt: -1 });
+orderSchema.index({ disputeEscalatedAt: -1, disputeReportedAt: -1 });
 // expiresAt ma już index: true w definicji pola, więc nie dodajemy tutaj duplikatu
 // Geo index dla location search
 if (orderSchema.path('location.lat') && orderSchema.path('location.lng')) {

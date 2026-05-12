@@ -4,7 +4,7 @@ const Verification = require("../models/Verification");
 exports.isAdmin = async (req, res, next) => {
   try {
     const user = await User.findById(req.user._id).select("role");
-    if (!user || user.role !== "admin") {
+    if (!user || (user.role !== "admin" && user.role !== "superadmin")) {
       return res.status(403).json({ message: "Wymagane uprawnienia admina" });
     }
     next();
@@ -41,13 +41,18 @@ exports.requireRole = (roles) => async (req, res, next) => {
   try {
     if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
     const allow = Array.isArray(roles) ? roles : [roles];
+    // Każda trasa z „admin” w allow — superadmin ma ten sam poziom (np. zwroty, panel)
+    const effectiveAllow =
+      allow.includes("admin") && !allow.includes("superadmin")
+        ? [...allow, "superadmin"]
+        : allow;
     // re-read fresh role from DB to avoid stale token-cache
     const fresh = await User.findById(req.user._id).select('role roleInCompany company');
     const userRole = fresh?.role || req.user.role;
     
     // Sprawdź czy rola jest dozwolona
-    if (!allow.includes(userRole)) {
-      return res.status(403).json({ message: 'Forbidden', role: userRole, need: allow });
+    if (!effectiveAllow.includes(userRole)) {
+      return res.status(403).json({ message: 'Forbidden', role: userRole, need: effectiveAllow });
     }
     
     // Dodaj informacje o firmie do request

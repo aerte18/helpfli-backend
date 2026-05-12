@@ -107,6 +107,60 @@ class NotificationService {
         `
       },
 
+      dispute_case_message: {
+        subject: 'Helpfli: Nowa wiadomość w sprawie zlecenia',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #4F46E5;">Wiadomość w centrum sprawy</h2>
+            <p>Zlecenie: <strong>"${data.service || ''}"</strong></p>
+            ${data.preview ? `<p style="color:#374151;">${String(data.preview).replace(/</g, '&lt;')}</p>` : ''}
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${this.frontendUrl.replace(/\/+$/, '')}${data.linkPath || ''}" 
+                 style="background: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                Otwórz centrum sprawy
+              </a>
+            </div>
+            <p>Pozdrawiamy,<br/>Zespół Helpfli</p>
+          </div>
+        `
+      },
+
+      dispute_settlement_offer: {
+        subject: 'Helpfli: Propozycja ugody w sporze',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #4F46E5;">Nowa propozycja ugody</h2>
+            <p>Zlecenie: <strong>"${data.service || ''}"</strong></p>
+            <p><strong>Kwota:</strong> ${data.amountPln != null ? Number(data.amountPln).toFixed(2) : '—'} PLN</p>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${this.frontendUrl.replace(/\/+$/, '')}${data.linkPath || ''}" 
+                 style="background: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                Odpowiedz w centrum sprawy
+              </a>
+            </div>
+            <p>Pozdrawiamy,<br/>Zespół Helpfli</p>
+          </div>
+        `
+      },
+
+      dispute_settlement_resolved: {
+        subject: 'Helpfli: Ugoda zaakceptowana — sprawa zamknięta',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #059669;">Ugoda zaakceptowana</h2>
+            <p>Zlecenie: <strong>"${data.service || ''}"</strong></p>
+            <p>Druga strona zaakceptowała ugodę. Sprawa została oznaczona jako zamknięta; szczegóły rozliczenia w centrum sprawy.</p>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${this.frontendUrl.replace(/\/+$/, '')}${data.linkPath || ''}" 
+                 style="background: #059669; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                Zobacz centrum sprawy
+              </a>
+            </div>
+            <p>Pozdrawiamy,<br/>Zespół Helpfli</p>
+          </div>
+        `
+      },
+
       new_quote: {
         subject: 'Helpfli: Nowa wycena do Twojego zlecenia',
         html: `
@@ -286,6 +340,21 @@ class NotificationService {
         message: `Spór dotyczący zlecenia "${data.service || ''}" - nasz zespół go rozpatrzy`
       },
 
+      dispute_case_message: {
+        title: 'Wiadomość w sprawie',
+        message: `Nowa wiadomość — zlecenie "${data.service || ''}"`
+      },
+
+      dispute_settlement_offer: {
+        title: 'Propozycja ugody',
+        message: `Druga strona złożyła propozycję ugody (${data.amountPln != null ? Number(data.amountPln).toFixed(2) : '?'} PLN) — "${data.service || ''}"`
+      },
+
+      dispute_settlement_resolved: {
+        title: 'Ugoda zaakceptowana',
+        message: `Sprawa zamknięta ugodą — "${data.service || ''}"`
+      },
+
       new_quote: {
         title: 'Nowa wycena',
         message: `${data.providerName || 'Wykonawca'} przesłał wycenę: ${data.price || 'Do uzgodnienia'} zł`
@@ -331,6 +400,7 @@ class NotificationService {
         if (data.userId) metadata.userId = data.userId;
         if (data.amount) metadata.amount = data.amount;
         if (data.subscriptionId) metadata.subscriptionId = data.subscriptionId;
+        if (data.linkPath) metadata.linkPath = data.linkPath;
         if (data.metadata) {
           Object.assign(metadata, data.metadata);
         }
@@ -340,11 +410,13 @@ class NotificationService {
           type,
           title: pushTemplate.title,
           message: pushTemplate.message,
-          link: data.orderId
-            ? this.getOrderPath(data.orderId)
-            : type === 'company_created'
-              ? '/account/company'
-              : null,
+          link: data.linkPath
+            ? data.linkPath
+            : data.orderId
+              ? this.getOrderPath(data.orderId)
+              : type === 'company_created'
+                ? '/account/company'
+                : null,
           metadata: Object.keys(metadata).length > 0 ? metadata : {}
         });
       } catch (error) {
@@ -367,10 +439,18 @@ class NotificationService {
 
       // Push notification
       try {
+        const base = (this.frontendUrl || "").replace(/\/+$/, "");
+        const pushUrl = data.linkPath
+          ? `${base}${data.linkPath.startsWith("/") ? data.linkPath : `/${data.linkPath}`}`
+          : data.orderId
+            ? this.getOrderLink(data.orderId)
+            : data.companyId
+              ? `${this.frontendUrl}/account/company`
+              : this.frontendUrl;
         await sendPushToUser(user._id, {
           title: pushTemplate.title,
           message: pushTemplate.message,
-          url: data.orderId ? this.getOrderLink(data.orderId) : (data.companyId ? `${this.frontendUrl}/account/company` : this.frontendUrl)
+          url: pushUrl
         });
         console.log(`Push sent to ${user._id} for ${type}`);
       } catch (error) {
@@ -445,6 +525,42 @@ class NotificationService {
       service: order.service,
       orderId,
       reason
+    });
+  }
+
+  /** Druga strona zlecenia — nowa wiadomość w wątku centrum sprawy */
+  async notifyDisputeCaseMessage({ orderId, recipientId, service, preview }) {
+    if (!recipientId) return;
+    const linkPath = `/orders/${orderId}/sprawa`;
+    await this.sendNotification("dispute_case_message", [recipientId], {
+      orderId,
+      service,
+      preview: preview || "",
+      linkPath,
+    });
+  }
+
+  /** Druga strona — propozycja ugody */
+  async notifyDisputeSettlementOffer({ orderId, recipientId, service, amountPln }) {
+    if (!recipientId) return;
+    const linkPath = `/orders/${orderId}/sprawa`;
+    await this.sendNotification("dispute_settlement_offer", [recipientId], {
+      orderId,
+      service,
+      amountPln,
+      linkPath,
+    });
+  }
+
+  /** Obie strony — ugoda zaakceptowana */
+  async notifyDisputeSettlementResolved({ orderId, recipientIds, service }) {
+    const ids = [...new Set((recipientIds || []).map((id) => String(id)))].filter(Boolean);
+    if (!ids.length) return;
+    const linkPath = `/orders/${orderId}/sprawa`;
+    await this.sendNotification("dispute_settlement_resolved", ids, {
+      orderId,
+      service,
+      linkPath,
     });
   }
 

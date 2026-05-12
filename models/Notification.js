@@ -28,7 +28,10 @@ const NotificationSchema = new mongoose.Schema({
       'system_announcement',
       'limit_warning',
       'limit_exceeded',
-      'chat_message'
+      'chat_message',
+      'dispute_case_message',
+      'dispute_settlement_offer',
+      'dispute_settlement_resolved'
     ]
   },
   title: {

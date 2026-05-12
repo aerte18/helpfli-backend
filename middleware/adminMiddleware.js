@@ -1,8 +1,8 @@
 const requireAdmin = (req, res, next) => {
   const user = req.user; // z JWT middleware
   
-  // Sprawdź czy użytkownik ma rolę admin
-  if (!user || user.role !== 'admin') {
+  // Admin + superadmin (jak w requireRole przy trasach admin)
+  if (!user || (user.role !== 'admin' && user.role !== 'superadmin')) {
     return res.status(403).json({ message: 'Dostęp zabroniony - wymagane uprawnienia administratora' });
   }
 
