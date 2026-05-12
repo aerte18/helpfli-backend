@@ -236,7 +236,13 @@ const corsOptions = {
     'Pragma',
     'Expires',
   ],
-  exposedHeaders: ['Content-Length']
+  exposedHeaders: [
+    'Content-Length',
+    'X-Export-Total',
+    'X-Export-Row-Count',
+    'X-Export-Cap',
+    'X-Export-Truncated',
+  ],
 };
 
 // Zastosuj CORS middleware (tylko raz)
@@ -682,6 +688,8 @@ try {
   safeUse('/api/admin/reports', loadRoute('admin_reports', './routes/admin_reports'), 'admin_reports');
   logger.debug('🔵 About to register admin_report_logs route...');
   safeUse('/api/admin/reports', loadRoute('admin_report_logs', './routes/admin_report_logs'), 'admin_report_logs');
+  logger.debug('🔵 About to register admin_disputes route...');
+  safeUse('/api/admin/disputes', loadRoute('admin_disputes', './routes/admin_disputes'), 'admin_disputes');
   logger.debug('🔵 About to register admin_cache route...');
   safeUse('/api/admin/cache', loadRoute('admin_cache', './routes/admin_cache'), 'admin_cache');
   logger.debug('🔵 About to register admin_settings route...');
