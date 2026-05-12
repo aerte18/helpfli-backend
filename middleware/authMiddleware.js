@@ -12,6 +12,10 @@ const authMiddleware = async (req, res, next) => {
       .select('-password')
       .populate('services', 'name_pl name_en parent_slug slug code icon');
     if (!req.user) throw new Error();
+
+    if (!req.user.isActive || req.user.anonymized) {
+      return res.status(401).json({ message: 'Konto zostało zamknięte lub wyłączone.' });
+    }
     
     // Aktualizuj lastSeenAt przy każdym żądaniu (tylko dla providerów)
     if (req.user.role === 'provider') {

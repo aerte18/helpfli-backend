@@ -21,9 +21,9 @@ exports.auth = async (req, res, next) => {
     }
 
     const User = require('../models/User');
-    const user = await User.findById(userId).select('_id name email role roleInCompany company isActive');
+    const user = await User.findById(userId).select('_id name email role roleInCompany company isActive anonymized');
     
-    if (!user || !user.isActive) {
+    if (!user || !user.isActive || user.anonymized) {
       return res.status(401).json({ message: "Nieprawidłowy token" });
     }
 

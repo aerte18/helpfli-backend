@@ -79,7 +79,8 @@ router.post('/anonymize', authMiddleware, async (req, res) => {
       confirmed: true
     });
 
-    const result = await PrivacyService.anonymizeUserData(userId);
+    await PrivacyService.detachUserFromCompanies(userId);
+    const result = await PrivacyService.anonymizeUserData(userId, { clearCompanyInvitation: true });
     
     res.json(result);
   } catch (error) {

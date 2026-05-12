@@ -71,6 +71,10 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ message: 'Nieprawidłowe dane logowania' });
     }
 
+    if (!user.isActive || user.anonymized) {
+      return res.status(403).json({ message: 'To konto zostało zamknięte.' });
+    }
+
     // Jeśli wymagana jest zmiana hasła (pierwsze logowanie), pozwól na logowanie bez weryfikacji email
     // (email jest już zweryfikowany przez firmę przy tworzeniu konta)
     if (!user.emailVerified && !user.requiresPasswordChange) {

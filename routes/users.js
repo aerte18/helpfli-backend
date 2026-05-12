@@ -1,6 +1,7 @@
 const express = require('express');
 const User = require('../models/User');
 const { authMiddleware } = require('../middleware/authMiddleware');
+const PrivacyService = require('../services/PrivacyService');
 const bcrypt = require('bcryptjs');
 const multer = require('multer');
 const path = require('path');
@@ -421,6 +422,85 @@ router.put("/me/2fa", authMiddleware, async (req, res) => {
   } catch (err) {
     console.error('UPDATE_2FA_ERROR:', err);
     res.status(500).json({ message: 'Błąd serwera' });
+  }
+});
+
+// GET /api/users/me/account-deletion-status — czy można zamknąć konto (bez hasła)
+router.get('/me/account-deletion-status', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user._id;
+    if (req.user.role === 'admin') {
+      return res.json({
+        canDelete: false,
+        blockers: [
+          {
+            code: 'ADMIN_ACCOUNT',
+            message: 'Kont administratorów nie można zamknąć z poziomu konta. Skontaktuj się z zespołem Helpfli.',
+          },
+        ],
+      });
+    }
+    const { canDelete, blockers } = await PrivacyService.getAccountDeletionBlockers(userId);
+    res.json({ canDelete, blockers });
+  } catch (err) {
+    console.error('ACCOUNT_DELETION_STATUS_ERROR:', err);
+    res.status(500).json({ message: 'Błąd serwera' });
+  }
+});
+
+// POST /api/users/me/account-delete — natychmiastowe zamknięcie po poprawnym haśle
+router.post('/me/account-delete', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { password } = req.body || {};
+
+    if (req.user.role === 'admin') {
+      return res.status(403).json({
+        message: 'Kont administratorów nie można zamknąć w ten sposób.',
+      });
+    }
+
+    if (!password || typeof password !== 'string') {
+      return res.status(400).json({ message: 'Podaj hasło, aby potwierdzić usunięcie konta.' });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'Użytkownik nie został znaleziony' });
+    }
+
+    if (user.anonymized || user.deletedAt) {
+      return res.status(400).json({ message: 'To konto jest już zamknięte.' });
+    }
+
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) {
+      return res.status(400).json({ message: 'Nieprawidłowe hasło.' });
+    }
+
+    const { canDelete, blockers } = await PrivacyService.getAccountDeletionBlockers(userId);
+    if (!canDelete) {
+      return res.status(409).json({
+        message: 'Nie można teraz zamknąć konta.',
+        blockers,
+      });
+    }
+
+    await PrivacyService.logPrivacyOperation(userId, 'account_self_delete', {
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+
+    await PrivacyService.detachUserFromCompanies(userId);
+    await PrivacyService.anonymizeUserData(userId, { clearCompanyInvitation: true });
+
+    res.json({
+      ok: true,
+      message: 'Konto zostało zamknięte i dane osobowe usunięte. Zostaniesz wylogowany.',
+    });
+  } catch (err) {
+    console.error('ACCOUNT_DELETE_ERROR:', err);
+    res.status(500).json({ message: 'Błąd serwera przy zamykaniu konta' });
   }
 });
 

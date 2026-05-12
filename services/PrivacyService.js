@@ -5,30 +5,130 @@ const Payment = require('../models/Payment');
 const Rating = require('../models/Rating');
 const Message = require('../models/Message');
 const Report = require('../models/Report');
+const Company = require('../models/Company');
 const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
+
+/** Zlecenia uznane za zakończone — można zamknąć konto. */
+const ORDER_TERMINAL_STATUSES = ['completed', 'rated', 'cancelled', 'released'];
 
 class PrivacyService {
-  
+  _anonLabel(userId) {
+    const uid = String(userId);
+    return `Użytkownik_${uid.slice(-8)}`;
+  }
+
+  _closedEmail(userId) {
+    const uid = String(userId);
+    return `closed.${uid}.${Date.now()}.${crypto.randomBytes(4).toString('hex')}@deleted.helpfli.pl`;
+  }
+
+  /**
+   * Warunki blokujące samodzielne zamknięcie konta.
+   * @returns {{ canDelete: boolean, blockers: Array<{ code: string, message: string }> }}
+   */
+  async getAccountDeletionBlockers(userId) {
+    const blockers = [];
+    const uid = new mongoose.Types.ObjectId(String(userId));
+
+    const ownedCompany = await Company.findOne({ owner: uid, isActive: true }).select('_id').lean();
+    if (ownedCompany) {
+      blockers.push({
+        code: 'COMPANY_OWNER',
+        message:
+          'Jesteś właścicielem aktywnej firmy w systemie. Przenieś własność firmy na innego użytkownika lub skontaktuj się z pomocą techniczną przed zamknięciem konta.',
+      });
+    }
+
+    const activeOrders = await Order.countDocuments({
+      $or: [{ client: uid }, { provider: uid }],
+      status: { $nin: ORDER_TERMINAL_STATUSES },
+    });
+    if (activeOrders > 0) {
+      blockers.push({
+        code: 'ACTIVE_ORDERS',
+        message: `Masz ${activeOrders} zleceń w toku lub niezakończonych. Dokończ je lub anuluj przed usunięciem konta.`,
+      });
+    }
+
+    const pendingPayments = await Payment.countDocuments({
+      $or: [
+        { client: uid, status: { $in: ['requires_payment_method', 'processing'] } },
+        { provider: uid, status: { $in: ['requires_payment_method', 'processing'] } },
+        { subscriptionUser: uid, status: { $in: ['requires_payment_method', 'processing'] } },
+      ],
+    });
+    if (pendingPayments > 0) {
+      blockers.push({
+        code: 'PENDING_PAYMENTS',
+        message: 'Masz oczekujące płatności w systemie. Dokończ lub anuluj je przed usunięciem konta.',
+      });
+    }
+
+    return { canDelete: blockers.length === 0, blockers };
+  }
+
+  /** Usuń użytkownika z list managera/wykonawcy firm (właściciel musi być obsłużony osobno). */
+  async detachUserFromCompanies(userId) {
+    const uid = new mongoose.Types.ObjectId(String(userId));
+    await Company.updateMany({ managers: uid }, { $pull: { managers: uid } });
+    await Company.updateMany({ providers: uid }, { $pull: { providers: uid } });
+  }
+
   // Anonimizacja danych użytkownika (zgodnie z RODO)
-  async anonymizeUserData(userId) {
+  async anonymizeUserData(userId, options = {}) {
     try {
       const user = await User.findById(userId);
       if (!user) {
         throw new Error('Użytkownik nie istnieje');
       }
+      if (user.anonymized || user.deletedAt) {
+        return { success: true, message: 'Konto było już zamknięte' };
+      }
 
-      // Anonimizuj dane osobowe
+      await this.detachUserFromCompanies(userId);
+
+      const label = this._anonLabel(userId);
+      const closedEmail = this._closedEmail(userId);
+      const randomPwd = crypto.randomBytes(32).toString('hex');
+      const hashedPassword = await bcrypt.hash(randomPwd, 10);
+
       const anonymizedData = {
-        name: `Użytkownik_${userId.slice(-8)}`,
-        email: `anon_${userId}@deleted.helpfli.pl`,
+        name: label,
+        email: closedEmail,
+        password: hashedPassword,
         phone: null,
         address: null,
         location: null,
-        locationLat: null,
-        locationLon: null,
-        city: null,
-        
-        // Anonimizuj dane KYC
+        locationCoords: { lat: 0, lng: 0 },
+        bio: '',
+        headline: '',
+        priceNote: '',
+        availability: '',
+        avatar: 'https://via.placeholder.com/150',
+        pushSubs: [],
+        twoFactorEnabled: false,
+        emailVerified: false,
+        marketingConsent: false,
+        'consents.analytics': false,
+        'consents.cookies': false,
+        'consents.updatedAt': new Date(),
+        company: null,
+        roleInCompany: 'none',
+        stripeAccountId: '',
+        stripeCustomerId: null,
+        'stripeConnectStatus.chargesEnabled': false,
+        'stripeConnectStatus.payoutsEnabled': false,
+        'stripeConnectStatus.detailsSubmitted': false,
+        'stripeConnectStatus.requirementsDue': false,
+        'stripeConnectStatus.lastCheckedAt': null,
+        'billing.companyName': '',
+        'billing.nip': '',
+        'billing.street': '',
+        'billing.city': '',
+        'billing.postalCode': '',
+        'billing.wantInvoice': false,
         'kyc.firstName': null,
         'kyc.lastName': null,
         'kyc.idNumber': null,
@@ -38,21 +138,32 @@ class PrivacyService {
         'kyc.docs.idBackUrl': null,
         'kyc.docs.selfieUrl': null,
         'kyc.docs.companyDocUrl': null,
-        
-        // Oznacz jako anonimizowane
         anonymizedAt: new Date(),
         anonymized: true,
-        
-        // Wyłącz konto
         isActive: false,
-        deletedAt: new Date()
+        deletedAt: new Date(),
       };
 
-      await User.findByIdAndUpdate(userId, anonymizedData);
-      
-      // Anonimizuj powiązane dane
+      if (options.clearCompanyInvitation) {
+        anonymizedData.companyInvitation = undefined;
+      }
+
+      await User.findByIdAndUpdate(userId, {
+        $set: anonymizedData,
+        $unset: {
+          referralCode: '',
+          twoFactorSecret: '',
+          twoFactorBackupCodes: '',
+          passwordResetToken: '',
+          passwordResetExpires: '',
+          emailVerificationToken: '',
+          emailVerificationExpires: '',
+          companyRoleId: '',
+        },
+      });
+
       await this.anonymizeRelatedData(userId);
-      
+
       return { success: true, message: 'Dane użytkownika zostały anonimizowane' };
     } catch (error) {
       console.error('Anonymization error:', error);
@@ -63,98 +174,44 @@ class PrivacyService {
   // Anonimizacja powiązanych danych
   async anonymizeRelatedData(userId) {
     const operations = [];
+    const placeholderMsg = '[Wiadomość usunięta — konto użytkownika zostało zamknięte]';
+    const placeholderComment = '[Komentarz usunięty — konto użytkownika zostało zamknięte]';
 
-    // Anonimizuj zlecenia (zachowaj dla celów biznesowych, ale usuń dane osobowe)
-    operations.push(
-      Order.updateMany(
-        { client: userId },
-        {
-          $set: {
-            'clientName': `Użytkownik_${userId.slice(-8)}`,
-            'clientEmail': `anon_${userId}@deleted.helpfli.pl`,
-            'clientPhone': null
-          }
-        }
-      )
-    );
-
-    operations.push(
-      Order.updateMany(
-        { provider: userId },
-        {
-          $set: {
-            'providerName': `Użytkownik_${userId.slice(-8)}`,
-            'providerEmail': `anon_${userId}@deleted.helpfli.pl`,
-            'providerPhone': null
-          }
-        }
-      )
-    );
-
-    // Anonimizuj wiadomości w czacie
     operations.push(
       Message.updateMany(
         { sender: userId },
         {
           $set: {
-            'senderName': `Użytkownik_${userId.slice(-8)}`,
-            'text': '[Wiadomość usunięta - dane użytkownika zostały anonimizowane]'
-          }
-        }
-      )
-    );
-
-    // Anonimizuj oceny
-    operations.push(
-      Rating.updateMany(
-        { ratedUser: userId },
-        {
-          $set: {
-            'ratedUserName': `Użytkownik_${userId.slice(-8)}`,
-            'comment': '[Komentarz usunięty - dane użytkownika zostały anonimizowane]'
-          }
+            text: placeholderMsg,
+          },
         }
       )
     );
 
     operations.push(
       Rating.updateMany(
-        { rater: userId },
+        { to: userId },
         {
           $set: {
-            'raterName': `Użytkownik_${userId.slice(-8)}`,
-            'comment': '[Komentarz usunięty - dane użytkownika zostały anonimizowane]'
-          }
+            comment: placeholderComment,
+          },
         }
       )
     );
 
-    // Usuń eventy telemetry (nie potrzebujemy ich po anonimizacji)
+    operations.push(
+      Rating.updateMany(
+        { from: userId },
+        {
+          $set: {
+            comment: placeholderComment,
+          },
+        }
+      )
+    );
+
     operations.push(
       Event.deleteMany({ userId: new mongoose.Types.ObjectId(userId) })
-    );
-
-    // Usuń raporty (zachowaj dla celów bezpieczeństwa, ale usuń dane osobowe)
-    operations.push(
-      Report.updateMany(
-        { user: userId },
-        {
-          $set: {
-            'userName': `Użytkownik_${userId.slice(-8)}`
-          }
-        }
-      )
-    );
-
-    operations.push(
-      Report.updateMany(
-        { reportedUser: userId },
-        {
-          $set: {
-            'reportedUserName': `Użytkownik_${userId.slice(-8)}`
-          }
-        }
-      )
     );
 
     await Promise.all(operations);
@@ -165,20 +222,19 @@ class PrivacyService {
     try {
       const operations = [];
 
-      // Usuń wszystkie powiązane dane
       operations.push(User.findByIdAndDelete(userId));
       operations.push(Order.deleteMany({ client: userId }));
       operations.push(Order.deleteMany({ provider: userId }));
       operations.push(Message.deleteMany({ sender: userId }));
-      operations.push(Rating.deleteMany({ ratedUser: userId }));
-      operations.push(Rating.deleteMany({ rater: userId }));
+      operations.push(Rating.deleteMany({ to: userId }));
+      operations.push(Rating.deleteMany({ from: userId }));
       operations.push(Event.deleteMany({ userId: new mongoose.Types.ObjectId(userId) }));
       operations.push(Report.deleteMany({ user: userId }));
       operations.push(Report.deleteMany({ reportedUser: userId }));
       operations.push(Payment.deleteMany({ client: userId }));
 
       await Promise.all(operations);
-      
+
       return { success: true, message: 'Wszystkie dane użytkownika zostały usunięte' };
     } catch (error) {
       console.error('Complete deletion error:', error);
@@ -194,13 +250,12 @@ class PrivacyService {
         throw new Error('Użytkownik nie istnieje');
       }
 
-      // Pobierz wszystkie dane użytkownika
       const [orders, ratings, messages, events, payments] = await Promise.all([
         Order.find({ $or: [{ client: userId }, { provider: userId }] }).lean(),
-        Rating.find({ $or: [{ ratedUser: userId }, { rater: userId }] }).lean(),
+        Rating.find({ $or: [{ to: userId }, { from: userId }] }).lean(),
         Message.find({ sender: userId }).lean(),
         Event.find({ userId: new mongoose.Types.ObjectId(userId) }).lean(),
-        Payment.find({ client: userId }).lean()
+        Payment.find({ client: userId }).lean(),
       ]);
 
       const exportData = {
@@ -215,43 +270,43 @@ class PrivacyService {
             bio: user.bio,
             services: user.services,
             rating: user.ratingAvg,
-            verification: user.verification
-          }
+            verification: user.verification,
+          },
         },
-        orders: orders.map(order => ({
+        orders: orders.map((order) => ({
           id: order._id,
           service: order.service,
           description: order.description,
           status: order.status,
           amount: order.amountTotal,
           createdAt: order.createdAt,
-          completedAt: order.completedAt
+          completedAt: order.completedAt,
         })),
-        ratings: ratings.map(rating => ({
+        ratings: ratings.map((rating) => ({
           id: rating._id,
           rating: rating.rating,
           comment: rating.comment,
           createdAt: rating.createdAt,
-          type: rating.ratedUser.toString() === userId.toString() ? 'received' : 'given'
+          type: String(rating.to) === String(userId) ? 'received' : 'given',
         })),
-        messages: messages.map(message => ({
+        messages: messages.map((message) => ({
           id: message._id,
           text: message.text,
-          orderId: message.orderId,
-          createdAt: message.createdAt
+          conversation: message.conversation,
+          createdAt: message.createdAt,
         })),
-        events: events.map(event => ({
+        events: events.map((event) => ({
           type: event.type,
           properties: event.properties,
-          createdAt: event.createdAt
+          createdAt: event.createdAt,
         })),
-        payments: payments.map(payment => ({
+        payments: payments.map((payment) => ({
           id: payment._id,
           amount: payment.amount,
           status: payment.status,
-          createdAt: payment.createdAt
+          createdAt: payment.createdAt,
         })),
-        exportedAt: new Date()
+        exportedAt: new Date(),
       };
 
       return exportData;
@@ -264,22 +319,28 @@ class PrivacyService {
   // Sprawdź czy użytkownik może usunąć dane (brak aktywnych zleceń)
   async canDeleteData(userId) {
     try {
+      const uid = new mongoose.Types.ObjectId(String(userId));
+      const { canDelete, blockers } = await this.getAccountDeletionBlockers(userId);
+
       const activeOrders = await Order.countDocuments({
-        $or: [{ client: userId }, { provider: userId }],
-        status: { $in: ['open', 'accepted', 'funded', 'in_progress', 'disputed'] }
+        $or: [{ client: uid }, { provider: uid }],
+        status: { $nin: ORDER_TERMINAL_STATUSES },
       });
 
       const pendingPayments = await Payment.countDocuments({
-        client: userId,
-        status: { $in: ['pending', 'processing'] }
+        $or: [
+          { client: uid, status: { $in: ['requires_payment_method', 'processing'] } },
+          { provider: uid, status: { $in: ['requires_payment_method', 'processing'] } },
+          { subscriptionUser: uid, status: { $in: ['requires_payment_method', 'processing'] } },
+        ],
       });
 
       return {
-        canDelete: activeOrders === 0 && pendingPayments === 0,
+        canDelete,
         activeOrders,
         pendingPayments,
-        reason: activeOrders > 0 ? 'Aktywne zlecenia' : 
-                pendingPayments > 0 ? 'Oczekujące płatności' : null
+        reason: blockers[0]?.message || null,
+        blockers,
       };
     } catch (error) {
       console.error('Can delete data check error:', error);
@@ -292,16 +353,15 @@ class PrivacyService {
     try {
       const auditLog = {
         userId: new mongoose.Types.ObjectId(userId),
-        operation, // 'anonymize', 'delete', 'export'
+        operation,
         details,
         timestamp: new Date(),
         ip: details.ip || null,
-        userAgent: details.userAgent || null
+        userAgent: details.userAgent || null,
       };
 
-      // Zapisz do logów (można użyć dedykowanego modelu lub systemu logowania)
       console.log('[PRIVACY_AUDIT]', auditLog);
-      
+
       return auditLog;
     } catch (error) {
       console.error('Privacy audit log error:', error);
@@ -310,4 +370,3 @@ class PrivacyService {
 }
 
 module.exports = new PrivacyService();
-
