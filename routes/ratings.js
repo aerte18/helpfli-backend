@@ -23,11 +23,19 @@ async function userActsAsOrderProvider(user, order) {
 
 // Dodaj ocenę (np. klient ocenia wykonawcę)
 router.post('/', authMiddleware, async (req, res) => {
-  const { ratedUser, rating, comment, orderId } = req.body;
+  let { ratedUser, rating, comment, orderId } = req.body;
 
-  if (!ratedUser || !rating) {
-    return res.status(400).json({ message: 'Brakuje danych' });
+  if (ratedUser && typeof ratedUser === 'object' && ratedUser._id) {
+    ratedUser = ratedUser._id;
   }
+  if (ratedUser != null) ratedUser = String(ratedUser).trim();
+  if (orderId != null) orderId = String(orderId).trim();
+
+  const ratingNum = Number(rating);
+  if (!ratedUser || !Number.isFinite(ratingNum) || ratingNum < 1 || ratingNum > 5) {
+    return res.status(400).json({ message: 'Brakuje danych lub nieprawidłowa ocena (1–5)' });
+  }
+  rating = ratingNum;
 
   try {
     // Opcjonalna walidacja: pozwól ocenić tylko gdy użytkownik był klientem w zakończonym zleceniu
@@ -35,16 +43,26 @@ router.post('/', authMiddleware, async (req, res) => {
       const Order = require('../models/Order');
       const order = await Order.findById(orderId);
       if (!order) return res.status(404).json({ message: 'Zlecenie nie istnieje' });
-      const isClientRatingProvider = String(order.client) === String(req.user._id) && String(order.provider) === String(ratedUser);
+
+      const orderClientId = order.client?._id != null ? order.client._id : order.client;
+      const orderProviderId = order.provider?._id != null ? order.provider._id : order.provider;
+
+      const isClientRatingProvider =
+        String(orderClientId) === String(req.user._id) &&
+        String(orderProviderId) === String(ratedUser);
       const actsAsProvider = await userActsAsOrderProvider(req.user, order);
       const isProviderRatingClient =
-        actsAsProvider && String(order.client) === String(ratedUser);
+        actsAsProvider && String(orderClientId) === String(ratedUser);
       if (!isClientRatingProvider && !isProviderRatingClient) {
         return res.status(403).json({ message: 'Brak uprawnień do oceny w tym zleceniu' });
       }
-      const doneStatuses = ['completed', 'done', 'closed', 'released', 'rated'];
+      // Statusy domknięcia + legacy (`paid` bywa w starszych rekordach)
+      const doneStatuses = ['completed', 'done', 'closed', 'released', 'rated', 'paid'];
       if (!doneStatuses.includes(order.status)) {
-        return res.status(400).json({ message: 'Zlecenie nie zostało zakończone' });
+        return res.status(400).json({
+          message: 'Zlecenie nie zostało zakończone — ocena będzie możliwa po zakończeniu realizacji i domknięciu zlecenia.',
+          orderStatus: order.status,
+        });
       }
     }
     // Jedna ocena na parę użytkowników **w ramach danego zlecenia** (gdy jest orderId).
@@ -109,7 +127,7 @@ router.get('/eligible', authMiddleware, async (req, res) => {
     const otherUser = req.query.otherUser;
     if (!otherUser) return res.status(400).json({ eligible: false, reason: 'Brak otherUser' });
     const Order = require('../models/Order');
-    const doneStatuses = ['completed', 'done', 'closed', 'released', 'rated'];
+    const doneStatuses = ['completed', 'done', 'closed', 'released', 'rated', 'paid'];
     const order = await Order.findOne({
       status: { $in: doneStatuses },
       $or: [

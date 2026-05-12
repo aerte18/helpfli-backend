@@ -243,9 +243,11 @@ router.get("/order/:orderId", auth, async (req, res) => {
       return res.status(404).json({ message: "Zlecenie nie istnieje" });
     }
     
-    // Sprawdź uprawnienia - tylko klient lub provider zlecenia
-    const isClient = String(order.client) === String(req.user._id);
-    const isProvider = String(order.provider) === String(req.user._id);
+    // Sprawdź uprawnienia - tylko klient lub provider zlecenia (ObjectId lub zpopulateowany dokument)
+    const clientId = order.client?._id != null ? order.client._id : order.client;
+    const providerId = order.provider?._id != null ? order.provider._id : order.provider;
+    const isClient = String(clientId) === String(req.user._id);
+    const isProvider = String(providerId) === String(req.user._id);
     
     if (!isClient && !isProvider) {
       return res.status(403).json({ message: "Brak uprawnień" });
