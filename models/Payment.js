@@ -26,6 +26,8 @@ const PaymentSchema = new mongoose.Schema({
   clientName: String,
 
   stripePaymentIntentId: { type: String, index: true },
+  /** Gdy płatność idzie przez Stripe Checkout (mode payment/subscription). */
+  stripeCheckoutSessionId: { type: String, default: null, index: true, sparse: true },
   stripeSubscriptionId: { type: String, index: true }, // Dla Stripe Subscriptions
   stripeCustomerId: { type: String, index: true }, // Customer ID w Stripe
   stripeChargeId: { type: String },

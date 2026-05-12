@@ -40,6 +40,7 @@ exports.checkGuaranteeEligibility = async ({ paymentMethod, providerId, orderSta
     "released",
     "matched",
     "quote",
+    "disputed",
   ]);
   if (orderStatus && !allowed.has(orderStatus)) {
     eligible = false;

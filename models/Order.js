@@ -175,7 +175,7 @@ const orderSchema = new mongoose.Schema({
   platformFeeAmount: { type: Number, default: 0 }, // w groszach
   
   payment: {
-    status: { type: String, enum: ['requires_payment','paid','refunded','failed'], default: 'requires_payment' },
+    status: { type: String, enum: ['requires_payment','paid','refunded','partial_refund','failed'], default: 'requires_payment' },
     method: { type: String },
     intentId: { type: String },
     additionalIntentId: { type: String, default: null },
@@ -246,6 +246,37 @@ const orderSchema = new mongoose.Schema({
   disputeReason: { type: String, default: '' },
   disputeReportedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   disputeReportedAt: { type: Date },
+  /** Mediacja przed pełną eskalacją do supportu */
+  disputeMediationEndsAt: { type: Date, default: null },
+  disputeEscalatedAt: { type: Date, default: null },
+  disputeMessages: {
+    type: [
+      {
+        user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+        body: { type: String, trim: true, maxlength: 8000 },
+        kind: { type: String, enum: ['message', 'system'], default: 'message' },
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
+    default: [],
+  },
+  disputeSettlement: {
+    status: {
+      type: String,
+      enum: ['none', 'pending', 'accepted', 'declined'],
+      default: 'none',
+    },
+    offeredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    amountPln: { type: Number, default: null },
+    message: { type: String, default: '', maxlength: 4000 },
+    createdAt: { type: Date, default: null },
+    respondedAt: { type: Date, default: null },
+    respondedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    refundProcessedAt: { type: Date, default: null },
+    refundAmountGrosze: { type: Number, default: null },
+    refundStripeRef: { type: String, default: null },
+    refundMethod: { type: String, default: null },
+  },
   refundRequested: { type: Boolean, default: false },
   refundRequestedAt: { type: Date },
   

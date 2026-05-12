@@ -597,6 +597,9 @@ try {
   safeUse('/api/revenue', revenueRoutes, 'revenue');
   safeUse('/api/verify', verifyRoutes, 'verify');
   safeUse('/api/notifications', notificationsRoutes, 'notifications');
+  safeUse('/api/integrations', loadRoute('integrations', './routes/integrations'), 'integrations');
+  safeUse('/api/crm', loadRoute('crm_integrations', './routes/crm_integrations'), 'crm_integrations');
+  safeUse('/api/accounting', loadRoute('accounting_integrations', './routes/accounting_integrations'), 'accounting_integrations');
   safeUse('/api/user-services', userServicesRoutes, 'userServices');
   safeUse('/api/pro-features', proFeaturesRoutes, 'proFeatures');
   safeUse('/api/favorite-clients', favoriteClientsRoutes, 'favoriteClients');

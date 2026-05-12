@@ -9,6 +9,70 @@ const Order = require('../models/Order');
 
 // ========== KALENDARZE ==========
 
+function serializeCalendarIntegration(integration) {
+  return {
+    _id: integration._id,
+    provider: integration.provider,
+    email: integration.email,
+    active: integration.active,
+    autoSync: integration.autoSync,
+    syncOrders: integration.syncOrders,
+    syncOffers: integration.syncOffers,
+    lastSyncAt: integration.lastSyncAt,
+    lastSync: integration.lastSyncAt,
+    syncError: integration.syncError,
+    createdAt: integration.createdAt,
+    updatedAt: integration.updatedAt
+  };
+}
+
+function getOrderStart(order) {
+  if (order.scheduledDateTime) return order.scheduledDateTime;
+  if (order.priorityDateTime) return order.priorityDateTime;
+  const acceptedOffer = order.offers?.find(offer => String(offer._id) === String(order.acceptedOfferId));
+  if (acceptedOffer?.date) return acceptedOffer.date;
+  return null;
+}
+
+function getOrderEnd(order, start) {
+  if (order.completedAt && order.completedAt > start) return order.completedAt;
+  const durationMinutes = order.consultationDuration || 120;
+  return new Date(start.getTime() + durationMinutes * 60 * 1000);
+}
+
+async function ensureFreshCalendarToken(integration) {
+  let accessToken = integration.accessToken;
+  if (!integration.tokenExpiresAt || integration.tokenExpiresAt >= new Date()) {
+    return accessToken;
+  }
+
+  if (integration.provider === 'google') {
+    const refreshed = await calendarService.refreshGoogleToken(integration.refreshToken);
+    accessToken = refreshed.accessToken;
+    integration.accessToken = accessToken;
+    integration.tokenExpiresAt = new Date(Date.now() + refreshed.expiresIn * 1000);
+    await integration.save();
+  } else if (integration.provider === 'outlook') {
+    const refreshed = await calendarService.refreshOutlookToken(integration.refreshToken);
+    accessToken = refreshed.accessToken;
+    integration.accessToken = accessToken;
+    integration.tokenExpiresAt = new Date(Date.now() + refreshed.expiresIn * 1000);
+    await integration.save();
+  }
+
+  return accessToken;
+}
+
+async function createCalendarEvent(integration, accessToken, event) {
+  if (integration.provider === 'google') {
+    return calendarService.createGoogleEvent(accessToken, event);
+  }
+  if (integration.provider === 'outlook') {
+    return calendarService.createOutlookEvent(accessToken, event);
+  }
+  throw new Error('Nieobsługiwany dostawca kalendarza');
+}
+
 /**
  * GET /api/integrations/calendar/status - Status integracji kalendarzowych
  */
@@ -29,6 +93,46 @@ router.get('/calendar/status', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error('Calendar status error:', err);
     res.status(500).json({ message: 'Błąd pobierania statusu' });
+  }
+});
+
+/**
+ * GET /api/integrations/calendar - Lista integracji kalendarzowych użytkownika
+ */
+router.get('/calendar', authMiddleware, async (req, res) => {
+  try {
+    const integrations = await CalendarIntegration.find({ user: req.user._id, active: true })
+      .sort({ createdAt: -1 });
+
+    res.json({
+      integrations: integrations.map(serializeCalendarIntegration),
+      available: calendarService.getStatus()
+    });
+  } catch (err) {
+    console.error('Calendar integrations error:', err);
+    res.status(500).json({ message: 'Błąd pobierania integracji' });
+  }
+});
+
+/**
+ * GET /api/integrations/calendar/auth/:provider
+ * Alias (np. starsze klienty /calendar/auth/outlook) — ta sama odpowiedź co …/:provider/auth-url.
+ */
+router.get('/calendar/auth/:provider', authMiddleware, async (req, res) => {
+  try {
+    const provider = String(req.params.provider || '').toLowerCase();
+    if (provider !== 'google' && provider !== 'outlook') {
+      return res.status(404).json({ error: 'Not found' });
+    }
+    const redirectUri = req.query.redirectUri || `${process.env.FRONTEND_URL || 'http://localhost:5181'}/integrations/calendar/callback`;
+    const state = req.user._id.toString();
+    const authUrl = provider === 'google'
+      ? calendarService.getGoogleAuthUrl(redirectUri, state)
+      : calendarService.getOutlookAuthUrl(redirectUri, state);
+    res.json({ authUrl, state });
+  } catch (err) {
+    console.error('Calendar auth alias error:', err);
+    res.status(500).json({ message: err.message || 'Błąd generowania URL autoryzacji' });
   }
 });
 
@@ -186,41 +290,23 @@ router.post('/calendar/sync-order', authMiddleware, async (req, res) => {
     }
 
     // Odśwież token jeśli wygasł
-    let accessToken = integration.accessToken;
-    if (integration.tokenExpiresAt && integration.tokenExpiresAt < new Date()) {
-      if (integration.provider === 'google') {
-        const refreshed = await calendarService.refreshGoogleToken(integration.refreshToken);
-        accessToken = refreshed.accessToken;
-        integration.accessToken = accessToken;
-        integration.tokenExpiresAt = new Date(Date.now() + refreshed.expiresIn * 1000);
-        await integration.save();
-      } else if (integration.provider === 'outlook') {
-        const refreshed = await calendarService.refreshOutlookToken(integration.refreshToken);
-        accessToken = refreshed.accessToken;
-        integration.accessToken = accessToken;
-        integration.tokenExpiresAt = new Date(Date.now() + refreshed.expiresIn * 1000);
-        await integration.save();
-      }
-    }
+    const accessToken = await ensureFreshCalendarToken(integration);
+    const startTime = getOrderStart(order) || order.createdAt;
+    const endTime = getOrderEnd(order, startTime);
 
     // Przygotuj wydarzenie
     const event = {
       title: `Helpfli: ${order.title || order.service}`,
       description: order.description || '',
-      startTime: order.scheduledAt || order.createdAt,
-      endTime: order.completedAt || new Date(order.scheduledAt?.getTime() + 2 * 60 * 60 * 1000) || new Date(order.createdAt.getTime() + 2 * 60 * 60 * 1000),
+      startTime,
+      endTime,
       location: order.location?.address || order.location?.city || '',
       attendees: isClient && order.provider?.email ? [order.provider.email] : 
                  isProvider && order.client?.email ? [order.client.email] : []
     };
 
     // Utwórz wydarzenie
-    let calendarEvent;
-    if (integration.provider === 'google') {
-      calendarEvent = await calendarService.createGoogleEvent(accessToken, event);
-    } else if (integration.provider === 'outlook') {
-      calendarEvent = await calendarService.createOutlookEvent(accessToken, event);
-    }
+    const calendarEvent = await createCalendarEvent(integration, accessToken, event);
 
     // Zaktualizuj zlecenie
     if (!order.calendarEvents) order.calendarEvents = [];
@@ -243,16 +329,90 @@ router.post('/calendar/sync-order', authMiddleware, async (req, res) => {
 });
 
 /**
- * DELETE /api/integrations/calendar/:provider - Usuń integrację kalendarzową
+ * POST /api/integrations/calendar/:integrationId/sync - Synchronizuj zlecenia providera z kalendarzem
  */
-router.delete('/calendar/:provider', authMiddleware, async (req, res) => {
+router.post('/calendar/:integrationId/sync', authMiddleware, async (req, res) => {
   try {
-    const { provider } = req.params;
+    const { integrationId } = req.params;
+    const integration = await CalendarIntegration.findOne({
+      _id: integrationId,
+      user: req.user._id,
+      active: true
+    });
 
-    await CalendarIntegration.findOneAndUpdate(
-      { user: req.user._id, provider },
-      { active: false }
-    );
+    if (!integration) {
+      return res.status(404).json({ message: 'Integracja kalendarzowa nie znaleziona' });
+    }
+
+    const orders = await Order.find({
+      provider: req.user._id,
+      status: { $in: ['accepted', 'in_progress'] }
+    }).populate('client provider');
+
+    const accessToken = await ensureFreshCalendarToken(integration);
+    let synced = 0;
+    let skipped = 0;
+
+    for (const order of orders) {
+      const alreadySynced = order.calendarEvents?.some(event => event.provider === integration.provider);
+      const startTime = getOrderStart(order);
+
+      if (alreadySynced || !startTime) {
+        skipped += 1;
+        continue;
+      }
+
+      const calendarEvent = await createCalendarEvent(integration, accessToken, {
+        title: `Helpfli: ${order.title || order.service}`,
+        description: order.description || '',
+        startTime,
+        endTime: getOrderEnd(order, startTime),
+        location: order.location?.address || order.city || '',
+        attendees: order.client?.email ? [order.client.email] : []
+      });
+
+      order.calendarEvents.push({
+        provider: integration.provider,
+        eventId: calendarEvent.id,
+        syncedAt: new Date()
+      });
+      await order.save();
+      synced += 1;
+    }
+
+    integration.lastSyncAt = new Date();
+    integration.syncError = undefined;
+    await integration.save();
+
+    res.json({
+      success: true,
+      synced,
+      skipped,
+      integration: serializeCalendarIntegration(integration)
+    });
+  } catch (err) {
+    console.error('Calendar bulk sync error:', err);
+    try {
+      await CalendarIntegration.findOneAndUpdate(
+        { _id: req.params.integrationId, user: req.user._id },
+        { syncError: err.message || 'Błąd synchronizacji' }
+      );
+    } catch {}
+    res.status(500).json({ message: err.message || 'Błąd synchronizacji z kalendarzem' });
+  }
+});
+
+/**
+ * DELETE /api/integrations/calendar/:integrationIdOrProvider - Usuń integrację kalendarzową
+ */
+router.delete('/calendar/:integrationIdOrProvider', authMiddleware, async (req, res) => {
+  try {
+    const { integrationIdOrProvider } = req.params;
+    const query = ['google', 'outlook'].includes(integrationIdOrProvider)
+      ? { user: req.user._id, provider: integrationIdOrProvider }
+      : { user: req.user._id, _id: integrationIdOrProvider };
+
+    await CalendarIntegration.findOneAndUpdate(query, { active: false });
 
     res.json({ success: true });
   } catch (err) {

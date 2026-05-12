@@ -1902,6 +1902,302 @@ router.get('/:orderId/attachments/:attachmentId/file', auth, async (req, res) =>
   }
 });
 
+function disputeCaseParty(order, userId) {
+  const uid = String(userId);
+  const isClient = String(order.client) === uid;
+  const isProvider = order.provider && String(order.provider) === uid;
+  return { ok: isClient || isProvider, isClient, isProvider };
+}
+
+function hasActiveDisputeTimeline(order) {
+  if (order.status === "disputed") return true;
+  return ["reported", "refund_requested"].includes(order.disputeStatus);
+}
+
+router.get("/:id/dispute-case", auth, loadOrderById, async (req, res) => {
+  try {
+    const order = req.order;
+    const party = disputeCaseParty(order, req.user._id);
+    if (!party.ok) return res.status(403).json({ message: "Brak dostępu" });
+    if (!hasActiveDisputeTimeline(order)) {
+      return res.status(404).json({ message: "Brak aktywnej sprawy" });
+    }
+
+    await order.populate([
+      { path: "disputeMessages.user", select: "name email" },
+      { path: "disputeSettlement.offeredBy", select: "name" },
+      { path: "disputeSettlement.respondedBy", select: "name" },
+    ]);
+
+    const messages = (order.disputeMessages || []).map((m) => ({
+      id: m._id,
+      kind: m.kind,
+      body: m.body,
+      createdAt: m.createdAt,
+      user: m.user
+        ? { id: m.user._id, name: m.user.name, email: m.user.email }
+        : null,
+    }));
+
+    const st = order.disputeSettlement || {};
+    const offeredRaw = st.offeredBy;
+    const offeredId = offeredRaw ? String(offeredRaw._id || offeredRaw) : null;
+    const uid = String(req.user._id);
+    const youOfferedPendingSettlement =
+      st.status === "pending" && offeredId && offeredId === uid;
+    const youCanRespondToSettlement =
+      st.status === "pending" && offeredId && offeredId !== uid;
+
+    res.json({
+      orderId: order._id,
+      service: order.service,
+      status: order.status,
+      disputeStatus: order.disputeStatus,
+      disputeReason: order.disputeReason,
+      disputeReportedAt: order.disputeReportedAt,
+      disputeMediationEndsAt: order.disputeMediationEndsAt,
+      disputeEscalatedAt: order.disputeEscalatedAt,
+      messages,
+      settlement: {
+        status: st.status || "none",
+        amountPln: st.amountPln,
+        message: st.message,
+        createdAt: st.createdAt,
+        respondedAt: st.respondedAt,
+        offeredById: offeredId,
+        offeredByName: st.offeredBy?.name || null,
+        refundProcessedAt: st.refundProcessedAt || null,
+        refundAmountGrosze: st.refundAmountGrosze ?? null,
+        refundMethod: st.refundMethod || null,
+        refundStripeRef: st.refundStripeRef || null,
+      },
+      youAre: party.isClient ? "client" : "provider",
+      youCanRespondToSettlement,
+      youOfferedPendingSettlement,
+    });
+  } catch (e) {
+    console.error("GET_DISPUTE_CASE", e);
+    res.status(500).json({ message: "Błąd pobierania sprawy" });
+  }
+});
+
+router.post("/:id/dispute-case/message", auth, loadOrderById, async (req, res) => {
+  try {
+    const order = req.order;
+    const party = disputeCaseParty(order, req.user._id);
+    if (!party.ok) return res.status(403).json({ message: "Brak dostępu" });
+    if (!hasActiveDisputeTimeline(order)) {
+      return res.status(400).json({ message: "Brak aktywnej sprawy" });
+    }
+    const text = String(req.body?.body || "").trim();
+    if (!text) return res.status(400).json({ message: "Treść wiadomości jest wymagana" });
+    if (text.length > 8000) return res.status(400).json({ message: "Za długa wiadomość" });
+    order.disputeMessages = order.disputeMessages || [];
+    order.disputeMessages.push({
+      kind: "message",
+      user: req.user._id,
+      body: text,
+      createdAt: new Date(),
+    });
+    await order.save();
+    res.json({ message: "Dodano wiadomość", count: order.disputeMessages.length });
+  } catch (e) {
+    console.error("DISPUTE_MESSAGE", e);
+    res.status(500).json({ message: "Błąd zapisu wiadomości" });
+  }
+});
+
+router.post("/:id/dispute-case/settlement-offer", auth, loadOrderById, async (req, res) => {
+  try {
+    const order = req.order;
+    const party = disputeCaseParty(order, req.user._id);
+    if (!party.ok) return res.status(403).json({ message: "Brak dostępu" });
+    if (!hasActiveDisputeTimeline(order)) {
+      return res.status(400).json({ message: "Brak aktywnej sprawy" });
+    }
+    if (order.disputeEscalatedAt) {
+      return res.status(400).json({
+        message: "Sprawa jest już po eskalacji — ugody ustalą operatorzy Helpfli.",
+      });
+    }
+    const st = order.disputeSettlement || {};
+    if (st.status === "pending") {
+      return res.status(400).json({ message: "Oczekuje na decyzję drugiej strony w sprawie obecnej propozycji." });
+    }
+    const amount = Number(req.body?.amountPln);
+    if (!Number.isFinite(amount) || amount < 1) {
+      return res.status(400).json({ message: "Kwota musi być co najmniej 1 PLN" });
+    }
+    const Offer = require("../models/Offer");
+    let maxPln = 200000;
+    if (order.acceptedOfferId) {
+      const off = await Offer.findById(order.acceptedOfferId).select("amount price");
+      if (off) maxPln = Math.max(Number(off.amount || off.price || 0), 1);
+    } else if (order.budget) {
+      maxPln = Math.max(Number(order.budget), 1);
+    }
+    const rounded = Math.round(amount * 100) / 100;
+    if (rounded > maxPln + 0.005) {
+      return res.status(400).json({
+        message: `Kwota ugody nie może przekraczać ${maxPln.toFixed(2)} PLN (wartość zlecenia).`,
+      });
+    }
+    const msg = String(req.body?.message || "").trim().slice(0, 4000);
+    order.disputeSettlement = {
+      status: "pending",
+      offeredBy: req.user._id,
+      amountPln: rounded,
+      message: msg,
+      createdAt: new Date(),
+      respondedAt: null,
+      respondedBy: null,
+    };
+    order.disputeMessages = order.disputeMessages || [];
+    order.disputeMessages.push({
+      kind: "system",
+      body: `Propozycja ugody: ${rounded.toFixed(2)} PLN — druga strona może zaakceptować lub odrzucić.`,
+      createdAt: new Date(),
+    });
+    await order.save();
+    res.json({ message: "Wysłano propozycję ugody", settlement: order.disputeSettlement });
+  } catch (e) {
+    console.error("SETTLEMENT_OFFER", e);
+    res.status(500).json({ message: "Błąd zapisu propozycji" });
+  }
+});
+
+router.post("/:id/dispute-case/settlement-respond", auth, loadOrderById, async (req, res) => {
+  try {
+    const { applyDisputeSettlementRefund } = require("../utils/disputeSettlementRefund");
+    const order = req.order;
+    const party = disputeCaseParty(order, req.user._id);
+    if (!party.ok) return res.status(403).json({ message: "Brak dostępu" });
+    const st = order.disputeSettlement || {};
+    if (st.status !== "pending") {
+      return res.status(400).json({ message: "Brak oczekującej propozycji ugody" });
+    }
+    if (String(st.offeredBy) === String(req.user._id)) {
+      return res.status(400).json({ message: "Nie możesz odpowiedzieć na własną propozycję" });
+    }
+    const accept = !!req.body?.accept;
+
+    let refundSummary = null;
+    if (accept) {
+      refundSummary = await applyDisputeSettlementRefund(order, Number(st.amountPln));
+      if (!refundSummary.ok) {
+        return res.status(400).json({ message: refundSummary.message, code: refundSummary.code });
+      }
+    }
+
+    st.status = accept ? "accepted" : "declined";
+    st.respondedAt = new Date();
+    st.respondedBy = req.user._id;
+    order.disputeMessages = order.disputeMessages || [];
+
+    if (accept && refundSummary) {
+      st.refundProcessedAt = new Date();
+      st.refundAmountGrosze = refundSummary.amountGrosze;
+      st.refundStripeRef = refundSummary.stripeRef || null;
+      st.refundMethod = refundSummary.method;
+      order.paymentStatus = refundSummary.orderPaymentStatus;
+      if (refundSummary.orderPaymentSubStatus) {
+        order.payment = order.payment || {};
+        order.payment.status = refundSummary.orderPaymentSubStatus;
+      }
+      if (refundSummary.orderPaymentStatus === "refunded") {
+        order.protectionEligible = false;
+        order.protectionStatus = "void";
+      }
+
+      const pln = (refundSummary.amountGrosze / 100).toFixed(2);
+      let settlementBody;
+      if (refundSummary.method === "skipped_external") {
+        settlementBody =
+          "Ugoda zaakceptowana. Płatność była poza systemem Helpfli — zwrotu nie wykonano w Stripe; rozliczenie według waszych ustaleń poza platformą.";
+      } else if (refundSummary.method === "skipped_no_payment") {
+        settlementBody =
+          "Ugoda zaakceptowana. Brak zarejestrowanej płatności systemowej — dopilnujcie rozliczenia poza aplikacją lub skontaktujcie się z pomocą Helpfli.";
+      } else if (refundSummary.method === "cancel") {
+        settlementBody = `Ugoda zaakceptowana. Anulowano autoryzację płatności — ${pln} PLN wraca na metodę płatności klienta (w praktyce bankowej zwykle 5–10 dni roboczych).`;
+      } else if (refundSummary.method === "partial_capture") {
+        settlementBody = `Ugoda zaakceptowana. Część autoryzacji (${pln} PLN) została zwolniona do klienta; pozostała kwota została pobrana zgodnie z ugodą.`;
+      } else {
+        settlementBody = `Ugoda zaakceptowana. Wykonano zwrot ${pln} PLN na metodę płatności klienta (Stripe).`;
+      }
+      order.disputeMessages.push({
+        kind: "system",
+        body: settlementBody,
+        createdAt: new Date(),
+      });
+    } else {
+      order.disputeMessages.push({
+        kind: "system",
+        body: "Ugoda odrzucona. Możecie złożyć nową propozycję lub przekazać sprawę do Helpfli.",
+        createdAt: new Date(),
+      });
+    }
+
+    if (!accept) {
+      order.disputeSettlement = {
+        status: "none",
+        offeredBy: null,
+        amountPln: null,
+        message: "",
+        createdAt: null,
+        respondedAt: null,
+        respondedBy: null,
+        refundProcessedAt: null,
+        refundAmountGrosze: null,
+        refundStripeRef: null,
+        refundMethod: null,
+      };
+    }
+    await order.save();
+    res.json({
+      message: "Zapisano odpowiedź",
+      settlement: order.disputeSettlement,
+      refund: refundSummary && accept
+        ? {
+            method: refundSummary.method,
+            amountGrosze: refundSummary.amountGrosze,
+            stripeRef: refundSummary.stripeRef,
+          }
+        : null,
+    });
+  } catch (e) {
+    console.error("SETTLEMENT_RESPOND", e);
+    res.status(500).json({
+      message: e?.raw?.message || e?.message || "Błąd zapisu odpowiedzi",
+    });
+  }
+});
+
+router.post("/:id/dispute-case/escalate", auth, loadOrderById, async (req, res) => {
+  try {
+    const order = req.order;
+    const party = disputeCaseParty(order, req.user._id);
+    if (!party.ok) return res.status(403).json({ message: "Brak dostępu" });
+    if (!hasActiveDisputeTimeline(order)) {
+      return res.status(400).json({ message: "Brak aktywnej sprawy" });
+    }
+    if (order.disputeEscalatedAt) {
+      return res.status(400).json({ message: "Sprawa jest już po eskalacji" });
+    }
+    order.disputeEscalatedAt = new Date();
+    order.disputeMessages = order.disputeMessages || [];
+    order.disputeMessages.push({
+      kind: "system",
+      body: "Sprawa przekazana do zespołu Helpfli. Możecie dopisywać istotne informacje; operator odezwie się (cel: 48 h roboczych).",
+      createdAt: new Date(),
+    });
+    await order.save();
+    res.json({ message: "Przekazano do Helpfli", disputeEscalatedAt: order.disputeEscalatedAt });
+  } catch (e) {
+    console.error("DISPUTE_ESCALATE", e);
+    res.status(500).json({ message: "Błąd eskalacji" });
+  }
+});
+
 router.get('/:id', auth, async (req, res) => {
   try {
     const orderId = req.params.id;
@@ -3099,6 +3395,12 @@ router.post('/:id/dispute', auth, loadOrderById, async (req, res) => {
       return res.status(500).json({ message: "Nie udało się zweryfikować uprawnień do sporu" });
     }
     
+    if (order.status === "disputed" || (order.disputeStatus && order.disputeStatus !== "none")) {
+      return res.status(400).json({
+        message: "Sprawa jest już otwarta lub została zakończona. Otwórz widok sprawy zamiast zgłaszać ponownie.",
+      });
+    }
+
     // Sprawdź czy można zgłosić spór
     if (!['funded', 'in_progress', 'completed'].includes(order.status)) {
       return res.status(400).json({ message: 'Nie można zgłosić sporu dla tego zlecenia' });
@@ -3110,6 +3412,36 @@ router.post('/:id/dispute', auth, loadOrderById, async (req, res) => {
     order.disputeReportedBy = req.user._id;
     order.disputeReportedAt = new Date();
     order.status = 'disputed';
+
+    const mediationHours = Number(process.env.DISPUTE_MEDIATION_HOURS || 72);
+    order.disputeMediationEndsAt = new Date(Date.now() + mediationHours * 3600000);
+    order.disputeEscalatedAt = null;
+    const untilStr = order.disputeMediationEndsAt.toISOString().slice(0, 16).replace("T", " ");
+    order.disputeMessages = [
+      {
+        kind: "system",
+        body: `Zgłoszono spór. Etap mediacji (${mediationHours} h): do ${untilStr} możecie pisać wiadomości i złożyć propozycję ugody (np. częściowy zwrot). Następnie można przekazać sprawę do zespołu Helpfli — cel odpowiedzi: 48 h roboczych.`,
+        createdAt: new Date(),
+      },
+    ];
+    if (reason && String(reason).trim()) {
+      order.disputeMessages.push({
+        kind: "message",
+        user: req.user._id,
+        body: String(reason).trim().slice(0, 8000),
+        createdAt: new Date(),
+      });
+    }
+    order.disputeSettlement = {
+      status: "none",
+      offeredBy: null,
+      amountPln: null,
+      message: "",
+      createdAt: null,
+      respondedAt: null,
+      respondedBy: null,
+    };
+
     await order.save();
     
     // Wyślij powiadomienia o sporze
