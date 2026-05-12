@@ -26,9 +26,22 @@ exports.checkGuaranteeEligibility = async ({ paymentMethod, providerId, orderSta
     reasons.push("Konto wykonawcy jest zawieszone");
   }
 
-  // Dopuszczalne statusy (dopasuj do swoich)
-  const allowed = new Set(["created", "accepted", "in_progress"]);
-  if (!allowed.has(orderStatus)) {
+  // Statusy, w których nadal ma sens ochrona / narzędzia sporu–zwrot (cykl życia zlecenia)
+  const allowed = new Set([
+    "open",
+    "collecting_offers",
+    "accepted",
+    "awaiting_payment",
+    "funded",
+    "paid",
+    "in_progress",
+    "completed",
+    "rated",
+    "released",
+    "matched",
+    "quote",
+  ]);
+  if (orderStatus && !allowed.has(orderStatus)) {
     eligible = false;
     reasons.push("Status zlecenia nie kwalifikuje się do gwarancji");
   }

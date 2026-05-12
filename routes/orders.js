@@ -3059,6 +3059,26 @@ router.post('/:id/dispute', auth, loadOrderById, async (req, res) => {
     if (!isClient && !isProvider) {
       return res.status(403).json({ message: 'Brak uprawnień do tego zlecenia' });
     }
+
+    if (!order.provider) {
+      return res.status(400).json({ message: 'Brak przypisanego wykonawcy — nie można zgłosić sporu' });
+    }
+    try {
+      const { checkGuaranteeEligibility } = require("../utils/guarantee");
+      const { eligible } = await checkGuaranteeEligibility({
+        paymentMethod: order.paymentMethod || "system",
+        providerId: order.provider._id || order.provider,
+        orderStatus: order.status,
+      });
+      if (!eligible) {
+        return res.status(403).json({
+          message:
+            "Gwarancja Helpfli nie obejmuje tego zlecenia (np. płatność poza systemem lub brak weryfikacji wykonawcy). Sporu nie zgłosisz przez platformę — skontaktuj się bezpośrednio z drugą stroną.",
+        });
+      }
+    } catch (e) {
+      return res.status(500).json({ message: "Nie udało się zweryfikować uprawnień do sporu" });
+    }
     
     // Sprawdź czy można zgłosić spór
     if (!['funded', 'in_progress', 'completed'].includes(order.status)) {
@@ -3095,6 +3115,26 @@ router.post('/:id/refund-request', auth, loadOrderById, async (req, res) => {
     // Tylko klient może poprosić o zwrot
     if (String(order.client) !== String(req.user._id)) {
       return res.status(403).json({ message: 'Tylko klient może poprosić o zwrot' });
+    }
+
+    if (!order.provider) {
+      return res.status(400).json({ message: 'Brak przypisanego wykonawcy' });
+    }
+    try {
+      const { checkGuaranteeEligibility } = require("../utils/guarantee");
+      const { eligible } = await checkGuaranteeEligibility({
+        paymentMethod: order.paymentMethod || "system",
+        providerId: order.provider._id || order.provider,
+        orderStatus: order.status,
+      });
+      if (!eligible) {
+        return res.status(403).json({
+          message:
+            "Zwrot przez Helpfli jest dostępny tylko przy płatności w systemie i aktywnej ochronie. To zlecenie nie kwalifikuje się — rozliczenie pozostaje po stronie ustaleń z wykonawcą.",
+        });
+      }
+    } catch (e) {
+      return res.status(500).json({ message: "Nie udało się zweryfikować możliwości zwrotu" });
     }
     
     // Sprawdź czy można poprosić o zwrot
