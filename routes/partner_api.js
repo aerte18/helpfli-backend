@@ -6,6 +6,7 @@ const Order = require('../models/Order');
 const User = require('../models/User');
 const Payment = require('../models/Payment');
 const Rating = require('../models/Rating');
+const { withListableProviders } = require('../utils/listableProviderQuery');
 
 // Wszystkie endpointy wymagają autoryzacji partnera
 router.use(partnerAuth);
@@ -87,7 +88,7 @@ router.get('/providers', requirePartnerPermission('readProviders'), async (req, 
   try {
     const { verified, tier, limit = 50, offset = 0 } = req.query;
     
-    const query = { role: 'provider' };
+    const query = withListableProviders({ role: 'provider' });
     if (verified === 'true') query.verified = true;
     if (tier) query.providerTier = tier;
 

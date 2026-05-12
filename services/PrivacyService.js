@@ -109,6 +109,7 @@ class PrivacyService {
         avatar: 'https://via.placeholder.com/150',
         pushSubs: [],
         twoFactorEnabled: false,
+        'provider_status.isOnline': false,
         emailVerified: false,
         marketingConsent: false,
         'consents.analytics': false,

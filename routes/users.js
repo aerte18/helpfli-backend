@@ -510,7 +510,7 @@ router.get("/:id", async (req, res) => {
     const { id } = req.params;
     
     const user = await User.findById(id)
-      .select("name email role level providerLevel location locationCoords price time services provider_status promo badges kyc rankingPoints verified service bio headline priceNote company createdAt avatar")
+      .select("name email role level providerLevel location locationCoords price time services provider_status promo badges kyc rankingPoints verified service bio headline priceNote company createdAt avatar isActive anonymized deletedAt")
       .populate('company', 'name logo')
       .populate('services', 'name_pl name_en parent_slug slug code icon')
       .lean();
@@ -518,7 +518,10 @@ router.get("/:id", async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: 'Użytkownik nie został znaleziony' });
     }
-    
+
+    if (user.anonymized || user.deletedAt || user.isActive === false) {
+      return res.status(404).json({ message: 'Użytkownik nie został znaleziony' });
+    }
     // Pobierz subscription plan
     const UserSubscription = require('../models/UserSubscription');
     const subscription = await UserSubscription.findOne({

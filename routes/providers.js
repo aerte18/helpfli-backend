@@ -1,6 +1,8 @@
 const express = require('express');
 const User = require('../models/User');
 const { authMiddleware } = require('../middleware/authMiddleware');
+const { withListableProviders } = require('../utils/listableProviderQuery');
+const { recommendProviders } = require('../utils/concierge');
 const router = express.Router();
 
 // GET /api/providers - lista wszystkich usługodawców z opcjonalnym wyszukiwaniem
@@ -9,8 +11,8 @@ router.get('/', async (req, res) => {
     const { search, q, service, level, rating, available } = req.query;
     const { resolveServicesForSearchFilter } = require('../utils/resolveServiceSearch');
     
-    // Buduj query
-    let query = { role: 'provider' };
+    // Buduj query (bez zamkniętych / zanonimizowanych kont)
+    let query = withListableProviders({ role: 'provider' });
     
     const searchTerm = (search && search.trim()) || (q && String(q).trim()) || '';
     if (searchTerm) {
@@ -272,6 +274,9 @@ router.get('/:id/mini', async (req, res) => {
     const { id } = req.params;
     const user = await User.findById(id).populate('company', 'name logo').lean();
     if (!user) return res.status(404).json({ message: 'Wykonawca nie istnieje' });
+    if (!user.isActive || user.anonymized || user.deletedAt) {
+      return res.status(404).json({ message: 'Wykonawca nie istnieje' });
+    }
 
     // Ratings aggregate
     const Rating = require('../models/Rating');

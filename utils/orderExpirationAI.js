@@ -11,6 +11,7 @@
 const Order = require('../models/Order');
 const User = require('../models/User');
 const { calculateDistance } = require('./geo');
+const { withListableProviders } = require('./listableProviderQuery');
 
 /**
  * Sprawdza czy usługa jest "trudna" na podstawie:
@@ -140,10 +141,10 @@ async function analyzeSimilarOrdersHistory(order) {
 async function countOnlineProviders(order, maxDistanceKm = 50) {
   try {
     // Szukaj providerów którzy mają daną usługę
-    const query = {
+    const query = withListableProviders({
       role: 'provider',
       services: { $regex: new RegExp(order.service, 'i') }
-    };
+    });
     
     const providers = await User.find(query)
       .select('locationLat locationLon online provider_status lastActivity')

@@ -13,6 +13,7 @@ const { validateSearch } = require("../middleware/inputValidator");
 const { calculateDistance, estimateETA } = require("../utils/geo");
 const { resolveServicesForSearchFilter } = require("../utils/resolveServiceSearch");
 const ApiRequestLog = require("../models/ApiRequestLog");
+const { withListableProviders } = require("../utils/listableProviderQuery");
 
 const router = express.Router();
 
@@ -62,9 +63,9 @@ router.get("/", validateSearch, async (req, res) => {
 
   try {
     console.log("🔍 SEARCH: Starting search with match criteria...");
-    const match = {
+    const match = withListableProviders({
       role: "provider",
-    };
+    });
     console.log("🔍 SEARCH: Initial match:", match);
     
     // MVP: Geo search (priorytet nad tekstowym location)
@@ -690,7 +691,7 @@ router.get("/top", async (req, res) => {
     
     // Pobierz szerszy zestaw kandydatów (zwiększamy limit, bo nowy system ma ostrzejsze filtry)
     const now = new Date();
-    const providers = await User.find({ 
+    const providers = await User.find(withListableProviders({ 
       role: "provider",
       $or: [
         // Aktywne promocje
@@ -702,7 +703,7 @@ router.get("/top", async (req, res) => {
         // Standard/Basic z weryfikacją (będą sprawdzeni przez wymagania jakościowe)
         { verified: true, providerTier: { $in: ["standard", "basic"] } }
       ]
-    })
+    }))
       .select("name level location locationCoords price time services provider_status promo badges kyc rankingPoints verified service providerTier isTopProvider hasHelpfliGuarantee avatar bio headline")
       .limit(parseInt(limit) * 5) // Pobierz więcej kandydatów (nowy system ma ostre filtry)
       .lean();
@@ -880,9 +881,9 @@ router.get("/providers", async (req, res) => {
   });
 
   try {
-    const match = {
+    const match = withListableProviders({
       role: "provider",
-    };
+    });
     
     // Filtr usługi - ta sama logika co GET /api/search
     const catalogServiceParam =

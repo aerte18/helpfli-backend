@@ -57,7 +57,8 @@ async function getCompanyProviders(companyId) {
   const providers = await User.find({
     _id: { $in: company.providers },
     role: 'provider',
-    isActive: true
+    isActive: true,
+    anonymized: { $ne: true },
   });
   
   return providers;

@@ -351,6 +351,7 @@ async function recommendProviders(serviceCode, lat, lon, limit = 3, urgency = 'n
     const Order = require('../models/Order');
     const Service = require('../models/Service');
     const Rating = require('../models/Rating');
+    const { withListableProviders } = require('./listableProviderQuery');
 
     // Mapowanie kodu usługi na ObjectId
     let serviceId = null;
@@ -365,7 +366,7 @@ async function recommendProviders(serviceCode, lat, lon, limit = 3, urgency = 'n
     }
 
     // surowa lista providerów kandydatów (po usłudze)
-    const query = { role: 'provider' };
+    const query = withListableProviders({ role: 'provider' });
     if (serviceId) {
       query.services = serviceId;
     }

@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 const crypto = require('crypto');
 const User = require('../models/User');
+const { withListableProviders } = require('../utils/listableProviderQuery');
 const logger = require('../utils/logger');
 const { sendMail } = require('../utils/mailer');
 // Lazy-load to avoid serverless cold-start crashes when not needed (e.g., on /login)
@@ -693,7 +694,7 @@ router.post('/logout', authMiddleware, async (req, res) => {
 // Pobierz wszystkich dostawców usług (providers)
 router.get('/providers', async (req, res) => {
   try {
-    const providers = await User.find({ role: 'provider' });
+    const providers = await User.find(withListableProviders({ role: 'provider' }));
     res.json(providers);
   } catch (err) {
     res.status(500).json({ message: 'Błąd pobierania dostawców' });
