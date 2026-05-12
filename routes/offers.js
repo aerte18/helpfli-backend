@@ -889,8 +889,20 @@ router.post("/:id/accept", auth, async (req, res) => {
       return res.status(403).json({ message: "Tylko właściciel zlecenia może zaakceptować ofertę" });
     }
     
-    // Sprawdź czy order nie ma już accepted offer
+    // Zlecenie już zaakceptowane — idempotentnie zwróć sukces dla tej samej oferty (podwójne kliknięcie / retry)
     if (order.acceptedOfferId) {
+      if (String(order.acceptedOfferId) === String(offer._id) && order.status === "accepted") {
+        return res.json({
+          ok: true,
+          orderId: order._id,
+          offerId: offer._id,
+          paymentMethod: order.paymentPreference || paymentMethod,
+          includeGuarantee: !!order.protectionEligible,
+          totalAmount: order.pricing?.total ?? offer.amount,
+          breakdown: order.pricing,
+          alreadyAccepted: true,
+        });
+      }
       return res.status(400).json({ message: "Zlecenie ma już zaakceptowaną ofertę" });
     }
     
@@ -983,6 +995,7 @@ router.post("/:id/accept", auth, async (req, res) => {
     // paymentMethod w Order to enum ['card','p24','blik','unknown'] – nie nadpisywać tutaj
 
     order.acceptedOfferId = offer._id;
+    order.acceptedAt = new Date();
     order.requestInvoice = requestInvoice;
     
     // Ustaw ceny i opłaty

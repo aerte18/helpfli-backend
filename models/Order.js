@@ -141,7 +141,9 @@ const orderSchema = new mongoose.Schema({
   offers: [offerSchema], // ⬅️ kluczowa zmiana
   selectedOffer: { type: mongoose.Schema.Types.ObjectId }, // ID wybranej oferty (jeśli wybrano)
   acceptedOfferId: { type: mongoose.Schema.Types.ObjectId, ref: 'Offer' }, // ID zaakceptowanej oferty
-  
+  /** Data akceptacji oferty przez klienta (GET timeline, UI historii) */
+  acceptedAt: { type: Date, default: null },
+
   // Nowe pola Pakietu 2
   priceTotal: { type: Number, default: 0 },
   location: {

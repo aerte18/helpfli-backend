@@ -614,7 +614,7 @@ router.post('/create-commission-intent', authMiddleware, async (req, res) => {
       return res.status(403).json({ message: 'To nie jest Twoje zlecenie' });
     }
 
-    const platformFeePln = order.pricing?.platformFee || 0;
+    const platformFeePln = Number(order.pricing?.platformFee || 0);
     if (!platformFeePln || platformFeePln <= 0) {
       return res.status(400).json({ message: 'Brak opłaty serwisowej do zapłaty' });
     }
@@ -622,11 +622,13 @@ router.post('/create-commission-intent', authMiddleware, async (req, res) => {
       return res.status(400).json({ message: 'Prowizja została już opłacona' });
     }
 
-    // Stripe kwota w groszach
-    const amount = Math.round(platformFeePln * 100);
-    if (!amount || amount < 50) {
+    // Stripe (PLN): minimalna kwota pojedynczej płatności to zwykle 2,00 zł — inaczej API zwraca błąd.
+    const nominalGrosze = Math.round(platformFeePln * 100);
+    const STRIPE_MIN_PLN_GROSZE = 200;
+    const amount = Math.max(nominalGrosze, STRIPE_MIN_PLN_GROSZE);
+    if (!nominalGrosze || nominalGrosze < 1) {
       return res.status(400).json({
-        message: 'Kwota opłaty serwisowej jest za niska do płatności online (minimum 0,50 zł).',
+        message: 'Kwota opłaty serwisowej jest nieprawidłowa.',
       });
     }
 
@@ -639,7 +641,9 @@ router.post('/create-commission-intent', authMiddleware, async (req, res) => {
         orderId: String(order._id),
         clientId: String(clientId),
         type: 'commission_external',
+        commissionNominalPln: String(platformFeePln),
         commissionAmountPln: String(platformFeePln),
+        stripeChargedPln: String((amount / 100).toFixed(2)),
       },
       statement_descriptor_suffix: 'HELPFLI',
     };
@@ -683,7 +687,12 @@ router.post('/create-commission-intent', authMiddleware, async (req, res) => {
     order.payment.method = payMethod;
     await order.save();
 
-    res.json({ clientSecret: intent.client_secret, paymentIntentId: intent.id });
+    res.json({
+      clientSecret: intent.client_secret,
+      paymentIntentId: intent.id,
+      nominalPlatformFeePln: platformFeePln,
+      chargedAmountPln: amount / 100,
+    });
   } catch (e) {
     console.error(e);
     await logPaymentError({
@@ -1367,47 +1376,65 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 
     if (event.type === 'payment_intent.succeeded') {
       const intent = event.data.object;
-      
-      // Obsługa subskrypcji
-      if (intent.metadata?.type === 'subscription') {
-        const userId = intent.metadata.userId;
-        const planKey = intent.metadata.planKey;
-        const billingPeriod = intent.metadata.billingPeriod || 'monthly';
-        const referralCode = intent.metadata.referralCode;
-        const earlyAdopter = intent.metadata.earlyAdopter === 'true';
 
+      // Subskrypcja: metadata na PI (po /subscribe) albo w Mongo Payment
+      const subscriptionPayment = await Payment.findOne({ stripePaymentIntentId: intent.id });
+      let userId =
+        intent.metadata?.userId ||
+        (subscriptionPayment?.subscriptionUser
+          ? String(subscriptionPayment.subscriptionUser)
+          : null) ||
+        subscriptionPayment?.metadata?.userId;
+      let planKey =
+        intent.metadata?.planKey ||
+        subscriptionPayment?.metadata?.planKey ||
+        subscriptionPayment?.subscriptionPlanKey;
+      let billingPeriod =
+        intent.metadata?.billingPeriod ||
+        subscriptionPayment?.metadata?.billingPeriod ||
+        'monthly';
+      let referralCode = intent.metadata?.referralCode || subscriptionPayment?.metadata?.referralCode;
+      let earlyAdopter =
+        intent.metadata?.earlyAdopter === 'true' ||
+        subscriptionPayment?.metadata?.earlyAdopter === 'true';
+
+      const looksLikeSubscription =
+        intent.metadata?.type === 'subscription' ||
+        subscriptionPayment?.metadata?.type === 'subscription' ||
+        subscriptionPayment?.purpose === 'subscription';
+
+      if (looksLikeSubscription && userId && planKey) {
+        userId = String(userId);
         try {
-          const payment = await Payment.findOne({ stripePaymentIntentId: intent.id });
           const plan = await SubscriptionPlan.findOne({ key: planKey, active: true });
-          const User = require('../models/User');
+          const buyerForCompany = planKey.startsWith('BUSINESS_')
+            ? await User.findById(userId).populate('company')
+            : null;
 
-          if (payment) {
-            payment.status = 'succeeded';
-            payment.method = intent.payment_method_types?.[0] || payment.method;
-            payment.amount = intent.amount;
-            payment.currency = intent.currency || payment.currency;
-            payment.subscriptionUser = payment.subscriptionUser || userId;
-            payment.subscriptionPlanKey = payment.subscriptionPlanKey || planKey;
-            await payment.save();
+          if (subscriptionPayment) {
+            subscriptionPayment.status = 'succeeded';
+            subscriptionPayment.method = intent.payment_method_types?.[0] || subscriptionPayment.method;
+            subscriptionPayment.amount = intent.amount;
+            subscriptionPayment.currency = intent.currency || subscriptionPayment.currency;
+            subscriptionPayment.subscriptionUser = subscriptionPayment.subscriptionUser || userId;
+            subscriptionPayment.subscriptionPlanKey = subscriptionPayment.subscriptionPlanKey || planKey;
+            await subscriptionPayment.save();
           }
 
           if (userId && plan) {
             const now = new Date();
             const validUntil = new Date(now);
-            
-            // Obsługa rocznych planów
+
             if (billingPeriod === 'yearly') {
               validUntil.setFullYear(validUntil.getFullYear() + 1);
             } else {
               validUntil.setMonth(validUntil.getMonth() + 1);
             }
 
-            // Sprawdź czy użytkownik jest early adopterem
             const totalUsers = await User.countDocuments();
             const isEarlyAdopter = earlyAdopter || totalUsers <= 1000;
             const earlyAdopterDiscount = isEarlyAdopter ? 30 : 0;
 
-            // Sprawdź loyalty discount
             let loyaltyMonths = 0;
             let loyaltyDiscount = 0;
             const existingSub = await UserSubscription.findOne({ user: userId });
@@ -1438,8 +1465,9 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
                 sub.referralCodeUsed = referralCode.toUpperCase();
               }
               sub.isBusinessPlan = planKey.startsWith('BUSINESS_');
-              
-              // Inicjalizuj limity boostów
+              sub.pendingPlanKey = null;
+              sub.pendingBillingPeriod = null;
+
               const resetDate = new Date(now.getFullYear(), now.getMonth(), 1);
               if (planKey === 'CLIENT_PRO' || planKey === 'PROV_PRO') {
                 sub.freeOrderBoostsLimit = 10;
@@ -1461,16 +1489,23 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
                 sub.freeOfferBoostsLimit = 0;
                 sub.freeOfferBoostsLeft = 0;
               }
-              
+
+              if (planKey.startsWith('BUSINESS_')) {
+                const compId = buyerForCompany?.company?._id || buyerForCompany?.company || sub.companyId;
+                if (compId) {
+                  sub.companyId = compId;
+                  sub.useCompanyResourcePool = true;
+                }
+              }
+
               await sub.save();
             } else {
-              // Inicjalizuj limity boostów dla nowej subskrypcji
               const resetDate = new Date(now.getFullYear(), now.getMonth(), 1);
               let freeOrderBoostsLimit = 0;
               let freeOrderBoostsLeft = 0;
               let freeOfferBoostsLimit = 0;
               let freeOfferBoostsLeft = 0;
-              
+
               if (planKey === 'CLIENT_PRO' || planKey === 'PROV_PRO') {
                 freeOrderBoostsLimit = 10;
                 freeOrderBoostsLeft = 10;
@@ -1482,7 +1517,12 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
                 freeOfferBoostsLimit = 5;
                 freeOfferBoostsLeft = 5;
               }
-              
+
+              let companyIdCreate = null;
+              if (planKey.startsWith('BUSINESS_')) {
+                companyIdCreate = buyerForCompany?.company?._id || buyerForCompany?.company || null;
+              }
+
               sub = await UserSubscription.create({
                 user: userId,
                 planKey: plan.key,
@@ -1496,26 +1536,49 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
                 loyaltyDiscount: loyaltyDiscount,
                 referralCodeUsed: referralCode ? referralCode.toUpperCase() : null,
                 isBusinessPlan: planKey.startsWith('BUSINESS_'),
+                companyId: companyIdCreate,
+                useCompanyResourcePool: Boolean(companyIdCreate && planKey.startsWith('BUSINESS_')),
+                stripeSubscriptionId: subscriptionPayment?.stripeSubscriptionId || null,
+                stripeCustomerId: subscriptionPayment?.stripeCustomerId || null,
                 freeOrderBoostsLimit,
                 freeOrderBoostsLeft,
                 freeOrderBoostsResetDate: resetDate,
                 freeOfferBoostsLimit,
                 freeOfferBoostsLeft,
-                freeOfferBoostsResetDate: resetDate
+                freeOfferBoostsResetDate: resetDate,
               });
             }
 
-            // Obsługa referral code - przyznaj nagrodę referrerowi
+            if (planKey.startsWith('BUSINESS_')) {
+              const Company = require('../models/Company');
+              const { initializeCompanyResourcePool } = require('../utils/resourcePool');
+              const compId =
+                buyerForCompany?.company?._id || buyerForCompany?.company || sub?.companyId;
+              if (compId) {
+                await initializeCompanyResourcePool(compId.toString(), planKey);
+                const company = await Company.findById(compId);
+                if (company) {
+                  company.onboardingSteps = company.onboardingSteps || {};
+                  if (!company.onboardingSteps.planSelected) {
+                    company.onboardingSteps.planSelected = true;
+                    await company.save();
+                  }
+                }
+              } else {
+                console.warn('[webhook] BUSINESS_ subscription paid but buyer has no company', userId);
+              }
+            }
+
             if (referralCode) {
               const ReferralCode = require('../models/ReferralCode');
               const refCode = await ReferralCode.findOne({ code: referralCode.toUpperCase(), active: true });
               if (refCode && refCode.referrer.toString() !== userId) {
                 const referrer = await User.findById(refCode.referrer);
                 if (referrer) {
-                  const rewardPlanKey = refCode.rewards.referrerReward === '1_month_pro' 
+                  const rewardPlanKey = refCode.rewards.referrerReward === '1_month_pro'
                     ? (referrer.role === 'provider' ? 'PROV_PRO' : 'CLIENT_PRO')
                     : (referrer.role === 'provider' ? 'PROV_STD' : 'CLIENT_STD');
-                  
+
                   const rewardPlan = await SubscriptionPlan.findOne({ key: rewardPlanKey, active: true });
                   if (rewardPlan) {
                     let referrerSub = await UserSubscription.findOne({ user: referrer._id });
@@ -1812,18 +1875,28 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
     if (event.type === 'payment_intent.payment_failed') {
       const intent = event.data.object;
       
-      // Obsługa subskrypcji
-      if (intent.metadata?.type === 'subscription') {
-        try {
-          const payment = await Payment.findOne({ stripePaymentIntentId: intent.id });
-          if (payment) {
-            payment.status = 'failed';
-            await payment.save();
+      // Obsługa subskrypcji (PI może nie mieć metadata — wtedy Payment z /subscribe)
+      {
+        const payment = await Payment.findOne({ stripePaymentIntentId: intent.id });
+        const isSubscriptionFailure =
+          intent.metadata?.type === 'subscription' || payment?.metadata?.type === 'subscription';
+        if (isSubscriptionFailure) {
+          try {
+            if (payment) {
+              payment.status = 'failed';
+              await payment.save();
+              if (payment.stripeSubscriptionId) {
+                await UserSubscription.updateOne(
+                  { stripeSubscriptionId: payment.stripeSubscriptionId },
+                  { $set: { pendingPlanKey: null, pendingBillingPeriod: null } }
+                );
+              }
+            }
+          } catch (e) {
+            console.error('Subscription payment_failed handling error:', e);
           }
-        } catch (e) {
-          console.error('Subscription payment_failed handling error:', e);
+          return res.json({ received: true });
         }
-        return res.json({ received: true });
       }
 
       // Błąd płatności prowizji dla rozliczenia poza systemem

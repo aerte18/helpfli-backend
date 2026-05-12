@@ -1714,7 +1714,7 @@ router.get('/:id/timeline', auth, async (req, res) => {
       timeline.push({
         type: 'accepted',
         label: 'Oferta zaakceptowana',
-        date: order.updatedAt,
+        date: order.acceptedAt || order.createdAt,
         offer: acceptedOffer ? {
           provider: acceptedOffer.provider,
           price: acceptedOffer.price
