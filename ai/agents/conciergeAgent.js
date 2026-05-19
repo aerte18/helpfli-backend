@@ -6,7 +6,11 @@
 const { CONCIERGE_SYSTEM } = require('../prompts/conciergePrompt');
 const { callAgentLLM, safeParseJSON, extractDisplayReply } = require('../utils/llmAdapter');
 const { guardrailEnforce, enforceSafetyRules } = require('../utils/guardrails');
-const { validateConciergeResponseShape } = require('../schemas/conciergeSchemas');
+const {
+  coerceConciergeResponseShape,
+  validateConciergeResponseShape
+} = require('../schemas/conciergeSchemas');
+const { isProviderSearchFollowUp } = require('../utils/orderConciergeSync');
 const { normalizeServiceName, normalizeUrgency, extractKeywords } = require('../utils/normalize');
 const { detectApplianceIssue } = require('../utils/applianceDiagnostics');
 const { detectSafetyTriage } = require('../utils/safetyTriage');
@@ -164,6 +168,7 @@ async function runConciergeAgent({ messages, userContext = {}, allowedServicesHi
     // Normalizuj i waliduj
     parsed.reply = extractDisplayReply(parsed.reply);
     parsed = guardrailEnforce(parsed, { maxReplyLength: userContext._maxReplyLength || 1200 });
+    coerceConciergeResponseShape(parsed);
     validateConciergeResponseShape(parsed);
 
     // Normalizacja dodatkowych pól
@@ -234,14 +239,37 @@ async function runConciergeAgent({ messages, userContext = {}, allowedServicesHi
                        error.message?.includes('authentication') ||
                        error.message?.includes('invalid x-api-key');
     
-    const userFriendlyMessage = isAuthError
-      ? 'Przepraszam, wystąpił problem z konfiguracją AI. Używam alternatywnego systemu analizy. Spróbuj ponownie opisać problem.'
-      : 'Przepraszam, wystąpił błąd podczas przetwarzania. Spróbuj ponownie opisać problem.';
-    
     const lastUserMessage = messages
       .filter(m => m.role === 'user')
       .pop();
     const userText = lastUserMessage?.content || lastUserMessage?.text || '';
+
+    if (isProviderSearchFollowUp(userText)) {
+      return {
+        ok: true,
+        agent: 'concierge',
+        reply:
+          'Sprawdzam wykonawców w szerszym obszarze — za chwilę zobaczysz wyniki pod wiadomością albo propozycję wystawienia zlecenia.',
+        intent: 'service_request',
+        detectedService: userContext.detectedService || 'inne',
+        urgency: 'standard',
+        confidence: 0.85,
+        nextStep: 'suggest_providers',
+        questions: [],
+        extracted: {
+          location: userContext.location?.text || userContext.location || null,
+          timeWindow: userContext.extracted?.timeWindow || null,
+          budget: null,
+          details: []
+        },
+        missing: []
+      };
+    }
+
+    const userFriendlyMessage = isAuthError
+      ? 'Przepraszam, wystąpił problem z konfiguracją AI. Używam alternatywnego systemu analizy. Spróbuj ponownie opisać problem.'
+      : 'Przepraszam, wystąpił błąd podczas przetwarzania. Spróbuj ponownie opisać problem.';
+
     const safetyTriage = detectSafetyTriage(userText);
     const applianceIssue = detectApplianceIssue(userText);
     const wantsEscalation = /(nie pomog|nie działa dalej|dalej nie działa|nadal nie działa|bez zmian|nie zadziałało|nie zadzialalo)/i.test(userText);

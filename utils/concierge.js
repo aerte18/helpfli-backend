@@ -345,8 +345,9 @@ async function computePriceHints(serviceCode, location = {}) {
 }
 
 // 5) Ranking providerów 0–100: skuteczność, %system, ocena, odległość, tier, dostępność, promocje
-async function recommendProviders(serviceCode, lat, lon, limit = 3, urgency = 'normal') {
+async function recommendProviders(serviceCode, lat, lon, limit = 3, urgency = 'normal', options = {}) {
   try {
+    const { relaxServiceFilter = false } = options;
     const User = require('../models/User');
     const Order = require('../models/Order');
     const Service = require('../models/Service');
@@ -355,7 +356,7 @@ async function recommendProviders(serviceCode, lat, lon, limit = 3, urgency = 'n
 
     // Mapowanie kodu usługi na ObjectId
     let serviceId = null;
-    if (serviceCode) {
+    if (serviceCode && !relaxServiceFilter) {
       const service = await Service.findOne({ 
         $or: [
           { code: serviceCode },

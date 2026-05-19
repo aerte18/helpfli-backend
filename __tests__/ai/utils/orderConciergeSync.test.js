@@ -5,6 +5,8 @@ const {
   wantsToCreateOrder,
   detectChosenPathFromText,
   enrichConciergeWithMatching,
+  canRunProviderMatching,
+  isProviderSearchFollowUp,
   buildConversationSummary,
   cleanDescriptionText,
   applyDisplayFieldsToDraft
@@ -62,6 +64,33 @@ describe('orderConciergeSync phased flow', () => {
     expect(detectChosenPathFromText('Pokaż wykonawców')).toBe('providers');
   });
 
+  it('does not run provider matching on first message without explicit path', () => {
+    expect(
+      canRunProviderMatching({
+        chosenPath: 'providers',
+        userMessageCount: 1,
+        concierge: { nextStep: 'suggest_providers' },
+        draft: { missing: [] },
+        explicitPathFromClient: false
+      })
+    ).toBe(false);
+    expect(
+      canRunProviderMatching({
+        chosenPath: 'providers',
+        userMessageCount: 2,
+        concierge: { nextStep: 'suggest_providers' },
+        draft: { missing: [] },
+        explicitPathFromClient: false
+      })
+    ).toBe(true);
+  });
+
+  it('does not append empty matching note during clarify', () => {
+    const concierge = { reply: 'Jaki problem masz?', nextStep: 'ask_more', questions: ['?'] };
+    enrichConciergeWithMatching(concierge, { topProviders: [], notes: ['Nie znaleziono wykonawców'] });
+    expect(concierge.reply).not.toMatch(/nie znaleziono/i);
+  });
+
   it('overrides stored diy path when user asks to find providers', () => {
     expect(detectChosenPathFromText('znajdź proszę', 'diy')).toBe('providers');
     expect(detectChosenPathFromText('i jak masz?', 'diy')).toBe('providers');
@@ -75,6 +104,19 @@ describe('orderConciergeSync phased flow', () => {
     });
     expect(concierge.reply).toMatch(/znalazłem/i);
     expect(concierge.reply).not.toMatch(/zaraz będą wyniki/i);
+  });
+
+  it('allows provider matching on follow-up about nearby contractors', () => {
+    expect(isProviderSearchFollowUp('a są jacykolwiek w okolicy')).toBe(true);
+    expect(
+      canRunProviderMatching({
+        chosenPath: 'providers',
+        userMessageCount: 1,
+        lastUserText: 'a są jacykolwiek w okolicy',
+        concierge: { nextStep: 'suggest_providers' },
+        draft: { missing: ['termin'] }
+      })
+    ).toBe(true);
   });
 
   it('cleans description and location for display', () => {

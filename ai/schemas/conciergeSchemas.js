@@ -54,41 +54,64 @@ function validateConciergeRequest(body) {
   };
 }
 
+const VALID_URGENCIES = ['low', 'standard', 'urgent'];
+const VALID_NEXT_STEPS = [
+  'ask_more',
+  'diagnose',
+  'show_pricing',
+  'suggest_diy',
+  'suggest_providers',
+  'create_order',
+  'offer_choices'
+];
+
+function coerceConciergeResponseShape(ai) {
+  if (!ai || typeof ai !== 'object') return ai;
+  if (typeof ai.reply !== 'string' || !ai.reply.trim()) {
+    ai.reply = 'Rozumiem — sprawdzam dalej.';
+  } else {
+    ai.reply = ai.reply.trim();
+  }
+  if (typeof ai.detectedService !== 'string' || !ai.detectedService.trim()) {
+    ai.detectedService = 'inne';
+  }
+  if (!VALID_URGENCIES.includes(ai.urgency)) {
+    ai.urgency = 'standard';
+  }
+  if (typeof ai.confidence !== 'number' || Number.isNaN(ai.confidence)) {
+    ai.confidence = 0.75;
+  } else {
+    ai.confidence = Math.min(1, Math.max(0, ai.confidence));
+  }
+  if (!VALID_NEXT_STEPS.includes(ai.nextStep)) {
+    ai.nextStep = 'ask_more';
+  }
+  if (!Array.isArray(ai.questions)) {
+    ai.questions = [];
+  }
+  return ai;
+}
+
 function validateConciergeResponseShape(ai) {
   if (!ai || typeof ai !== 'object') {
     throw new Error('AI response must be an object');
   }
-  
+  coerceConciergeResponseShape(ai);
   if (typeof ai.reply !== 'string' || ai.reply.trim().length === 0) {
     throw new Error('AI.reply must be a non-empty string');
   }
-  
   if (typeof ai.detectedService !== 'string') {
     throw new Error('AI.detectedService must be string');
   }
-  
-  const validUrgencies = ['low', 'standard', 'urgent'];
-  if (!validUrgencies.includes(ai.urgency)) {
-    throw new Error(`AI.urgency must be one of: ${validUrgencies.join(', ')}`);
+  if (!VALID_URGENCIES.includes(ai.urgency)) {
+    throw new Error(`AI.urgency must be one of: ${VALID_URGENCIES.join(', ')}`);
   }
-  
   if (typeof ai.confidence !== 'number' || ai.confidence < 0 || ai.confidence > 1) {
     throw new Error('AI.confidence must be a number between 0 and 1');
   }
-  
-  const validNextSteps = [
-    'ask_more',
-    'diagnose',
-    'show_pricing',
-    'suggest_diy',
-    'suggest_providers',
-    'create_order',
-    'offer_choices'
-  ];
-  if (!validNextSteps.includes(ai.nextStep)) {
-    throw new Error(`AI.nextStep must be one of: ${validNextSteps.join(', ')}`);
+  if (!VALID_NEXT_STEPS.includes(ai.nextStep)) {
+    throw new Error(`AI.nextStep must be one of: ${VALID_NEXT_STEPS.join(', ')}`);
   }
-  
   if (!Array.isArray(ai.questions)) {
     throw new Error('AI.questions must be an array');
   }
@@ -151,6 +174,7 @@ function validateOrderDraftResponse(ai) {
 
 module.exports = {
   validateConciergeRequest,
+  coerceConciergeResponseShape,
   validateConciergeResponseShape,
   validateDiagnosticResponse,
   validatePricingResponse,

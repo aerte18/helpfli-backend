@@ -19,15 +19,72 @@ const User = require('../../models/User');
  * @param {Object} params.userContext - Kontekst użytkownika (location, etc.)
  * @returns {Promise<Object>} Response agenta
  */
-async function runMatchingAgent({ service, urgency = 'standard', budget = null, userContext = {} }) {
+function serviceSearchCandidates(service) {
+  const raw = String(service || '').trim();
+  const list = raw ? [raw] : [];
+  const s = raw.toLowerCase();
+  if (/agd|pralk|lodow|zmyw|bosch|rtv/i.test(s)) {
+    list.push('agd-rtv', 'agd-rtv-naprawa-agd', 'agd_naprawa');
+  }
+  if (/hydraul|kran|ciekn|wyciek/i.test(s)) {
+    list.push('hydraulik_naprawa', 'hydraulik');
+  }
+  if (/elektr|gniazd|prąd|prad/i.test(s)) {
+    list.push('elektryk_naprawa', 'elektryk');
+  }
+  return [...new Set(list.filter(Boolean))];
+}
+
+async function fetchProvidersForMatching({
+  service,
+  location,
+  urgency,
+  relaxSearch = false
+}) {
+  const urgencyKey = urgency === 'urgent' ? 'now' : urgency === 'standard' ? 'today' : 'normal';
+  const candidates = serviceSearchCandidates(service);
+  if (relaxSearch) candidates.push(null);
+
+  for (const code of candidates) {
+    let data = await recommendProviders(code, location.lat, location.lng, 5, urgencyKey);
+    if (data?.length) {
+      return { data, serviceUsed: code || service, searchExpanded: false };
+    }
+    if (relaxSearch) {
+      data = await recommendProviders(code, location.lat, location.lng, 5, urgencyKey, {
+        relaxServiceFilter: true
+      });
+      if (data?.length) {
+        return { data, serviceUsed: code || service, searchExpanded: true };
+      }
+    }
+  }
+  return { data: [], serviceUsed: service, searchExpanded: relaxSearch };
+}
+
+async function runMatchingAgent({
+  service,
+  urgency = 'standard',
+  budget = null,
+  userContext = {},
+  relaxSearch = false,
+  messages = []
+}) {
   try {
-    const locationText = userContext.location?.text || userContext.location || '';
+    const { resolveProviderSearchLocation } = require('../utils/locationResolver');
+    const resolved = await resolveProviderSearchLocation({
+      userContext,
+      draftLocation: userContext.draftLocation || null,
+      messages
+    });
+
     const location = {
-      text: locationText,
-      lat: userContext.location?.lat || null,
-      lng: userContext.location?.lng || null,
-      radiusKm: 10
+      text: resolved.text || userContext.location?.text || userContext.location || '',
+      lat: resolved.lat,
+      lng: resolved.lng,
+      radiusKm: relaxSearch ? 40 : 15
     };
+    const locationText = location.text;
     
     // Określ kryteria matchingu
     const recommendedLevel = getRecommendedLevel(budget);
@@ -37,34 +94,26 @@ async function runMatchingAgent({ service, urgency = 'standard', budget = null, 
     
     // Pobierz providerów z bazy (użyj istniejącej funkcji recommendProviders)
     let topProviders = [];
+    let searchExpanded = relaxSearch;
     try {
-      // Sprawdź cache
       const CacheService = require('../../services/CacheService');
-      let providersData = await CacheService.getProviderSearch(
-        service, 
-        locationText || 'default', 
-        5
-      );
+      const cacheKey = `${relaxSearch ? 'wide:' : ''}${locationText || 'default'}`;
+      let providersData = relaxSearch
+        ? null
+        : await CacheService.getProviderSearch(service, cacheKey, 5);
       
       if (!providersData || providersData.length === 0) {
-        // Wywołaj funkcję recommendProviders
-        providersData = await recommendProviders(
+        const fetched = await fetchProvidersForMatching({
           service,
-          location.lat,
-          location.lng,
-          5, // limit
-          urgency === 'urgent' ? 'now' : urgency === 'standard' ? 'today' : 'normal'
-        );
+          location,
+          urgency,
+          relaxSearch
+        });
+        providersData = fetched.data;
+        searchExpanded = fetched.searchExpanded;
         
-        // Zapisz w cache (30 minut)
-        if (providersData && providersData.length > 0) {
-          await CacheService.setProviderSearch(
-            service, 
-            locationText || 'default', 
-            5, 
-            providersData, 
-            1800
-          );
+        if (providersData?.length && !relaxSearch) {
+          await CacheService.setProviderSearch(service, cacheKey, 5, providersData, 1800);
         }
       }
       
@@ -146,6 +195,7 @@ async function runMatchingAgent({ service, urgency = 'standard', budget = null, 
       urgency: normalizeUrgency(urgency),
       budget: budget || null,
       location,
+      searchExpanded,
       criteria: {
         minRating,
         availability,
@@ -154,7 +204,9 @@ async function runMatchingAgent({ service, urgency = 'standard', budget = null, 
       topProviders,
       notes: topProviders.length > 0 
         ? ['Wszyscy wykonawcy są zweryfikowani i dostępni w Twojej okolicy']
-        : ['Nie znaleziono wykonawców w tej lokalizacji. Spróbuj poszerzyć zakres wyszukiwania.']
+        : searchExpanded
+          ? ['Poszerzyłem wyszukiwanie, ale nadal brak aktywnych profili w tej okolicy.']
+          : ['Nie znaleziono wykonawców w tej lokalizacji. Spróbuj poszerzyć zakres wyszukiwania.']
     };
     
   } catch (error) {

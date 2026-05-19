@@ -5,9 +5,9 @@
 const WANTS_ORDER_PATTERN =
   /wystaw|utwórz|utworz|stwórz|stworz|załóż|zaloz|chc[eę]\s+(utworzyć|utworzyc)\s+zlecen|chc[eę]\s+zlecen|potwierdzam.*zlecen|utworzyć zlecenie|utworzyc zlecenie/i;
 const WANTS_PROVIDERS_PATTERN =
-  /wykonawc|fachowc|hydraulik|elektryk|monter|specjalist|znajd[zź]|poszukaj|wyszukaj|pokaż wykonawc|pokaz wykonawc|pokaz najlepiej|szukaj (wykonawc|fachowc)|masz (już )?wynik|i jak masz|są wyniki|pokaż (mi )?list|kto może przyjechać/i;
+  /(?:znajd[zź]|poszukaj|wyszukaj|pokaż|pokaz|szukaj).{0,40}(?:wykonawc|fachowc|hydraulik|specjalist)|znajd[zź]\s+prosz[eę]?|pokaż (mi )?(wykonawc|list)|pokaz (mi )?(wykonawc|list)|masz (już )?wynik|i jak masz|są wyniki|kto może przyjechać/i;
 const PROVIDERS_FOLLOWUP_PATTERN =
-  /i jak masz|masz wyniki|są wyniki|co znalaz|znalazłeś|znalazles|pokaż (mi )?(ich|list)|gdzie (są|sa) (ci )?wykonawc/i;
+  /i jak masz|masz wyniki|są wyniki|co znalaz|znalazłeś|znalazles|pokaż (mi )?(ich|list)|gdzie (są|sa) (ci )?wykonawc|w okolicy|w\s+okolic|jakikolwiek|jakichkolwiek|ktokolwiek|s[aą]\s+jacy|s[aą]\s+jacyś|jest ktoś|jest ktos|ktoś w pobliżu|ktos w poblizu|poszerz|szerszy obszar|dalej szukaj/i;
 const WANTS_PRICING_PATTERN = /cen|koszt|widełki|widełek|wycen|ile (to )?koszt|orientacyjn(e|ych) widełki/i;
 const WANTS_DIY_PATTERN = /sam(odzielnie)?|diy|krok po kroku|zr[oó]b(ię|ie)?\s+sam|bezpieczne kroki/i;
 const DIY_FAILED_PATTERN =
@@ -282,15 +282,55 @@ function mergeAttachmentLists(...lists) {
   return out;
 }
 
+function isProviderSearchFollowUp(text = '') {
+  return PROVIDERS_FOLLOWUP_PATTERN.test(String(text || ''));
+}
+
+function canRunProviderMatching({
+  chosenPath = null,
+  userMessageCount = 0,
+  lastUserText = '',
+  concierge = {},
+  draft = null,
+  blockHeavyAgents = false,
+  explicitPathFromClient = false
+}) {
+  if (blockHeavyAgents) return false;
+  const followUp = isProviderSearchFollowUp(lastUserText);
+  if (userMessageCount < 2 && !explicitPathFromClient && !followUp) return false;
+  const wantsProviders =
+    chosenPath === 'providers' ||
+    concierge.nextStep === 'suggest_providers' ||
+    concierge.uiPhase === 'providers' ||
+    followUp;
+  if (!wantsProviders) return false;
+  if (filterCoreMissing(draft?.missing || []).length > 0) return false;
+  return true;
+}
+
 function enrichConciergeWithMatching(concierge = {}, matching = null) {
   if (!matching) return concierge;
 
+  const inClarify =
+    concierge.nextStep === 'ask_more' ||
+    concierge.uiPhase === 'clarify' ||
+    (concierge.questions && concierge.questions.length > 0);
+
   const providers = matching.topProviders || [];
   if (providers.length === 0) {
-    const note = matching.notes?.[0] || 'Nie znalazłem wykonawców w tej okolicy — spróbuj poszerzyć obszar lub utwórz zlecenie.';
-    if (/szukam|zaraz będą wyniki|będą wyniki/i.test(concierge.reply || '')) {
+    if (inClarify) return concierge;
+    const loc = matching.location?.text || 'tej okolicy';
+    const note =
+      matching.searchExpanded
+        ? `Poszerzyłem wyszukiwanie — nadal nie mam aktywnych profili w ${loc}. Możesz **wystawić zlecenie** (wykonawcy sami odpowiedzą) albo przejść do **mapy wykonawców** na stronie głównej.`
+        : `Na razie nie widzę dopasowanych wykonawców w ${loc}. Spróbuję poszerzyć zakres — albo **wystaw zlecenie**, wtedy fachowcy sami się odezwą.`;
+    concierge.matchingEmpty = true;
+    concierge.questions = [];
+    if (/szukam|zaraz|wyciągnę|wyciagne|najlepszych/i.test(concierge.reply || '')) {
       concierge.reply = note;
-    } else if (!concierge.reply?.includes(note.slice(0, 20))) {
+    } else if (!concierge.reply?.includes('wykonawc')) {
+      concierge.reply = `${concierge.reply}\n\n${note}`.trim();
+    } else if (!concierge.reply?.includes('zlecenie')) {
       concierge.reply = `${concierge.reply}\n\n${note}`.trim();
     }
     return concierge;
@@ -337,6 +377,7 @@ module.exports = {
   wantsPricing,
   wantsDiy,
   detectChosenPathFromText,
+  isProviderSearchFollowUp,
   isCoreOrderMissing,
   filterCoreMissing,
   PROVIDERS_FOLLOWUP_PATTERN,
@@ -351,5 +392,6 @@ module.exports = {
   formatLocationDisplay,
   applyDisplayFieldsToDraft,
   enrichConciergeWithMatching,
+  canRunProviderMatching,
   CHOSEN_PATH_MAP
 };

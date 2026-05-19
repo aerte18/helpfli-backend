@@ -22,7 +22,9 @@ const {
   detectChosenPathFromText,
   applyDisplayFieldsToDraft,
   buildConversationSummary,
-  enrichConciergeWithMatching
+  enrichConciergeWithMatching,
+  canRunProviderMatching,
+  isProviderSearchFollowUp
 } = require('./utils/orderConciergeSync');
 const { getChosenPath, setChosenPath } = require('./utils/conciergeSessionStore');
 
@@ -66,11 +68,16 @@ async function conciergeHandler(req, res) {
     // Pobierz lub utwórz sessionId (z requestu lub generuj nowy)
     const sessionId = parsed.sessionId || req.headers['x-session-id'] || `session_${Date.now()}_${userId}`;
     let chosenPath = parsed.chosenPath || getChosenPath(sessionId) || null;
+    const explicitPathFromClient = Boolean(parsed.chosenPath);
     const lastUserMessageEarly = (parsed.messages || []).filter((m) => m.role === 'user').pop();
+    const userMessageCountEarly = (parsed.messages || []).filter((m) => m.role === 'user').length;
     const detectedPath = detectChosenPathFromText(lastUserMessageEarly?.content || '', chosenPath);
     if (detectedPath) {
-      chosenPath = detectedPath;
-      setChosenPath(sessionId, chosenPath);
+      const deferProviders = detectedPath === 'providers' && userMessageCountEarly < 2 && !explicitPathFromClient;
+      if (!deferProviders) {
+        chosenPath = detectedPath;
+        setChosenPath(sessionId, chosenPath);
+      }
     }
     
     // Pobierz kontekst z pamięci (ostatnie wiadomości + preferencje)
@@ -364,15 +371,18 @@ async function conciergeHandler(req, res) {
           conciergeResult.urgency = agentPayload.diagnostic.urgency;
         }
         if (agentPayload.diagnostic.recommendedPath) {
-          // Mapuj recommendedPath na nextStep
           const pathToStep = {
-            'express': 'suggest_providers',
-            'provider': 'suggest_providers',
-            'diy': 'suggest_diy',
-            'teleconsult': 'show_pricing'
+            express: 'suggest_providers',
+            provider: 'suggest_providers',
+            diy: 'suggest_diy',
+            teleconsult: 'show_pricing'
           };
-          if (pathToStep[agentPayload.diagnostic.recommendedPath]) {
-            conciergeResult.nextStep = pathToStep[agentPayload.diagnostic.recommendedPath];
+          const mapped = pathToStep[agentPayload.diagnostic.recommendedPath];
+          const providerStep = mapped === 'suggest_providers';
+          if (mapped && (!providerStep || userMessageCount >= 2 || chosenPath === 'providers')) {
+            conciergeResult.nextStep = mapped;
+          } else if (providerStep && userMessageCount < 2) {
+            conciergeResult.nextStep = 'ask_more';
           }
         }
         // Zaktualizuj safety flags
@@ -490,35 +500,61 @@ async function conciergeHandler(req, res) {
               quality: agentPayload.orderDraft.quality || null
             }
           : null;
-        if (agentPayload.orderDraft.nextQuestion && conciergeResult.nextStep === 'ask_more') {
-          conciergeResult.questions = [agentPayload.orderDraft.nextQuestion];
-        } else if (
-          agentPayload.orderDraft.questions?.length &&
-          (!conciergeResult.questions || conciergeResult.questions.length === 0)
-        ) {
-          conciergeResult.questions = agentPayload.orderDraft.questions.slice(0, 1);
+        if (chosenPath !== 'providers' && uiPhase !== 'providers') {
+          if (agentPayload.orderDraft.nextQuestion && conciergeResult.nextStep === 'ask_more') {
+            conciergeResult.questions = [agentPayload.orderDraft.nextQuestion];
+          } else if (
+            agentPayload.orderDraft.questions?.length &&
+            (!conciergeResult.questions || conciergeResult.questions.length === 0)
+          ) {
+            conciergeResult.questions = agentPayload.orderDraft.questions.slice(0, 1);
+          }
+        } else {
+          conciergeResult.questions = [];
         }
       } catch (error) {
         console.error('Order draft agent failed:', error.message);
       }
     }
 
-    const shouldMatchProviders =
-      !blockHeavyAgents &&
-      (chosenPath === 'providers' ||
-        conciergeResult.nextStep === 'suggest_providers' ||
-        conciergeResult.uiPhase === 'providers');
+    const lastUserText = lastUserMessage?.content || '';
+    const providerFollowUp = isProviderSearchFollowUp(lastUserText);
+    if (providerFollowUp) {
+      chosenPath = 'providers';
+      setChosenPath(sessionId, chosenPath);
+      conciergeResult.nextStep = 'suggest_providers';
+    }
+
+    const shouldMatchProviders = canRunProviderMatching({
+      chosenPath,
+      userMessageCount,
+      lastUserText,
+      concierge: conciergeResult,
+      draft: agentPayload.orderDraft,
+      blockHeavyAgents,
+      explicitPathFromClient
+    });
 
     if (shouldMatchProviders) {
       try {
+        const draftLoc = agentPayload.orderDraft?.orderPayload?.location;
         agentPayload.matching = await runMatchingAgent({
           service: conciergeResult.detectedService,
           urgency: conciergeResult.urgency || 'standard',
           budget: conciergeResult.extracted?.budget || agentPayload.orderDraft?.orderPayload?.budget,
+          relaxSearch: providerFollowUp,
+          messages: finalMessages.length > 0 ? finalMessages : parsed.messages,
           userContext: {
             ...userContext,
-            location: userContext.location || {
-              text: agentPayload.orderDraft?.orderPayload?.location || conciergeResult.extracted?.location
+            draftLocation: draftLoc,
+            location: {
+              text:
+                (typeof draftLoc === 'object' ? draftLoc?.text : draftLoc) ||
+                userContext.location?.text ||
+                conciergeResult.extracted?.location ||
+                null,
+              lat: userContext.location?.lat ?? null,
+              lng: userContext.location?.lng ?? null
             }
           }
         });
@@ -528,6 +564,17 @@ async function conciergeHandler(req, res) {
       } catch (error) {
         console.error('Matching agent failed:', error.message);
       }
+    } else if (
+      (chosenPath === 'providers' || conciergeResult.nextStep === 'suggest_providers') &&
+      userMessageCount < 2 &&
+      !explicitPathFromClient
+    ) {
+      conciergeResult.uiPhase = 'clarify';
+      conciergeResult.conversationStep = computeConversationStep('clarify');
+      if (conciergeResult.nextStep === 'suggest_providers') {
+        conciergeResult.nextStep = 'ask_more';
+      }
+      delete agentPayload.matching;
     }
 
     if (!conciergeResult.uiPhase) {
