@@ -13,7 +13,7 @@ let webpushEnabled = false;
 function tryConfigureVapid(publicKey, privateKey, label) {
   try {
     webpush.setVapidDetails(
-      process.env.VAPID_SUBJECT || "mailto:support@helpfli.app",
+      process.env.VAPID_SUBJECT || "mailto:helpfli@outlook.com",
       publicKey,
       privateKey
     );

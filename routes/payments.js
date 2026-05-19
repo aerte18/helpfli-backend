@@ -851,7 +851,7 @@ async function createInvoiceForOrder(client, order, payment, customerType, invoi
       }
     },
     seller: {
-      name: process.env.INVOICE_SELLER_NAME || 'Helpfli Sp. z o.o.',
+      name: process.env.INVOICE_SELLER_NAME || 'Helpfli',
       nip: process.env.INVOICE_SELLER_NIP || '',
       address: {
         street: process.env.INVOICE_SELLER_STREET || '',

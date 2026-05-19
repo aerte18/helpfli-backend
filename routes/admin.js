@@ -236,7 +236,7 @@ router.post('/invoices/create', async (req, res) => {
           }
         },
         seller: {
-          name: process.env.INVOICE_SELLER_NAME || 'Helpfli Sp. z o.o.',
+          name: process.env.INVOICE_SELLER_NAME || 'Helpfli',
           nip: process.env.INVOICE_SELLER_NIP || '',
           address: {
             street: process.env.INVOICE_SELLER_STREET || '',
@@ -481,7 +481,7 @@ router.post('/payments/:paymentId/create-invoice', async (req, res) => {
       dueDate,
       buyer: buyerData,
       seller: {
-        name: process.env.INVOICE_SELLER_NAME || 'Helpfli Sp. z o.o.',
+        name: process.env.INVOICE_SELLER_NAME || 'Helpfli',
         nip: process.env.INVOICE_SELLER_NIP || '',
         address: {
           street: process.env.INVOICE_SELLER_STREET || '',

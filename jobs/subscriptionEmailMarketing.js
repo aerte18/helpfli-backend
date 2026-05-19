@@ -160,7 +160,7 @@ async function sendRetentionEmail(user, subscription) {
             </div>
             
             <p style="color: #6b7280; font-size: 14px; margin-top: 20px; text-align: center;">
-              Jeśli masz pytania, skontaktuj się z nami: <a href="mailto:support@helpfli.pl">support@helpfli.pl</a>
+              Jeśli masz pytania, skontaktuj się z nami: <a href="mailto:helpfli@outlook.com">helpfli@outlook.com</a>
             </p>
           </div>
         </div>

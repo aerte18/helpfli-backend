@@ -37,7 +37,7 @@ const options = {
       `,
       contact: {
         name: 'Helpfli Support',
-        email: 'support@helpfli.app'
+        email: 'helpfli@outlook.com'
       },
       license: {
         name: 'ISC'

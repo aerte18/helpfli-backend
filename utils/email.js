@@ -28,7 +28,7 @@ async function sendMail({ to, subject, html, attachments = [] }) {
     try {
       const client = new Resend(process.env.RESEND_API_KEY);
       const from =
-        process.env.EMAIL_FROM || "Helpfli <noreply@helpfli.pl>";
+        process.env.EMAIL_FROM || "Helpfli <helpfli@outlook.com>";
       const payload = {
         from,
         to: Array.isArray(to) ? to : [to],
@@ -58,7 +58,7 @@ async function sendMail({ to, subject, html, attachments = [] }) {
   const t = getTransporter();
   if (!t) return { ok:false, reason:'mail_provider_not_configured' };
   const info = await t.sendMail({
-    from: process.env.EMAIL_FROM || process.env.SMTP_FROM || 'Helpfli <noreply@helpfli.pl>',
+    from: process.env.EMAIL_FROM || process.env.SMTP_FROM || 'Helpfli <helpfli@outlook.com>',
     to, subject, html, attachments
   });
   return { ok:true, messageId: info.messageId };

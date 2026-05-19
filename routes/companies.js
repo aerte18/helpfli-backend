@@ -268,7 +268,7 @@ router.get('/:companyId/invoices/:invoiceId/pdf', auth, requireCompanyAccess, as
       .fontSize(11)
       .text('Sprzedawca:', { continued: false })
       .fontSize(10)
-      .text(process.env.INVOICE_SELLER_NAME || 'Helpfli Sp. z o.o.')
+      .text(process.env.INVOICE_SELLER_NAME || 'Helpfli')
       .text(process.env.INVOICE_SELLER_STREET || '')
       .text(
         `${process.env.INVOICE_SELLER_POSTAL || ''} ${

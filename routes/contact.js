@@ -3,7 +3,7 @@ const { sendMail } = require("../utils/mailer");
 
 const router = express.Router();
 
-const CONTACT_RECEIVER = "helpfli@outlook.com";
+const CONTACT_RECEIVER = process.env.CONTACT_EMAIL || "helpfli@outlook.com";
 
 function escapeHtml(value) {
   return String(value || "")

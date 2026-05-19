@@ -132,11 +132,11 @@ router.get('/policy', (req, res) => {
     sections: {
       introduction: {
         title: 'Wprowadzenie',
-        content: 'Niniejsza Polityka Prywatności opisuje, jak Helpfli sp. z o.o. („Helpfli", „my", „nas") zbiera, wykorzystuje i chroni Twoje dane osobowe zgodnie z Rozporządzeniem o Ochronie Danych Osobowych (RODO).'
+        content: 'Niniejsza Polityka Prywatności opisuje, jak Helpfli („Helpfli", „my", „nas") — operator serwisu helpfli.pl — zbiera, wykorzystuje i chroni Twoje dane osobowe zgodnie z Rozporządzeniem o Ochronie Danych Osobowych (RODO).'
       },
       dataController: {
         title: 'Administrator Danych',
-        content: 'Administratorem Twoich danych osobowych jest Helpfli sp. z o.o. z siedzibą w Warszawie, adres: [ADRES], NIP: [NIP], REGON: [REGON].'
+        content: 'Administratorem Twoich danych osobowych jest Helpfli (operator serwisu helpfli.pl).'
       },
       dataCollection: {
         title: 'Jakie dane zbieramy',
@@ -156,7 +156,7 @@ router.get('/policy', (req, res) => {
       },
       userRights: {
         title: 'Twoje prawa',
-        content: 'Masz prawo do: dostępu do danych, sprostowania, usunięcia, ograniczenia przetwarzania, przenoszenia danych, sprzeciwu, wycofania zgody. Skontaktuj się z nami: privacy@helpfli.pl'
+        content: 'Masz prawo do: dostępu do danych, sprostowania, usunięcia, ograniczenia przetwarzania, przenoszenia danych, sprzeciwu, wycofania zgody. Skontaktuj się z nami: helpfli@outlook.com'
       },
       dataSecurity: {
         title: 'Bezpieczeństwo danych',
@@ -168,7 +168,7 @@ router.get('/policy', (req, res) => {
       },
       contact: {
         title: 'Kontakt',
-        content: 'W sprawach ochrony danych kontaktuj się z nami: email: privacy@helpfli.pl, adres: [ADRES], telefon: [TELEFON].'
+        content: 'W sprawach ochrony danych kontaktuj się z nami: helpfli@outlook.com'
       }
     }
   };
