@@ -306,6 +306,120 @@ async function createPaymentIntentPreferLocalWallets(stripe, basePayload) {
   throw lastErr;
 }
 
+const PI_OK_FOR_CLIENT = new Set(['requires_capture', 'succeeded', 'processing']);
+const PI_REUSABLE = new Set(['requires_payment_method', 'requires_confirmation']);
+
+async function scanOrderStripeIntents(orderId) {
+  if (!stripe || !orderId) return [];
+  const payments = await Payment.find({ order: orderId }).sort({ createdAt: -1 }).limit(20);
+  const out = [];
+  for (const payment of payments) {
+    if (!payment.stripePaymentIntentId) continue;
+    try {
+      const intent = await stripe.paymentIntents.retrieve(payment.stripePaymentIntentId);
+      out.push({ payment, intent });
+    } catch (err) {
+      console.warn('scanOrderStripeIntents retrieve:', payment.stripePaymentIntentId, err.message);
+    }
+  }
+  return out;
+}
+
+/** Anuluje zbędne autoryzacje (requires_capture) — zwalnia blokady na karcie klienta. */
+async function cancelDuplicateCapturableIntents(orderId, keepIntentId) {
+  if (!stripe || !orderId) return 0;
+  let canceled = 0;
+  const scanned = await scanOrderStripeIntents(orderId);
+  for (const { payment, intent } of scanned) {
+    if (intent.id === keepIntentId) continue;
+    if (intent.status !== 'requires_capture') continue;
+    try {
+      await stripe.paymentIntents.cancel(intent.id);
+      payment.status = 'canceled';
+      await payment.save();
+      canceled += 1;
+    } catch (err) {
+      console.warn('cancelDuplicateCapturableIntents:', intent.id, err.message);
+    }
+  }
+  return canceled;
+}
+
+async function applyOrderFundedFromStripeIntent(order, intent, paymentDoc) {
+  if (!order) return order;
+  if (order.status === 'funded') return order;
+  if (order.status !== 'accepted') return order;
+
+  order.status = 'funded';
+  order.paymentStatus = intent.status === 'succeeded' ? 'succeeded' : 'processing';
+  order.payment = order.payment || {};
+  order.payment.intentId = intent.id;
+  if (paymentDoc) {
+    order.paymentId = paymentDoc._id;
+    paymentDoc.status = paymentIntentStatusForPaymentModel(intent.status);
+    await paymentDoc.save();
+  }
+  await order.save();
+  return order;
+}
+
+// POST /api/payments/complete-return — weryfikacja po powrocie ze Stripe (bez stripe.js)
+router.post('/complete-return', authMiddleware, async (req, res) => {
+  try {
+    if (!stripe) {
+      return res.status(503).json({ success: false, message: 'Płatności niedostępne' });
+    }
+    const { paymentIntentId, orderId: orderIdBody } = req.body || {};
+    if (!paymentIntentId) {
+      return res.status(400).json({ success: false, message: 'Brak identyfikatora płatności' });
+    }
+
+    const intent = await stripe.paymentIntents.retrieve(paymentIntentId);
+    const orderId = orderIdBody || intent.metadata?.orderId;
+
+    if (orderId) {
+      const order = await Order.findById(orderId);
+      if (!order) {
+        return res.status(404).json({ success: false, message: 'Nie znaleziono zlecenia' });
+      }
+      const clientId = order.client?._id || order.client;
+      if (String(clientId) !== String(req.user._id)) {
+        return res.status(403).json({ success: false, message: 'Brak dostępu do tego zlecenia' });
+      }
+    }
+
+    if (!PI_OK_FOR_CLIENT.has(intent.status)) {
+      return res.json({
+        success: false,
+        status: intent.status,
+        message: intent.last_payment_error?.message || 'Płatność nie została zakończona',
+      });
+    }
+
+    let duplicatesCanceled = 0;
+    if (orderId) {
+      duplicatesCanceled = await cancelDuplicateCapturableIntents(orderId, paymentIntentId);
+      const order = await Order.findById(orderId);
+      const paymentDoc = await Payment.findOne({ stripePaymentIntentId: paymentIntentId });
+      await applyOrderFundedFromStripeIntent(order, intent, paymentDoc);
+    }
+
+    return res.json({
+      success: true,
+      status: intent.status,
+      orderId: orderId || null,
+      duplicatesCanceled,
+      message:
+        intent.status === 'requires_capture'
+          ? 'Środki zabezpieczone w escrow do zakończenia zlecenia.'
+          : 'Płatność zakończona pomyślnie.',
+    });
+  } catch (e) {
+    console.error('complete-return error:', e);
+    res.status(500).json({ success: false, message: 'Błąd weryfikacji płatności' });
+  }
+});
+
 // POST /api/payments/create-intent
 // body: { orderId, requestInvoice?: boolean }
 router.post('/create-intent', authMiddleware, async (req, res) => {
@@ -322,8 +436,42 @@ router.post('/create-intent', authMiddleware, async (req, res) => {
     if (!clientId || String(clientId) !== String(req.user._id)) {
       return res.status(403).json({ message: 'To nie jest Twoje zlecenie' });
     }
-    if (order.paymentStatus === 'succeeded') {
-      return res.status(400).json({ message: 'Zlecenie już opłacone' });
+    if (order.paymentStatus === 'succeeded' || order.status === 'funded') {
+      return res.status(409).json({ message: 'Zlecenie jest już opłacone.', alreadyPaid: true });
+    }
+
+    const existingIntents = await scanOrderStripeIntents(order._id);
+    const alreadyAuthorized = existingIntents.find((row) =>
+      row.intent.status === 'requires_capture' || row.intent.status === 'succeeded'
+    );
+    if (alreadyAuthorized) {
+      return res.status(409).json({
+        message: 'Płatność za to zlecenie została już przyjęta. Odśwież stronę zlecenia.',
+        alreadyPaid: true,
+        paymentIntentId: alreadyAuthorized.intent.id,
+      });
+    }
+
+    const reusableIntent = existingIntents.find(
+      (row) => PI_REUSABLE.has(row.intent.status) && row.intent.client_secret
+    );
+    if (reusableIntent) {
+      return res.json({
+        clientSecret: reusableIntent.intent.client_secret,
+        paymentIntentId: reusableIntent.intent.id,
+        reused: true,
+      });
+    }
+
+    for (const { payment, intent } of existingIntents) {
+      if (!PI_REUSABLE.has(intent.status)) continue;
+      try {
+        await stripe.paymentIntents.cancel(intent.id);
+        payment.status = 'canceled';
+        await payment.save();
+      } catch (cancelErr) {
+        console.warn('create-intent cancel stale PI:', intent.id, cancelErr.message);
+      }
     }
 
     // Klient może zaznaczyć „Chcę fakturę VAT” przy płatności – zapisz w zleceniu
@@ -1482,21 +1630,10 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
       const orderId = intent.metadata?.orderId;
       if (orderId && intent.status === 'requires_capture') {
         try {
+          await cancelDuplicateCapturableIntents(orderId, intent.id);
           const order = await Order.findById(orderId);
           const payment = await Payment.findOne({ stripePaymentIntentId: intent.id });
-          if (payment) {
-            payment.status = paymentIntentStatusForPaymentModel(intent.status);
-            payment.method = intent.payment_method_types?.[0] || payment.method;
-            await payment.save();
-          }
-          if (order && order.status === 'accepted') {
-            order.status = 'funded';
-            order.paymentStatus = 'processing';
-            order.payment = order.payment || {};
-            order.payment.intentId = intent.id;
-            order.payment.method = intent.payment_method_types?.[0] || order.payment.method;
-            await order.save();
-          }
+          await applyOrderFundedFromStripeIntent(order, intent, payment);
         } catch (e) {
           console.error('payment_intent.amount_capturable_updated webhook error:', e);
         }

@@ -2645,21 +2645,53 @@ router.post('/:id/fund', auth, loadOrderById, async (req, res) => {
     if (String(order.client) !== String(req.user._id)) {
       return res.status(403).json({ message: 'Tylko klient może opłacić zlecenie' });
     }
+    if (order.status === 'funded') {
+      return res.json({ message: 'Środki są już zabezpieczone', order });
+    }
     if (order.status !== 'accepted') {
       return res.status(400).json({ message: 'Zlecenie musi być zaakceptowane przed zabezpieczeniem środków' });
     }
+    let authorizedIntentId = null;
     if (order.paymentPreference === 'system') {
-      const payment = await Payment.findOne({ order: order._id }).sort({ createdAt: -1 });
-      if (!payment || !payment.stripePaymentIntentId) {
+      const payments = await Payment.find({ order: order._id }).sort({ createdAt: -1 }).limit(20);
+      if (!payments.length) {
         return res.status(400).json({ message: 'Brak płatności Stripe powiązanej z tym zleceniem' });
       }
       if (stripe) {
-        const intent = await stripe.paymentIntents.retrieve(payment.stripePaymentIntentId);
         const allowedIntentStatuses = ['requires_capture', 'processing', 'succeeded'];
-        if (!allowedIntentStatuses.includes(intent.status)) {
+        let found = false;
+        for (const payment of payments) {
+          if (!payment.stripePaymentIntentId) continue;
+          try {
+            const intent = await stripe.paymentIntents.retrieve(payment.stripePaymentIntentId);
+            if (allowedIntentStatuses.includes(intent.status)) {
+              found = true;
+              authorizedIntentId = intent.id;
+              break;
+            }
+          } catch (retrieveErr) {
+            console.warn('fund retrieve PI:', payment.stripePaymentIntentId, retrieveErr.message);
+          }
+        }
+        if (!found) {
           return res.status(400).json({
-            message: `Płatność nie jest gotowa do zabezpieczenia środków (status: ${intent.status})`,
+            message: 'Płatność nie jest gotowa do zabezpieczenia środków. Odśwież stronę lub skontaktuj się z pomocą.',
           });
+        }
+        if (authorizedIntentId) {
+          for (const payment of payments) {
+            if (!payment.stripePaymentIntentId || payment.stripePaymentIntentId === authorizedIntentId) continue;
+            try {
+              const intent = await stripe.paymentIntents.retrieve(payment.stripePaymentIntentId);
+              if (intent.status === 'requires_capture') {
+                await stripe.paymentIntents.cancel(payment.stripePaymentIntentId);
+                payment.status = 'canceled';
+                await payment.save();
+              }
+            } catch (cancelErr) {
+              console.warn('fund cancel duplicate:', payment.stripePaymentIntentId, cancelErr.message);
+            }
+          }
         }
       }
     }
