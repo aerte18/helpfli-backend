@@ -7,7 +7,7 @@ const express = require('express');
 const router = express.Router();
 const { authMiddleware } = require('../middleware/authMiddleware');
 const { validateConciergeRequest } = require('../ai/schemas/conciergeSchemas');
-const { streamLLM } = require('../ai/utils/llmAdapter');
+const { streamLLM, extractDisplayReply } = require('../ai/utils/llmAdapter');
 const { buildConciergePrompt } = require('../ai/agents/conciergeAgent');
 const ConversationMemoryService = require('../services/ConversationMemoryService');
 const AIAnalyticsService = require('../services/AIAnalyticsService');
@@ -118,11 +118,13 @@ router.get('/v2/stream', authMiddleware, async (req, res) => {
       }).catch(err => console.error('Error tracking analytics:', err));
       
       // Wyślij event zakończenia
+      const displayText = extractDisplayReply(fullText);
       send('done', {
         messageId: `msg_${Date.now()}`,
         sessionId,
         requestId,
-        fullText
+        fullText: displayText,
+        rawText: fullText
       });
       
     } catch (streamError) {

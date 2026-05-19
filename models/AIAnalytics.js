@@ -69,7 +69,7 @@ const aiAnalyticsSchema = new mongoose.Schema({
   // LLM usage
   llmProvider: {
     type: String,
-    enum: ['claude', 'ollama', 'openai', 'other'],
+    enum: ['claude', 'gemini', 'ollama', 'openai', 'other'],
     default: 'claude'
   },
   llmModel: {

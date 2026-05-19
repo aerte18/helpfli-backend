@@ -684,6 +684,7 @@ try {
   safeUse('/api/admin', loadRoute('admin.analytics', './routes/admin.analytics'), 'admin.analytics');
   logger.debug('🔵 About to register admin_analytics route...');
   safeUse('/api/admin/analytics', loadRoute('admin_analytics', './routes/admin_analytics'), 'admin_analytics');
+  safeUse('/api/admin/ai-stats', loadRoute('admin_ai_stats', './routes/admin_ai_stats'), 'admin_ai_stats');
   logger.debug('🔵 About to register admin_reports route...');
   safeUse('/api/admin/reports', loadRoute('admin_reports', './routes/admin_reports'), 'admin_reports');
   logger.debug('🔵 About to register admin_report_logs route...');
@@ -713,6 +714,7 @@ try {
   safeUse('/api/ai/feedback', loadRoute('ai_feedback', './routes/ai_feedback'), 'ai_feedback');
   safeUse('/api/ai/analytics', loadRoute('ai_analytics', './routes/ai_analytics'), 'ai_analytics');
   safeUse('/api/ai/concierge', loadRoute('ai_stream', './routes/ai_stream'), 'ai_stream');
+  safeUse('/api/ai/concierge', loadRoute('ai_sessions', './routes/ai_sessions'), 'ai_sessions');
   safeUse('/api/ai/cache', loadRoute('ai_cache', './routes/ai_cache'), 'ai_cache');
   logger.debug('🔵 About to register announcements route (duplicate)...');
   safeUse('/api/announcements', loadRoute('announcements', './routes/announcements'), 'announcements');

@@ -39,12 +39,17 @@ class AIAnalyticsService {
     metadata = {}
   }) {
     try {
-      // Oblicz total tokens
-      const tokensTotal = tokensInput + tokensOutput;
-      
-      // Oblicz koszt (jeśli nie podano)
-      if (costEstimate === 0 && tokensTotal > 0) {
-        costEstimate = this.estimateCost(llmProvider, llmModel, tokensInput, tokensOutput);
+      let ti = tokensInput || 0;
+      let to = tokensOutput || 0;
+      if (ti === 0 && to === 0) {
+        ti = Math.max(300, (messageCount || 1) * 280);
+        to = 450;
+      }
+      const tokensTotal = ti + to;
+
+      let cost = costEstimate || 0;
+      if (cost === 0 && tokensTotal > 0) {
+        cost = this.estimateCost(llmProvider, llmModel, ti, to);
       }
       
       const analytics = await AIAnalytics.create({
@@ -62,10 +67,10 @@ class AIAnalyticsService {
         errorType,
         llmProvider,
         llmModel,
-        tokensInput,
-        tokensOutput,
+        tokensInput: ti,
+        tokensOutput: to,
         tokensTotal,
-        costEstimate,
+        costEstimate: cost,
         currency: 'PLN',
         quality,
         metadata,
@@ -99,9 +104,15 @@ class AIAnalyticsService {
         'gpt-4': { input: 300, output: 600 },
         'gpt-3.5-turbo': { input: 5, output: 15 },
         default: { input: 5, output: 15 }
+      },
+      gemini: {
+        'gemini-2.0-flash': { input: 1, output: 4 },
+        'gemini-2.5-flash': { input: 1, output: 4 },
+        'gemini-1.5-flash': { input: 1, output: 4 },
+        default: { input: 1, output: 4 }
       }
     };
-    
+
     const providerPricing = pricing[provider] || pricing.claude;
     const modelPricing = providerPricing[model] || providerPricing.default;
     
@@ -288,6 +299,176 @@ class AIAnalyticsService {
   /**
    * Pobierz statystyki kosztów
    */
+  static groszeToPln(grosze) {
+    return Number((grosze / 100).toFixed(4));
+  }
+
+  /**
+   * Statystyki hybrydowego routingu LLM (Gemini vs Claude)
+   */
+  static async getAiRoutingStats(timeRange = 30) {
+    try {
+      const since = new Date();
+      since.setDate(since.getDate() - timeRange);
+
+      const match = { createdAt: { $gte: since } };
+
+      const [byProvider, byTier, escalations, dailyByProvider, routingMode, totalAgg] = await Promise.all([
+        AIAnalytics.aggregate([
+          { $match: match },
+          {
+            $group: {
+              _id: '$llmProvider',
+              requests: { $sum: 1 },
+              successful: { $sum: { $cond: ['$success', 1, 0] } },
+              failed: { $sum: { $cond: [{ $eq: ['$success', false] }, 1, 0] } },
+              costGrosze: { $sum: '$costEstimate' },
+              tokensTotal: { $sum: '$tokensTotal' },
+              avgResponseTimeMs: { $avg: '$responseTime' }
+            }
+          },
+          { $sort: { requests: -1 } }
+        ]),
+        AIAnalytics.aggregate([
+          { $match: { ...match, 'metadata.llmTier': { $in: ['cheap', 'smart'] } } },
+          {
+            $group: {
+              _id: '$metadata.llmTier',
+              requests: { $sum: 1 },
+              costGrosze: { $sum: '$costEstimate' }
+            }
+          }
+        ]),
+        AIAnalytics.countDocuments({ ...match, 'metadata.llmEscalated': true }),
+        AIAnalytics.aggregate([
+          { $match: match },
+          {
+            $group: {
+              _id: {
+                date: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+                provider: '$llmProvider'
+              },
+              requests: { $sum: 1 },
+              costGrosze: { $sum: '$costEstimate' }
+            }
+          },
+          { $sort: { '_id.date': 1 } }
+        ]),
+        AIAnalytics.aggregate([
+          { $match: { ...match, 'metadata.llmRoutingMode': { $exists: true, $ne: null } } },
+          { $group: { _id: '$metadata.llmRoutingMode', count: { $sum: 1 } } }
+        ]),
+        AIAnalytics.aggregate([
+          { $match: match },
+          {
+            $group: {
+              _id: null,
+              requests: { $sum: 1 },
+              costGrosze: { $sum: '$costEstimate' },
+              tokensTotal: { $sum: '$tokensTotal' }
+            }
+          }
+        ])
+      ]);
+
+      const totalRequests = totalAgg[0]?.requests || 0;
+      const totalCostGrosze = totalAgg[0]?.costGrosze || 0;
+
+      const providers = {};
+      let geminiRequests = 0;
+      let claudeRequests = 0;
+      let geminiCostGrosze = 0;
+      let claudeCostGrosze = 0;
+
+      for (const row of byProvider) {
+        const key = row._id || 'unknown';
+        const sharePct = totalRequests > 0 ? Number(((row.requests / totalRequests) * 100).toFixed(1)) : 0;
+        providers[key] = {
+          requests: row.requests,
+          successful: row.successful,
+          failed: row.failed,
+          successRate: row.requests > 0 ? Number(((row.successful / row.requests) * 100).toFixed(1)) : 0,
+          sharePct,
+          costGrosze: row.costGrosze,
+          costPln: this.groszeToPln(row.costGrosze),
+          tokensTotal: row.tokensTotal,
+          avgResponseTimeMs: Math.round(row.avgResponseTimeMs || 0)
+        };
+        if (key === 'gemini') {
+          geminiRequests = row.requests;
+          geminiCostGrosze = row.costGrosze;
+        }
+        if (key === 'claude') {
+          claudeRequests = row.requests;
+          claudeCostGrosze = row.costGrosze;
+        }
+      }
+
+      const tiers = {};
+      for (const row of byTier) {
+        tiers[row._id] = {
+          requests: row.requests,
+          costGrosze: row.costGrosze,
+          costPln: this.groszeToPln(row.costGrosze)
+        };
+      }
+
+      const daily = dailyByProvider.map((row) => ({
+        date: row._id.date,
+        provider: row._id.provider || 'unknown',
+        requests: row.requests,
+        costPln: this.groszeToPln(row.costGrosze)
+      }));
+
+      const hybridSharePct =
+        geminiRequests + claudeRequests > 0
+          ? Number(((geminiRequests / (geminiRequests + claudeRequests)) * 100).toFixed(1))
+          : null;
+
+      const savingsNote =
+        geminiRequests > 0 && claudeCostGrosze > 0
+          ? (() => {
+              const avgClaudePerReq = claudeCostGrosze / Math.max(claudeRequests, 1);
+              const counterfactualGrosze = Math.round(geminiRequests * avgClaudePerReq);
+              const savedGrosze = Math.max(0, counterfactualGrosze - geminiCostGrosze);
+              return {
+                estimatedSavedPln: this.groszeToPln(savedGrosze),
+                method: 'gemini_requests * avg_claude_cost_per_request - gemini_actual_cost'
+              };
+            })()
+          : null;
+
+      return {
+        timeRangeDays: timeRange,
+        since: since.toISOString(),
+        currency: 'PLN',
+        summary: {
+          totalRequests,
+          totalCostPln: this.groszeToPln(totalCostGrosze),
+          totalTokens: totalAgg[0]?.tokensTotal || 0,
+          escalationsToClaude: escalations,
+          hybridGeminiSharePct: hybridSharePct,
+          estimatedSavings: savingsNote
+        },
+        providers,
+        tiers,
+        routingModes: routingMode.reduce((acc, r) => {
+          acc[r._id] = r.count;
+          return acc;
+        }, {}),
+        daily,
+        config: {
+          routerMode: process.env.AI_ROUTER_MODE || process.env.AI_MODE || 'auto',
+          cheapModel: process.env.AI_CHEAP_MODEL || 'gemini-2.0-flash',
+          smartModel: process.env.AI_SMART_MODEL || process.env.CLAUDE_DEFAULT || null
+        }
+      };
+    } catch (error) {
+      console.error('Error getting AI routing stats:', error);
+      throw error;
+    }
+  }
+
   static async getCostStats(timeRange = 30) {
     try {
       const since = new Date();

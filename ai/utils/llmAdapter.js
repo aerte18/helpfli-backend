@@ -7,6 +7,10 @@
 const llmService = require('../../services/llm_service');
 const ErrorRecoveryService = require('../../services/ErrorRecoveryService');
 const CacheService = require('../../services/CacheService');
+const aiRouter = require('../../services/aiRouter');
+const { hasGeminiKey } = require('../providers/geminiProvider');
+const { hasClaudeKey } = require('../providers/claudeProvider');
+const { safeParseJSON, toAnthropicMessages } = require('./jsonParse');
 
 /**
  * Wywołanie LLM dla agenta z obsługą Tool Calling
@@ -25,21 +29,24 @@ async function callAgentLLM({ systemPrompt, messages, agentType = 'concierge', c
     // Dla prostszych przypadków (tylko description), możemy użyć istniejącego llm_service
     
     const useDirectCall = agentType === 'concierge' || agentType === 'diagnostic' || agentType === 'pricing';
-    const hasValidApiKey = process.env.ANTHROPIC_API_KEY && 
-                          process.env.ANTHROPIC_API_KEY.trim().length > 20 &&
-                          process.env.ANTHROPIC_API_KEY.startsWith('sk-ant-');
+    const hasValidApiKey = hasClaudeKey();
+    const canRouteLLM = hasValidApiKey || hasGeminiKey();
     
-    // Jeśli włączone tools, użyj callLLMWithTools
-    if (enableTools && hasValidApiKey) {
+    const useSmartTools =
+      enableTools &&
+      hasValidApiKey &&
+      aiRouter.shouldUseSmartModel({ messages, context, agentType, enableTools: true });
+
+    if (useSmartTools) {
       try {
-        return await callLLMWithTools(systemPrompt, messages, agentType, context);
+        const toolResult = await callLLMWithTools(systemPrompt, messages, agentType, context);
+        return attachLlmMeta(toolResult, { provider: 'claude', tier: 'smart', reason: 'tool_calling' });
       } catch (error) {
         console.warn('⚠️ Tool calling failed, falling back to JSON format:', error.message);
-        // Fallback do normalnego JSON
       }
     }
     
-    if (useDirectCall && hasValidApiKey) {
+    if (useDirectCall && canRouteLLM) {
       try {
         // Sprawdź cache dla podobnych zapytań
         const cachedResponse = await CacheService.getSimilarQuery(messages);
@@ -50,7 +57,7 @@ async function callAgentLLM({ systemPrompt, messages, agentType = 'concierge', c
 
         // Bezpośrednie wywołanie Claude z wymuszonym JSON (z retry)
         const response = await ErrorRecoveryService.retry(
-          () => callLLMWithJSONFormat(systemPrompt, messages),
+          () => callLLMWithJSONFormat(systemPrompt, messages, { agentType, context }),
           {
             maxRetries: 2,
             shouldRetry: (error) => {
@@ -120,52 +127,15 @@ async function callAgentLLM({ systemPrompt, messages, agentType = 'concierge', c
  * @param {Array} messages 
  * @returns {Promise<Object>} Parsed JSON
  */
-async function callLLMWithJSONFormat(systemPrompt, messages) {
+async function callLLMWithJSONFormat(systemPrompt, messages, options = {}) {
   try {
-    const Anthropic = require('@anthropic-ai/sdk');
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    
-    if (!apiKey) {
-      throw new Error('ANTHROPIC_API_KEY not found');
-    }
-    
-    const client = new Anthropic({ apiKey });
-    
-    // Przygotuj pełną konwersację z system promptem
-    const fullMessages = toAnthropicMessages(messages);
-    
-    // Wzmocnij prompt o wymuszenie JSON
-    const enhancedSystemPrompt = `${systemPrompt}
-
-KRYTYCZNE: Odpowiedz WYŁĄCZNIE w formacie JSON. Nie dodawaj żadnego tekstu przed ani po JSON.
-JSON powinien być poprawny, parsowalny, bez dodatkowych znaków, bez markdown code blocks.
-Zacznij odpowiedź bezpośrednio od { i zakończ na }.`;
-
-    const response = await client.messages.create({
-      model: process.env.CLAUDE_DEFAULT || 'claude-haiku-4-5-20251001',
-      max_tokens: 2000,
-      temperature: 0.4,
-      system: enhancedSystemPrompt,
-      messages: fullMessages
+    const { parsed } = await aiRouter.routeJSON({
+      systemPrompt,
+      messages,
+      agentType: options.agentType || 'concierge',
+      context: options.context || {}
     });
-
-    const content = response.content[0];
-    if (content.type !== 'text') {
-      throw new Error('Unexpected response type from Claude');
-    }
-
-    const text = content.text.trim();
-    
-    // Parsuj JSON
-    const parsed = safeParseJSON(text);
-    
-    if (!parsed || typeof parsed !== 'object') {
-      console.error('Failed to parse Claude response as JSON:', text.substring(0, 500));
-      throw new Error('LLM did not return valid JSON');
-    }
-    
     return parsed;
-    
   } catch (error) {
     // Sprawdź typ błędu - 401 oznacza nieprawidłowy klucz API
     const isAuthError = error.message?.includes('401') || 
@@ -210,64 +180,38 @@ Zacznij odpowiedź bezpośrednio od { i zakończ na }.`;
   }
 }
 
-/**
- * Bezpieczne parsowanie JSON z odpowiedzi LLM
- * @param {string} text - Tekst odpowiedzi
- * @returns {Object|null} Parsed JSON lub null
- */
-function safeParseJSON(text) {
-  if (!text || typeof text !== 'string') return null;
-  
-  try {
-    return JSON.parse(text);
-  } catch (e) {
-    // Spróbuj wyciągnąć JSON z markdown code block
-    const jsonMatch = text.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/);
-    if (jsonMatch) {
-      try {
-        return JSON.parse(jsonMatch[1]);
-      } catch (e2) {
-        // Ignore
-      }
-    }
-    
-    // Spróbuj znaleźć pierwszy obiekt JSON w tekście
-    const firstBrace = text.indexOf('{');
-    const lastBrace = text.lastIndexOf('}');
-    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-      try {
-        return JSON.parse(text.slice(firstBrace, lastBrace + 1));
-      } catch (e3) {
-        // Ignore
-      }
-    }
-  }
-  
-  return null;
+function attachLlmMeta(result, meta) {
+  if (!result || typeof result !== 'object') return result;
+  result.__llmMeta = { ...meta, mode: aiRouter.getRoutingMode() };
+  return result;
 }
 
-function toAnthropicMessages(messages = []) {
-  const normalized = messages
-    .filter((m) => m && m.role !== 'system')
-    .map((m) => ({
-      role: m.role === 'assistant' ? 'assistant' : 'user',
-      content: typeof m === 'string' ? m : (m.content || m.text || '')
-    }))
-    .filter((m) => typeof m.content === 'string' && m.content.trim().length > 0);
-
-  while (normalized[0]?.role === 'assistant') {
-    normalized.shift();
+/**
+ * Wyciąga tekst dla użytkownika z odpowiedzi LLM.
+ * Obsługuje przypadki gdy model zwróci cały JSON (czasem w bloku ```json).
+ */
+function extractDisplayReply(text) {
+  if (text == null) return '';
+  if (typeof text !== 'string') {
+    if (typeof text.reply === 'string') return extractDisplayReply(text.reply);
+    return String(text);
   }
 
-  return normalized.reduce((acc, msg) => {
-    const last = acc[acc.length - 1];
-    if (last && last.role === msg.role) {
-      last.content = `${last.content}\n\n${msg.content}`;
-      return acc;
-    }
-    acc.push({ ...msg });
-    return acc;
-  }, []);
+  const trimmed = text.trim();
+  if (!trimmed) return '';
+
+  const parsed = safeParseJSON(trimmed);
+  if (parsed && typeof parsed === 'object' && typeof parsed.reply === 'string' && parsed.reply.trim()) {
+    return extractDisplayReply(parsed.reply);
+  }
+
+  const fenceMatch = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  if (fenceMatch) {
+    const inner = extractDisplayReply(fenceMatch[1]);
+    if (inner && inner !== fenceMatch[1].trim()) return inner;
+  }
+
+  return trimmed;
 }
 
 /**
@@ -458,6 +402,9 @@ module.exports = {
   callLLMWithJSONFormat,
   callLLMWithTools,
   streamLLM,
-  safeParseJSON
+  safeParseJSON,
+  extractDisplayReply,
+  toAnthropicMessages,
+  attachLlmMeta
 };
 

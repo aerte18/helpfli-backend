@@ -47,6 +47,19 @@ router.post('/', authMiddleware, async (req, res) => {
       metadata
     });
 
+    if (metadata?.abVariants && (quickFeedback || rating)) {
+      try {
+        const abTestingService = require('../services/ABTestingService');
+        const userId = req.user._id || req.user.id;
+        const score = quickFeedback === 'positive' || (rating && rating >= 4) ? 1 : 0;
+        for (const [experimentId, variant] of Object.entries(metadata.abVariants)) {
+          abTestingService.recordResult(userId, experimentId, variant, 'feedback_score', score);
+        }
+      } catch (abErr) {
+        console.warn('A/B feedback record skipped:', abErr.message);
+      }
+    }
+
     res.json({
       ok: true,
       message: 'Feedback zapisany',

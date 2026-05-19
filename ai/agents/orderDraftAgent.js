@@ -30,7 +30,9 @@ async function runOrderDraftAgent({ messages, extracted = {}, detectedService, u
       questions.push('Jaka usługa jest potrzebna?');
     }
     
-    if (!extracted.location && !extracted.location?.text) {
+    const locationText =
+      (typeof extracted.location === 'object' ? extracted.location?.text : extracted.location) || null;
+    if (!locationText || String(locationText).trim().length < 2) {
       missing.push('lokalizacja');
       questions.push('W jakiej lokalizacji potrzebujesz pomocy?');
     }
@@ -52,7 +54,7 @@ async function runOrderDraftAgent({ messages, extracted = {}, detectedService, u
     const orderPayload = {
       service,
       description: description.slice(0, 240),
-      location: extracted.location?.text || extracted.location || null,
+      location: locationText,
       status: 'draft',
       preferredTime: extracted.timeWindow || null,
       budget: extracted.budget || null,

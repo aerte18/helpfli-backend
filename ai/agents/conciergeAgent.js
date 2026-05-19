@@ -4,12 +4,13 @@
  */
 
 const { CONCIERGE_SYSTEM } = require('../prompts/conciergePrompt');
-const { callAgentLLM, safeParseJSON } = require('../utils/llmAdapter');
+const { callAgentLLM, safeParseJSON, extractDisplayReply } = require('../utils/llmAdapter');
 const { guardrailEnforce, enforceSafetyRules } = require('../utils/guardrails');
 const { validateConciergeResponseShape } = require('../schemas/conciergeSchemas');
 const { normalizeServiceName, normalizeUrgency, extractKeywords } = require('../utils/normalize');
 const { detectApplianceIssue } = require('../utils/applianceDiagnostics');
 const { detectSafetyTriage } = require('../utils/safetyTriage');
+const { shouldEnableConciergeTools } = require('../../services/aiRouter');
 
 /**
  * Główna funkcja agenta Concierge
@@ -43,20 +44,30 @@ async function runConciergeAgent({ messages, userContext = {}, allowedServicesHi
 
     // A/B Testing - dostosuj prompt do wariantu (Faza 3)
     // Uwaga: abVariants powinny być przekazane przez userContext
+    let maxReplyLength = 1200;
     if (userContext.abVariants) {
       const abTestingService = require('../../services/ABTestingService');
       const responseLengthConfig = abTestingService.getVariantConfig('response_length', userContext.abVariants.responseLength);
       if (responseLengthConfig) {
         if (responseLengthConfig.name === 'Brief') {
           systemPrompt += '\n\nWAŻNE: Odpowiadaj bardzo zwięźle, maksymalnie 1-2 zdania.';
+          maxReplyLength = 550;
         } else if (responseLengthConfig.name === 'Detailed') {
-          systemPrompt += '\n\nWAŻNE: Odpowiadaj szczegółowo, wyjaśniaj kontekst, podawaj przykłady.';
+          systemPrompt += '\n\nWAŻNE: Odpowiadaj szczegółowo, wyjaśniaj kontekst, podawaj przykłady (max 8 zdań).';
+          maxReplyLength = 1800;
         }
       }
+      const styleConfig = abTestingService.getVariantConfig('communication_style', userContext.abVariants.communicationStyle);
+      if (styleConfig?.name === 'Formal') {
+        systemPrompt += '\n\nStyl: formalny i profesjonalny (możesz użyć Pan/Pani).';
+      } else if (styleConfig?.name === 'Casual') {
+        systemPrompt += '\n\nStyl: ciepły, swobodny, jak doświadczeny doradca Helpfli — bez sztywnych formułek.';
+      }
     }
+    userContext._maxReplyLength = maxReplyLength;
 
-    // Wywołaj LLM (z tool calling dla listy zleceń, przedłuż, anuluj)
-    const enableTools = true;
+    // Tool calling (Claude) tylko przy akcjach na zleceniach — reszta idzie przez router (Gemini → Claude)
+    const enableTools = shouldEnableConciergeTools(messages, userContext);
     const llmResponse = await callAgentLLM({
       systemPrompt,
       messages,
@@ -67,7 +78,12 @@ async function runConciergeAgent({ messages, userContext = {}, allowedServicesHi
         locationText: userContext.location?.text || userContext.location || null,
         lat: userContext.location?.lat || userContext.lat,
         lng: userContext.location?.lng || userContext.lng,
-        userId: userContext.userId // Dla tool calling
+        userId: userContext.userId,
+        imageUrls: userContext.imageUrls || [],
+        attachments: userContext.attachments || [],
+        extracted: userContext.extracted || {},
+        preferredTime: userContext.extracted?.timeWindow || null,
+        aiBrief: userContext.aiBrief || null
       }
     });
     
@@ -76,7 +92,7 @@ async function runConciergeAgent({ messages, userContext = {}, allowedServicesHi
       return {
         ok: true,
         agent: 'concierge',
-        reply: llmResponse.response || `Wykonano akcję: ${llmResponse.toolUsed}`,
+        reply: extractDisplayReply(llmResponse.response || `Wykonano akcję: ${llmResponse.toolUsed}`),
         toolUsed: llmResponse.toolUsed,
         toolResult: llmResponse.toolResult,
         nextStep: llmResponse.toolUsed === 'createOrder' ? 'order_created' : 'ask_more',
@@ -84,22 +100,31 @@ async function runConciergeAgent({ messages, userContext = {}, allowedServicesHi
       };
     }
 
-    // Odpowiedź tekstowa po użyciu narzędzia (np. lista zleceń, przedłuż, anuluj)
+    // Odpowiedź tekstowa po użyciu narzędzia – parsuj JSON zamiast pokazywać surowy blok
     if (llmResponse && llmResponse.type === 'text' && llmResponse.response && llmResponse.toolUsed) {
-      return {
-        ok: true,
-        agent: 'concierge',
-        reply: llmResponse.response,
-        toolUsed: llmResponse.toolUsed || null,
-        toolResult: llmResponse.toolResult || null,
-        nextStep: 'ask_more',
-        intent: 'other',
-        detectedService: 'inne',
-        urgency: 'standard',
-        confidence: 0.9,
-        extracted: { location: null, timeWindow: null, budget: null, details: [] },
-        questions: []
-      };
+      const parsedFromTool = safeParseJSON(llmResponse.response);
+      if (parsedFromTool && typeof parsedFromTool === 'object' && typeof parsedFromTool.reply === 'string') {
+        llmResponse = {
+          ...parsedFromTool,
+          toolUsed: llmResponse.toolUsed,
+          toolResult: llmResponse.toolResult
+        };
+      } else {
+        return {
+          ok: true,
+          agent: 'concierge',
+          reply: extractDisplayReply(llmResponse.response),
+          toolUsed: llmResponse.toolUsed || null,
+          toolResult: llmResponse.toolResult || null,
+          nextStep: 'ask_more',
+          intent: 'other',
+          detectedService: 'inne',
+          urgency: 'standard',
+          confidence: 0.9,
+          extracted: { location: null, timeWindow: null, budget: null, details: [] },
+          questions: []
+        };
+      }
     }
 
     // Parsuj odpowiedź (może być już obiektem lub stringiem JSON)
@@ -107,9 +132,10 @@ async function runConciergeAgent({ messages, userContext = {}, allowedServicesHi
     if (typeof llmResponse === 'string') {
       parsed = safeParseJSON(llmResponse);
     } else if (typeof llmResponse === 'object' && llmResponse !== null) {
-      // Gdy z tool calling zwrócono tekst (JSON) bez toolUsed – parsuj response
       if (llmResponse.type === 'text' && typeof llmResponse.response === 'string') {
         parsed = safeParseJSON(llmResponse.response);
+      } else if (typeof llmResponse.reply === 'string' && llmResponse.agent === 'concierge') {
+        parsed = llmResponse;
       }
       if (!parsed) {
         parsed = mapLLMResponseToConciergeFormat(llmResponse, messages);
@@ -136,7 +162,8 @@ async function runConciergeAgent({ messages, userContext = {}, allowedServicesHi
     parsed = enforceSafetyRules(parsed, userText);
 
     // Normalizuj i waliduj
-    parsed = guardrailEnforce(parsed);
+    parsed.reply = extractDisplayReply(parsed.reply);
+    parsed = guardrailEnforce(parsed, { maxReplyLength: userContext._maxReplyLength || 1200 });
     validateConciergeResponseShape(parsed);
 
     // Normalizacja dodatkowych pól
@@ -192,7 +219,10 @@ async function runConciergeAgent({ messages, userContext = {}, allowedServicesHi
       }
     }
 
-    return parsed;
+    const llmMeta = parsed.__llmMeta || { provider: 'claude', tier: 'smart', mode: 'claude' };
+    delete parsed.__llmMeta;
+
+    return { ...parsed, llmMeta };
 
   } catch (error) {
     console.error('❌ Concierge Agent error:', error);
@@ -319,6 +349,23 @@ function buildConciergePrompt({ allowedServices = [], userLocation = null, userP
  * Backward compatibility - pozwala używać obecnego llm_service
  */
 function mapLLMResponseToConciergeFormat(llmResponse, messages) {
+  if (llmResponse?.reply && typeof llmResponse.reply === 'string' && llmResponse.reply.trim()) {
+    return {
+      ok: llmResponse.ok ?? true,
+      agent: llmResponse.agent || 'concierge',
+      reply: llmResponse.reply,
+      intent: llmResponse.intent || 'service_request',
+      detectedService: llmResponse.detectedService || 'inne',
+      urgency: llmResponse.urgency || 'standard',
+      confidence: typeof llmResponse.confidence === 'number' ? llmResponse.confidence : 0.7,
+      nextStep: llmResponse.nextStep || 'ask_more',
+      questions: Array.isArray(llmResponse.questions) ? llmResponse.questions : [],
+      extracted: llmResponse.extracted || { location: null, timeWindow: null, budget: null, details: [] },
+      missing: llmResponse.missing || [],
+      safety: llmResponse.safety || { flag: false, reason: null, recommendation: null }
+    };
+  }
+
   const lastUserMessage = messages
     .filter(m => m.role === 'user')
     .pop();

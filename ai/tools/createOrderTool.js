@@ -5,33 +5,60 @@
 
 const Order = require('../../models/Order');
 const Service = require('../../models/Service');
+const { mergeAttachmentLists } = require('../utils/orderConciergeSync');
 
-async function createOrderTool(params, context) {
+function buildAiBrief(params, context) {
+  if (context.aiBrief) return context.aiBrief;
+  const brief = params.aiBrief;
+  if (brief && typeof brief === 'object') return brief;
+  return null;
+}
+
+function normalizeLocation(location, context) {
+  if (!location && context.locationText) {
+    return typeof context.locationText === 'string'
+      ? context.locationText
+      : context.locationText.text || String(context.locationText);
+  }
+  if (typeof location === 'object') {
+    return location.address || location.text || location.city || JSON.stringify(location);
+  }
+  return location;
+}
+
+async function createOrderTool(params, context = {}) {
   try {
-    const { service, description, location, urgency = 'standard', budget = null } = params;
+    const {
+      service,
+      description,
+      location,
+      urgency = 'standard',
+      budget = null,
+      preferredTime = null,
+      attachments = []
+    } = params;
     const userId = context.userId;
 
     if (!userId) {
       throw new Error('User ID required');
     }
 
-    // Walidacja wymaganych parametrów
     if (!service) {
       throw new Error('Service is required');
     }
     if (!description) {
       throw new Error('Description is required');
     }
-    if (!location) {
+
+    const locationValue = normalizeLocation(location, context);
+    if (!locationValue) {
       throw new Error('Location is required');
     }
 
-    // Sprawdź czy service istnieje (Service używa 'slug' a nie 'code')
     let serviceObj = null;
-    let serviceValue = service; // Będzie użyte jako string w Order.service
-    
+    let serviceValue = service;
+
     if (service) {
-      // Spróbuj znaleźć po slug lub name
       serviceObj = await Service.findOne({
         $or: [
           { slug: service },
@@ -41,47 +68,58 @@ async function createOrderTool(params, context) {
       }).lean();
 
       if (serviceObj) {
-        // Użyj slug jako service value
         serviceValue = serviceObj.slug;
-      } else {
-        // Fallback: użyj podanego service jako string (może to być już slug/code)
-        serviceValue = service;
       }
     } else {
-      // Brak service - użyj 'inne' jako fallback
       serviceObj = await Service.findOne({ slug: 'inne' }).lean();
       serviceValue = serviceObj?.slug || 'inne';
     }
 
-    // Mapuj urgency na poprawne wartości
     const urgencyMap = {
-      'low': 'flexible',
-      'standard': 'today',
-      'urgent': 'now',
-      'normal': 'flexible',
-      'high': 'today'
+      low: 'flexible',
+      standard: 'today',
+      urgent: 'now',
+      normal: 'flexible',
+      high: 'today'
     };
     const mappedUrgency = urgencyMap[urgency] || urgency || 'flexible';
-    
-    // Sprawdź czy urgency jest poprawne (enum values)
     const validUrgency = ['now', 'today', 'tomorrow', 'this_week', 'flexible'].includes(mappedUrgency)
       ? mappedUrgency
       : 'flexible';
 
-    // Utwórz zlecenie (Order.service jest String - slug/code jako string)
+    const mergedAttachments = mergeAttachmentLists(
+      context.attachments,
+      attachments,
+      context.imageUrls
+    );
+
+    let fullDescription = String(description || '').trim();
+    const timeHint = preferredTime || context.preferredTime || context.extracted?.timeWindow;
+    if (timeHint && !fullDescription.toLowerCase().includes(String(timeHint).toLowerCase().slice(0, 4))) {
+      fullDescription = `${fullDescription}\n\nPreferowany termin: ${timeHint}`.trim();
+    }
+
+    const aiBrief = buildAiBrief(params, context);
+    const budgetMid = budget && (budget.min != null || budget.max != null)
+      ? Math.round(((Number(budget.min) || 0) + (Number(budget.max) || Number(budget.min) || 0)) / 2)
+      : null;
+
     const order = await Order.create({
       client: userId,
-      service: serviceValue, // String - slug lub code
-      description: description || 'Zlecenie utworzone przez AI Concierge',
-      location: location || 'Nieznana lokalizacja',
+      service: serviceValue,
+      description: fullDescription.slice(0, 2000) || 'Zlecenie utworzone przez AI Concierge',
+      location: locationValue,
+      city: typeof locationValue === 'string' ? locationValue.split(',')[0].trim() : '',
       urgency: validUrgency,
       status: 'open',
-      budget: budget ? (budget.min + budget.max) / 2 : null,
+      source: 'ai',
+      budget: budgetMid,
       budgetRange: budget || null,
+      attachments: mergedAttachments,
+      ...(aiBrief ? { aiBrief } : {}),
       createdAt: new Date()
     });
 
-    // Populate dla response (jeśli service to ObjectId, ale u nas jest String)
     const populatedOrder = await Order.findById(order._id)
       .populate('client', 'name email')
       .lean();
@@ -91,16 +129,16 @@ async function createOrderTool(params, context) {
       orderId: order._id.toString(),
       order: {
         id: populatedOrder._id.toString(),
-        service: populatedOrder.service, // String - slug
+        service: populatedOrder.service,
         description: populatedOrder.description,
         location: populatedOrder.location,
         urgency: populatedOrder.urgency,
         status: populatedOrder.status,
-        budget: populatedOrder.budget
+        budget: populatedOrder.budget,
+        attachmentsCount: (populatedOrder.attachments || []).length
       },
       message: `Zlecenie zostało utworzone pomyślnie (ID: ${order._id})`
     };
-
   } catch (error) {
     console.error('createOrderTool error:', error);
     throw new Error(`Failed to create order: ${error.message}`);
@@ -108,4 +146,3 @@ async function createOrderTool(params, context) {
 }
 
 module.exports = createOrderTool;
-

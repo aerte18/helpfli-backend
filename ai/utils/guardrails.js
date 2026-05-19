@@ -5,12 +5,14 @@
 
 const { normalizeUrgency, safeNumber, normalizeServiceName } = require('./normalize');
 const { applySafetyTriage } = require('./safetyTriage');
+const { extractDisplayReply } = require('./llmAdapter');
 
-function guardrailEnforce(ai) {
+function guardrailEnforce(ai, options = {}) {
   if (!ai || typeof ai !== 'object') {
     throw new Error('AI response must be an object');
   }
 
+  const maxReplyLength = options.maxReplyLength || 1200;
   const out = { ...ai };
 
   // Guardrails dla podstawowych pól
@@ -25,8 +27,14 @@ function guardrailEnforce(ai) {
   if (!Array.isArray(out.questions)) out.questions = [];
   out.questions = out.questions.slice(0, 5); // Max 5 pytań
   
-  // Przycinanie odpowiedzi do max 2000 znaków
-  out.reply = String(out.reply || '').slice(0, 2000);
+  // Przycinanie odpowiedzi (bez surowego JSON w polu reply)
+  let reply = extractDisplayReply(String(out.reply || ''));
+  if (reply.length > maxReplyLength) {
+    const cut = reply.slice(0, maxReplyLength);
+    const lastStop = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf('? '));
+    reply = (lastStop > maxReplyLength * 0.6 ? cut.slice(0, lastStop + 1) : cut).trim() + '…';
+  }
+  out.reply = reply;
   
   // Normalizacja usługi
   if (out.detectedService) {
