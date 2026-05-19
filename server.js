@@ -638,6 +638,7 @@ try {
   // Nowe trasy Pakietu 2
   logger.debug('🔵 About to register payments route...');
   safeUse('/api/payments', loadRoute('payments', './routes/payments'), 'payments');
+  safeUse('/api/charge-requests', loadRoute('chargeRequests', './routes/chargeRequests'), 'chargeRequests');
   logger.debug('🔵 About to register billing route...');
   safeUse('/api/billing', loadRoute('billing', './routes/billing'), 'billing');
   logger.debug('🔵✅ payments + billing registered, continuing...');

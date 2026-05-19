@@ -363,6 +363,55 @@ async function applyOrderFundedFromStripeIntent(order, intent, paymentDoc) {
   return order;
 }
 
+/** Szuka opłaconej autoryzacji Stripe i ustawia zlecenie na funded (naprawa po błędnym UI). */
+async function syncOrderPaymentFromStripe(orderId) {
+  if (!stripe || !orderId) return { paid: false };
+  const scanned = await scanOrderStripeIntents(orderId);
+  const authorized = scanned.find(
+    (row) => row.intent.status === 'requires_capture' || row.intent.status === 'succeeded'
+  );
+  if (!authorized) return { paid: false };
+  const duplicatesCanceled = await cancelDuplicateCapturableIntents(orderId, authorized.intent.id);
+  let order = await Order.findById(orderId);
+  await applyOrderFundedFromStripeIntent(order, authorized.intent, authorized.payment);
+  order = await Order.findById(orderId);
+  return {
+    paid: true,
+    order,
+    paymentIntentId: authorized.intent.id,
+    stripeStatus: authorized.intent.status,
+    duplicatesCanceled,
+  };
+}
+
+// GET /api/payments/order/:orderId/sync-status — odśwież status z Stripe (np. po udanej płatności, gdy UI utknęło)
+router.get('/order/:orderId/sync-status', authMiddleware, async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.orderId);
+    if (!order) return res.status(404).json({ message: 'Nie znaleziono zlecenia' });
+    const clientId = order.client?._id || order.client;
+    const providerId = order.provider?._id || order.provider;
+    const uid = String(req.user._id);
+    if (String(clientId) !== uid && String(providerId) !== uid) {
+      return res.status(403).json({ message: 'Brak dostępu' });
+    }
+    const result = await syncOrderPaymentFromStripe(req.params.orderId);
+    if (!result.paid) {
+      return res.json({ paid: false, order });
+    }
+    return res.json({
+      paid: true,
+      order: result.order,
+      paymentIntentId: result.paymentIntentId,
+      stripeStatus: result.stripeStatus,
+      duplicatesCanceled: result.duplicatesCanceled,
+    });
+  } catch (e) {
+    console.error('sync-status error:', e);
+    res.status(500).json({ message: 'Błąd synchronizacji płatności' });
+  }
+});
+
 // POST /api/payments/complete-return — weryfikacja po powrocie ze Stripe (bez stripe.js)
 router.post('/complete-return', authMiddleware, async (req, res) => {
   try {
@@ -2433,3 +2482,4 @@ router.post('/refund', authMiddleware, requireRole(['admin', 'superadmin']), asy
 });
 
 module.exports = router;
+module.exports.syncOrderPaymentFromStripe = syncOrderPaymentFromStripe;
