@@ -56,26 +56,32 @@ router.post('/ratings', authMiddleware, async (req, res) => {
       return res.status(400).json({ message: 'Brakuje danych' });
     }
 
-    // Walidacja zlecenia
-    if (orderId) {
-      const order = await Order.findById(orderId);
-      if (!order) return res.status(404).json({ message: 'Zlecenie nie istnieje' });
-      
-      const isClientRatingProvider = String(order.client) === String(req.user._id) && String(order.provider) === String(ratedUser);
-      const isProviderRatingClient = String(order.provider) === String(req.user._id) && String(order.client) === String(ratedUser);
-      
-      if (!isClientRatingProvider && !isProviderRatingClient) {
-        return res.status(403).json({ message: 'Brak uprawnień do oceny w tym zleceniu' });
-      }
-
-      const doneStatuses = ['completed', 'done', 'closed'];
-      if (!doneStatuses.includes(order.status)) {
-        return res.status(400).json({ message: 'Zlecenie nie zostało zakończone' });
-      }
+    if (!orderId) {
+      return res.status(400).json({ message: 'Ocena wymaga powiązania ze zakończonym zleceniem' });
     }
 
-    // Sprawdź czy już oceniono
-    const existing = await Rating.findOne({ from: req.user._id, to: ratedUser, orderId: orderId || null });
+    if (String(ratedUser) === String(req.user._id)) {
+      return res.status(400).json({ message: 'Nie możesz ocenić samego siebie.' });
+    }
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: 'Zlecenie nie istnieje' });
+
+    const isClientRatingProvider =
+      String(order.client) === String(req.user._id) && String(order.provider) === String(ratedUser);
+    const isProviderRatingClient =
+      String(order.provider) === String(req.user._id) && String(order.client) === String(ratedUser);
+
+    if (!isClientRatingProvider && !isProviderRatingClient) {
+      return res.status(403).json({ message: 'Brak uprawnień do oceny w tym zleceniu' });
+    }
+
+    const doneStatuses = ['completed', 'done', 'closed', 'released', 'rated', 'paid'];
+    if (!doneStatuses.includes(order.status)) {
+      return res.status(400).json({ message: 'Zlecenie nie zostało zakończone' });
+    }
+
+    const existing = await Rating.findOne({ from: req.user._id, to: ratedUser, orderId });
     if (existing) {
       return res.status(400).json({ message: 'Już oceniłeś tego użytkownika dla tego zlecenia' });
     }

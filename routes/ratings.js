@@ -38,42 +38,44 @@ router.post('/', authMiddleware, async (req, res) => {
   rating = ratingNum;
 
   try {
-    // Opcjonalna walidacja: pozwól ocenić tylko gdy użytkownik był klientem w zakończonym zleceniu
-    if (orderId) {
-      const Order = require('../models/Order');
-      const order = await Order.findById(orderId);
-      if (!order) return res.status(404).json({ message: 'Zlecenie nie istnieje' });
-
-      const orderClientId = order.client?._id != null ? order.client._id : order.client;
-      const orderProviderId = order.provider?._id != null ? order.provider._id : order.provider;
-
-      const isClientRatingProvider =
-        String(orderClientId) === String(req.user._id) &&
-        String(orderProviderId) === String(ratedUser);
-      const actsAsProvider = await userActsAsOrderProvider(req.user, order);
-      const isProviderRatingClient =
-        actsAsProvider && String(orderClientId) === String(ratedUser);
-      if (!isClientRatingProvider && !isProviderRatingClient) {
-        return res.status(403).json({ message: 'Brak uprawnień do oceny w tym zleceniu' });
-      }
-      // Statusy domknięcia + legacy (`paid` bywa w starszych rekordach)
-      const doneStatuses = ['completed', 'done', 'closed', 'released', 'rated', 'paid'];
-      if (!doneStatuses.includes(order.status)) {
-        return res.status(400).json({
-          message: 'Zlecenie nie zostało zakończone — ocena będzie możliwa po zakończeniu realizacji i domknięciu zlecenia.',
-          orderStatus: order.status,
-        });
-      }
+    if (!orderId) {
+      return res.status(400).json({
+        message: 'Ocena jest możliwa tylko po zakończonym zleceniu — użyj przycisku w szczegółach zlecenia lub profilu po realizacji.',
+      });
     }
-    // Jedna ocena na parę użytkowników **w ramach danego zlecenia** (gdy jest orderId).
-    // Bez orderId zostaje dotychczasowe zachowanie: jedna ocena na odbiorcę (kompatybilność wsteczna).
-    const existingQuery = orderId
-      ? { from: req.user._id, to: ratedUser, orderId }
-      : { from: req.user._id, to: ratedUser };
-    const existing = await Rating.findOne(existingQuery);
+
+    if (String(ratedUser) === String(req.user._id)) {
+      return res.status(400).json({ message: 'Nie możesz ocenić samego siebie.' });
+    }
+
+    const Order = require('../models/Order');
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: 'Zlecenie nie istnieje' });
+
+    const orderClientId = order.client?._id != null ? order.client._id : order.client;
+    const orderProviderId = order.provider?._id != null ? order.provider._id : order.provider;
+
+    const isClientRatingProvider =
+      String(orderClientId) === String(req.user._id) &&
+      String(orderProviderId) === String(ratedUser);
+    const actsAsProvider = await userActsAsOrderProvider(req.user, order);
+    const isProviderRatingClient =
+      actsAsProvider && String(orderClientId) === String(ratedUser);
+    if (!isClientRatingProvider && !isProviderRatingClient) {
+      return res.status(403).json({ message: 'Brak uprawnień do oceny w tym zleceniu' });
+    }
+    const doneStatuses = ['completed', 'done', 'closed', 'released', 'rated', 'paid'];
+    if (!doneStatuses.includes(order.status)) {
+      return res.status(400).json({
+        message: 'Zlecenie nie zostało zakończone — ocena będzie możliwa po zakończeniu realizacji i domknięciu zlecenia.',
+        orderStatus: order.status,
+      });
+    }
+
+    const existing = await Rating.findOne({ from: req.user._id, to: ratedUser, orderId });
     if (existing) {
       return res.status(400).json({
-        message: orderId ? 'Już wystawiłeś ocenę dla tego zlecenia' : 'Już oceniłeś tego użytkownika',
+        message: 'Już wystawiłeś ocenę dla tego zlecenia',
       });
     }
 
@@ -126,17 +128,81 @@ router.get('/eligible', authMiddleware, async (req, res) => {
   try {
     const otherUser = req.query.otherUser;
     if (!otherUser) return res.status(400).json({ eligible: false, reason: 'Brak otherUser' });
+    if (String(otherUser) === String(req.user._id)) {
+      return res.json({ eligible: false, reason: 'self' });
+    }
+
     const Order = require('../models/Order');
     const doneStatuses = ['completed', 'done', 'closed', 'released', 'rated', 'paid'];
-    const order = await Order.findOne({
-      status: { $in: doneStatuses },
-      $or: [
-        { client: req.user._id, provider: otherUser },
-        { client: otherUser, provider: req.user._id }
-      ]
-    }).lean();
-    res.json({ eligible: !!order });
+
+    const findUnratedOrder = async (orderQuery, ratingRole) => {
+      const candidates = await Order.find({
+        status: { $in: doneStatuses },
+        ...orderQuery,
+      })
+        .sort({ updatedAt: -1 })
+        .limit(20)
+        .lean();
+
+      for (const candidate of candidates) {
+        const already = await Rating.findOne({
+          from: req.user._id,
+          to: otherUser,
+          orderId: candidate._id,
+        }).lean();
+        if (!already) {
+          return { order: candidate, ratingRole };
+        }
+      }
+      return null;
+    };
+
+    // Klient ocenia wykonawcę
+    let match = await findUnratedOrder(
+      { client: req.user._id, provider: otherUser },
+      'client_rates_provider'
+    );
+
+    // Wykonawca (lub członek firmy) ocenia klienta
+    if (!match) {
+      const asProviderOrders = await Order.find({
+        status: { $in: doneStatuses },
+        client: otherUser,
+        provider: { $exists: true, $ne: null },
+      })
+        .sort({ updatedAt: -1 })
+        .limit(30)
+        .lean();
+
+      for (const candidate of asProviderOrders) {
+        if (!(await userActsAsOrderProvider(req.user, candidate))) continue;
+        const already = await Rating.findOne({
+          from: req.user._id,
+          to: otherUser,
+          orderId: candidate._id,
+        }).lean();
+        if (!already) {
+          match = { order: candidate, ratingRole: 'provider_rates_client' };
+          break;
+        }
+      }
+    }
+
+    if (!match) {
+      return res.json({ eligible: false, reason: 'no_completed_order' });
+    }
+
+    const heading =
+      match.ratingRole === 'provider_rates_client' ? 'Oceń klienta' : 'Oceń wykonawcę';
+
+    res.json({
+      eligible: true,
+      orderId: String(match.order._id),
+      ratingRole: match.ratingRole,
+      heading,
+    });
   } catch (e) {
+    console.error('GET /ratings/eligible error:', e);
     res.status(500).json({ eligible: false });
   }
 });
