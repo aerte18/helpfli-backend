@@ -62,6 +62,18 @@ async function searchOrdersForProviderTool(params, context) {
   }
   const query = andParts.length === 1 ? andParts[0] : { $and: andParts };
 
+  const providerScope = provider.providerOrderScope || 'both';
+
+  const filterByProviderScope = (list) => {
+    if (providerScope === 'quick_only') {
+      return list.filter((o) => o.orderMode !== 'offers_only');
+    }
+    if (providerScope === 'large_only') {
+      return list.filter((o) => o.orderMode === 'offers_only');
+    }
+    return list;
+  };
+
   const providerCity = (provider.location || '').trim();
 
   const normalizeSlug = (s) => String(s || '').toLowerCase().replace(/_/g, '-').trim();
@@ -150,7 +162,7 @@ async function searchOrdersForProviderTool(params, context) {
   };
 
   let orders = await Order.find(query)
-    .select('_id service description city location budget budgetRange urgency createdAt')
+    .select('_id service description city location budget budgetRange urgency createdAt orderMode')
     .sort({ createdAt: -1 })
     .limit(limit * 2)
     .lean();
@@ -166,7 +178,7 @@ async function searchOrdersForProviderTool(params, context) {
     }
     const fallbackQuery = fallbackParts.length === 1 ? fallbackParts[0] : { $and: fallbackParts };
     orders = await Order.find(fallbackQuery)
-      .select('_id service description city location budget budgetRange urgency createdAt')
+      .select('_id service description city location budget budgetRange urgency createdAt orderMode')
       .sort({ createdAt: -1 })
       .limit(limit * 2)
       .lean();
@@ -200,7 +212,7 @@ async function searchOrdersForProviderTool(params, context) {
     });
   }
 
-  orders = orders.slice(0, limit);
+  orders = filterByProviderScope(orders).slice(0, limit);
 
   const baseUrl = process.env.FRONTEND_URL || process.env.APP_URL || '';
   const items = orders.map((o) => {
@@ -215,6 +227,7 @@ async function searchOrdersForProviderTool(params, context) {
       budgetMin: min != null ? min : null,
       budgetMax: max != null ? max : null,
       urgency: o.urgency || null,
+      orderMode: o.orderMode || 'standard',
       link: baseUrl ? `${baseUrl}/orders/${o._id}` : `/orders/${o._id}`,
     };
   });

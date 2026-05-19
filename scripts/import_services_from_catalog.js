@@ -52,6 +52,9 @@ async function run() {
       service_kind: item.service_kind || 'onsite',
       is_top: item.is_top ? 1 : 0,
       seasonal: item.seasonal || 'none',
+      tier: item.tier || 'quick',
+      offerOnlySuggested: Boolean(item.offer_only_suggested ?? item.offerOnlySuggested),
+      b2b: Boolean(item.b2b),
       updated_at: new Date()
     };
 

@@ -63,6 +63,9 @@ const orderSchema = new mongoose.Schema({
     abandonedCartSentAt: { type: Date }
   },
   paymentPreference: { type: String, enum: ['system', 'external', 'both'], default: 'system' }, // Preferencje klienta: Helpfli Protect, płatność poza systemem, lub oba
+  /** standard = obecny flow; offers_only = lead gen (oferty → kontakt → poza systemem) */
+  orderMode: { type: String, enum: ['standard', 'offers_only'], default: 'standard', index: true },
+  contactUnlockedAt: { type: Date, default: null },
   requestInvoice: { type: Boolean, default: false }, // Klient prosił o fakturę przy płatności
   priority: { type: String, enum: ['normal', 'priority'], default: 'normal' }, // Nowe pole - priorytet zlecenia
   priorityFee: { type: Number, default: 0 }, // Dopłata za priorytet (w groszach)

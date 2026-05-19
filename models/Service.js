@@ -35,6 +35,12 @@ const serviceSchema = new mongoose.Schema({
   // Flagi specjalne
   is_top: { type: Number, default: 0 },
   seasonal: { type: String, enum: ['winter', 'spring', 'summer', 'autumn', 'none'], default: 'none' },
+
+  /** quick | medium | large — skala zlecenia (katalog, bez ręcznych if slug) */
+  tier: { type: String, enum: ['quick', 'medium', 'large'], default: 'quick', index: true },
+  /** AI/formularz: podpowiedź „tylko zbieram oferty” */
+  offerOnlySuggested: { type: Boolean, default: false, index: true },
+  b2b: { type: Boolean, default: false },
   
   // Metadane
   created_at: { type: Date, default: Date.now },

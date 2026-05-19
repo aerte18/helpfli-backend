@@ -6,35 +6,75 @@
     "subcategories": [
       {
         "id": "hydraulika-udraznianie-odp-ywow-i-kanalizacji",
-        "name": "Udrażnianie odpływów i kanalizacji"
+        "name": "Udrażnianie odpływów i kanalizacji",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "hydraulika-naprawa-wycieku",
-        "name": "Naprawa wycieku"
+        "name": "Naprawa wycieku",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "hydraulika-pod-aczenie-zmywarki-pralki-bia-y-montaz",
-        "name": "Podłączenie zmywarki / pralki (biały montaż)"
+        "name": "Podłączenie zmywarki / pralki (biały montaż)",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "hydraulika-wymiana-wc-sp-uczki-mechanizmu",
-        "name": "Wymiana WC / spłuczki / mechanizmu"
+        "name": "Wymiana WC / spłuczki / mechanizmu",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "hydraulika-lokalizacja-wyciekow-kamery-czujniki",
-        "name": "Lokalizacja wycieków (kamery, czujniki)"
+        "name": "Lokalizacja wycieków (kamery, czujniki)",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "hydraulika-odpowietrzanie-i-regulacja-instalacji-c-o",
-        "name": "Odpowietrzanie i regulacja instalacji c.o."
+        "name": "Odpowietrzanie i regulacja instalacji c.o.",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "hydraulika-wymiana-serwis-grzejnikow-i-termostatow",
-        "name": "Wymiana/serwis grzejników i termostatów"
+        "name": "Wymiana/serwis grzejników i termostatów",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "hydraulika-inne",
-        "name": "Inne"
+        "name": "Inne",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       }
     ]
   },
@@ -45,226 +85,488 @@
     "subcategories": [
       {
         "id": "elektryka-montaz-gniazdek-w-acznikow-oswietlenia-led",
-        "name": "Montaż gniazdek / włączników / oświetlenia (LED)"
+        "name": "Montaż gniazdek / włączników / oświetlenia (LED)",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "elektryka-wymiana-bezpiecznikow-naprawa-rozdzielni",
-        "name": "Wymiana bezpieczników / naprawa rozdzielni"
+        "name": "Wymiana bezpieczników / naprawa rozdzielni",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "elektryka-pomiary-elektryczne-i-protoko-y",
-        "name": "Pomiary elektryczne i protokoły"
+        "name": "Pomiary elektryczne i protokoły",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "elektryka-smart-home-tuya-sonoff-konfiguracja",
-        "name": "Smart Home (Tuya/Sonoff) – konfiguracja"
+        "name": "Smart Home (Tuya/Sonoff) – konfiguracja",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "elektryka-stacje-adowania-ev-montaz-przeglad",
-        "name": "Stacje ładowania EV – montaż/przegląd"
+        "name": "Stacje ładowania EV – montaż/przegląd",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "elektryka-rtv-sat-okablowanie-anteny-wzmacniacze",
-        "name": "RTV/SAT – okablowanie, anteny, wzmacniacze"
+        "name": "RTV/SAT – okablowanie, anteny, wzmacniacze",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "elektryka-inne",
-        "name": "Inne"
+        "name": "Inne",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       }
     ]
   },
   {
     "id": "agd-rtv",
-    "name": "Agd Rtv",
+    "name": "AGD i RTV",
     "icon": "📺",
     "subcategories": [
       {
         "id": "agd-rtv-montaz-tv-na-scianie-okablowanie",
-        "name": "Montaż TV na ścianie + okablowanie"
+        "name": "Montaż TV na ścianie + okablowanie",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "agd-rtv-konfiguracja-smart-tv-soundbar-multiroom",
-        "name": "Konfiguracja Smart TV / soundbar / multiroom"
+        "name": "Konfiguracja Smart TV / soundbar / multiroom",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "agd-rtv-instalacja-okapu-zabudowa-agd",
-        "name": "Instalacja okapu / zabudowa AGD"
+        "name": "Instalacja okapu / zabudowa AGD",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "agd-rtv-naprawa-agd",
-        "name": "Naprawa AGD"
+        "name": "Naprawa AGD",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "agd-rtv-naprawa-rtv",
-        "name": "Naprawa RTV"
+        "name": "Naprawa RTV",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "agd-rtv-inne",
-        "name": "Inne"
+        "name": "Inne",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       }
     ]
   },
   {
     "id": "klimatyzacja-ogrzewanie",
-    "name": "Klimatyzacja Ogrzewanie",
+    "name": "Klimatyzacja i ogrzewanie",
     "icon": "❄️",
     "subcategories": [
       {
         "id": "klimatyzacja-ogrzewanie-montaz-klimatyzacji",
-        "name": "Montaż klimatyzacji"
+        "name": "Montaż klimatyzacji",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "klimatyzacja-ogrzewanie-nabicie-serwis-czynnika-odgrzybianie",
-        "name": "Nabicie/serwis czynnika, odgrzybianie"
+        "name": "Nabicie/serwis czynnika, odgrzybianie",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "klimatyzacja-ogrzewanie-serwis-pomp-ciep-a",
-        "name": "Serwis pomp ciepła"
+        "name": "Serwis pomp ciepła",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "klimatyzacja-ogrzewanie-regulacja-serwis-instalacji-c-o-sterowniki-termostaty",
-        "name": "Regulacja/serwis instalacji c.o., sterowniki/termostaty"
+        "name": "Regulacja/serwis instalacji c.o., sterowniki/termostaty",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "klimatyzacja-ogrzewanie-kominiarz-przeglady-okresowe",
-        "name": "Kominiarz – przeglądy okresowe"
+        "name": "Kominiarz – przeglądy okresowe",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "klimatyzacja-ogrzewanie-inne",
-        "name": "Inne"
+        "name": "Inne",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       }
     ]
   },
   {
     "id": "remont-wykonczenia",
-    "name": "Remont Wykonczenia",
+    "name": "Remont i wykończenia",
     "icon": "🎨",
     "subcategories": [
       {
+        "id": "remont-wykonczenia-remont-mieszkania-kompleks",
+        "name": "Remont mieszkania (kompleks)",
+        "tier": "medium",
+        "offerOnlySuggested": true,
+        "b2b": false,
+        "base_price_min": 40000,
+        "base_price_max": 150000
+      },
+      {
+        "id": "remont-wykonczenia-remont-kuchni",
+        "name": "Remont kuchni",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 15000,
+        "base_price_max": 45000
+      },
+      {
+        "id": "remont-wykonczenia-remont-azienki",
+        "name": "Remont łazienki",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 8000,
+        "base_price_max": 35000
+      },
+      {
         "id": "remont-wykonczenia-malowanie",
-        "name": "Malowanie"
+        "name": "Malowanie",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "remont-wykonczenia-g-adzie-szpachlowanie-naprawy-scian",
-        "name": "Gładzie / szpachlowanie / naprawy ścian"
+        "name": "Gładzie / szpachlowanie / naprawy ścian",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "remont-wykonczenia-zabudowy-gk-sufity-podwieszane",
-        "name": "Zabudowy GK / sufity podwieszane"
+        "name": "Zabudowy GK / sufity podwieszane",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "remont-wykonczenia-tynki-gips-p-yty",
-        "name": "Tynki / gips / płyty"
+        "name": "Tynki / gips / płyty",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "remont-wykonczenia-montaz-drzwi-oscieznic-rolet-i-karniszy",
-        "name": "Montaż drzwi / ościeżnic / rolet i karniszy"
+        "name": "Montaż drzwi / ościeżnic / rolet i karniszy",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "remont-wykonczenia-silikonowanie-fugi-drobne-uszczelnienia",
-        "name": "Silikonowanie, fugi, drobne uszczelnienia"
+        "name": "Silikonowanie, fugi, drobne uszczelnienia",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "remont-wykonczenia-cyklinowanie-renowacja-pod-og",
-        "name": "Cyklinowanie / renowacja podłóg"
+        "name": "Cyklinowanie / renowacja podłóg",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "remont-wykonczenia-posadzki-zywiczne-mikrocement",
-        "name": "Posadzki żywiczne / mikrocement"
+        "name": "Posadzki żywiczne / mikrocement",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "remont-wykonczenia-montaz-paneli",
-        "name": "Montaż paneli"
+        "name": "Montaż paneli",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "remont-wykonczenia-glazura",
-        "name": "Glazura"
+        "name": "Glazura",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "remont-wykonczenia-naprawa-okien",
-        "name": "Naprawa okien"
+        "name": "Naprawa okien",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "remont-wykonczenia-tapetowanie-scian",
-        "name": "Tapetowanie ścian"
+        "name": "Tapetowanie ścian",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "remont-wykonczenia-montaz-listew",
-        "name": "Montaż listew"
+        "name": "Montaż listew",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "remont-wykonczenia-inne",
-        "name": "Inne"
+        "name": "Inne",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       }
     ]
   },
   {
     "id": "stolarstwo-montaz",
-    "name": "Stolarstwo Montaz",
+    "name": "Stolarstwo i montaż",
     "icon": "🔨",
     "subcategories": [
       {
         "id": "stolarstwo-montaz-sk-adanie-mebli",
-        "name": "Składanie mebli"
+        "name": "Składanie mebli",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "stolarstwo-montaz-naprawa-dopasowanie-drzwi-zawiasow-prowadnic",
-        "name": "Naprawa/dopasowanie drzwi, zawiasów, prowadnic"
+        "name": "Naprawa/dopasowanie drzwi, zawiasów, prowadnic",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "stolarstwo-montaz-blaty-kuchenne-po-ki-na-wymiar",
-        "name": "Blaty kuchenne, półki na wymiar"
+        "name": "Blaty kuchenne, półki na wymiar",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "stolarstwo-montaz-zabudowy-i-szafy-wnekowe-prosty-montaz",
-        "name": "Zabudowy i szafy wnękowe (prosty montaż)"
+        "name": "Zabudowy i szafy wnękowe (prosty montaż)",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "stolarstwo-montaz-listwy-przypod-ogowe-progi-coko-y",
-        "name": "Listwy przypodłogowe, progi, cokoły"
+        "name": "Listwy przypodłogowe, progi, cokoły",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "stolarstwo-montaz-montaz-karniszy-rolet-zaluzji",
-        "name": "Montaż karniszy / rolet / żaluzji"
+        "name": "Montaż karniszy / rolet / żaluzji",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "stolarstwo-montaz-inne",
-        "name": "Inne"
+        "name": "Inne",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       }
     ]
   },
   {
     "id": "slusarz-zabezpieczenia",
-    "name": "Slusarz Zabezpieczenia",
+    "name": "Ślusarz i zabezpieczenia",
     "icon": "🔐",
     "subcategories": [
       {
         "id": "slusarz-zabezpieczenia-awaryjne-otwieranie-drzwi",
-        "name": "Awaryjne otwieranie drzwi"
+        "name": "Awaryjne otwieranie drzwi",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "slusarz-zabezpieczenia-wymiana-zamka",
-        "name": "Wymiana zamka"
+        "name": "Wymiana zamka",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "slusarz-zabezpieczenia-montaz-zamkow-antyw-amaniowych",
-        "name": "Montaż zamków antywłamaniowych"
+        "name": "Montaż zamków antywłamaniowych",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "slusarz-zabezpieczenia-wizjery-wideodomofony-samozamykacze",
-        "name": "Wizjery / wideodomofony / samozamykacze"
+        "name": "Wizjery / wideodomofony / samozamykacze",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "slusarz-zabezpieczenia-sejfy-montaz-serwis",
-        "name": "Sejfy – montaż/serwis"
+        "name": "Sejfy – montaż/serwis",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "slusarz-zabezpieczenia-naprawa-rolet-zewnetrznych-zabezpieczenia",
-        "name": "Naprawa rolet zewnętrznych (zabezpieczenia)"
+        "name": "Naprawa rolet zewnętrznych (zabezpieczenia)",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "slusarz-zabezpieczenia-inne",
-        "name": "Inne"
+        "name": "Inne",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       }
     ]
   },
@@ -275,157 +577,332 @@
     "subcategories": [
       {
         "id": "sprzatanie-sprzatanie-mieszkania",
-        "name": "Sprzątanie mieszkania"
+        "name": "Sprzątanie mieszkania",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "sprzatanie-sprzatanie-po-remoncie-po-wyprowadzce",
-        "name": "Sprzątanie po remoncie / po wyprowadzce"
+        "name": "Sprzątanie po remoncie / po wyprowadzce",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "sprzatanie-sprzatanie-biur-lokali-us-ugowych",
-        "name": "Sprzątanie biur / lokali usługowych"
+        "name": "Sprzątanie biur / lokali usługowych",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "sprzatanie-pranie-dywanow-materacy-ozonowanie",
-        "name": "Pranie dywanów / materacy / ozonowanie"
+        "name": "Pranie dywanów / materacy / ozonowanie",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "sprzatanie-mycie-okien",
-        "name": "Mycie okien"
+        "name": "Mycie okien",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "sprzatanie-pranie-tapicerki",
-        "name": "Pranie tapicerki"
+        "name": "Pranie tapicerki",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "sprzatanie-sprzatanie-piwnic-strychow",
-        "name": "Sprzątanie piwnic/strychów"
+        "name": "Sprzątanie piwnic/strychów",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "sprzatanie-inne",
-        "name": "Inne"
+        "name": "Inne",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       }
     ]
   },
   {
     "id": "dom-ogrod",
-    "name": "Dom Ogrod",
+    "name": "Dom i ogród",
     "icon": "🌱",
     "subcategories": [
       {
         "id": "dom-ogrod-pielegnacja-ogrodu",
-        "name": "Pielęgnacja ogrodu"
+        "name": "Pielęgnacja ogrodu",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "dom-ogrod-projekt-ogrodu-koncepcja-nasadzenia",
-        "name": "Projekt ogrodu (koncepcja + nasadzenia)"
+        "name": "Projekt ogrodu (koncepcja + nasadzenia)",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "dom-ogrod-ma-a-architektura-taras-pergola-sciezki",
-        "name": "Mała architektura (taras, pergola, ścieżki)"
+        "name": "Mała architektura (taras, pergola, ścieżki)",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "dom-ogrod-koncepcja-systemu-nawadniania",
-        "name": "Koncepcja systemu nawadniania"
+        "name": "Koncepcja systemu nawadniania",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "dom-ogrod-zak-adanie-trawnika-wertykulacja-aeracja",
-        "name": "Zakładanie trawnika / wertykulacja / aeracja"
+        "name": "Zakładanie trawnika / wertykulacja / aeracja",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "dom-ogrod-systemy-nawadniania-montaz-serwis",
-        "name": "Systemy nawadniania – montaż/serwis"
+        "name": "Systemy nawadniania – montaż/serwis",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "dom-ogrod-montaz-naprawa-ogrodzen-i-bram",
-        "name": "Montaż/naprawa ogrodzeń i bram"
+        "name": "Montaż/naprawa ogrodzeń i bram",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "dom-ogrod-altany-tarasy-naprawy-i-olejowanie",
-        "name": "Altany / tarasy – naprawy i olejowanie"
+        "name": "Altany / tarasy – naprawy i olejowanie",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "dom-ogrod-odsniezanie",
-        "name": "Odśnieżanie"
+        "name": "Odśnieżanie",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "dom-ogrod-koszenie-trawnika",
-        "name": "Koszenie trawnika"
+        "name": "Koszenie trawnika",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "dom-ogrod-przycinanie-krzewow",
-        "name": "Przycinanie krzewów"
+        "name": "Przycinanie krzewów",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "dom-ogrod-usuwanie-gniazd-os-szerszeni",
-        "name": "Usuwanie gniazd os/szerszeni"
+        "name": "Usuwanie gniazd os/szerszeni",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "dom-ogrod-czyszczenie-pieca",
-        "name": "Czyszczenie pieca"
+        "name": "Czyszczenie pieca",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "dom-ogrod-czyszczenie-dachu",
-        "name": "Czyszczenie dachu"
+        "name": "Czyszczenie dachu",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "dom-ogrod-grabienie-lisci",
-        "name": "Grabienie liści"
+        "name": "Grabienie liści",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "dom-ogrod-moskitiery",
-        "name": "Moskitiery"
+        "name": "Moskitiery",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "dom-ogrod-inne",
-        "name": "Inne"
+        "name": "Inne",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       }
     ]
   },
   {
     "id": "auto-mobilne",
-    "name": "Auto Mobilne",
+    "name": "Auto mobilne",
     "icon": "🚗",
     "subcategories": [
       {
         "id": "auto-mobilne-wymiana-akumulatora",
-        "name": "Wymiana akumulatora"
+        "name": "Wymiana akumulatora",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "auto-mobilne-wymiana-ko-a",
-        "name": "Wymiana koła"
+        "name": "Wymiana koła",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "auto-mobilne-wymiana-opon-ko-a-na-miejscu-sezonowo",
-        "name": "Wymiana opon/koła na miejscu (sezonowo)"
+        "name": "Wymiana opon/koła na miejscu (sezonowo)",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "auto-mobilne-rozruch-z-kabli",
-        "name": "Rozruch z kabli"
+        "name": "Rozruch z kabli",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "auto-mobilne-holowanie-laweta-light-w-miescie",
-        "name": "Holowanie / 'laweta light' w mieście"
+        "name": "Holowanie / 'laweta light' w mieście",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "auto-mobilne-diagnostyka-obd-proste-odczyty",
-        "name": "Diagnostyka OBD (proste odczyty)"
+        "name": "Diagnostyka OBD (proste odczyty)",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "auto-mobilne-wymiana-zarowek-wycieraczek-bezpiecznikow",
-        "name": "Wymiana żarówek / wycieraczek / bezpieczników"
+        "name": "Wymiana żarówek / wycieraczek / bezpieczników",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "auto-mobilne-myjnia-mobilna-szybkie-detailing-mini",
-        "name": "Myjnia mobilna / szybkie detailing mini"
+        "name": "Myjnia mobilna / szybkie detailing mini",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "auto-mobilne-dowoz-paliwa",
-        "name": "Dowóz paliwa"
+        "name": "Dowóz paliwa",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "auto-mobilne-inne",
-        "name": "Inne"
+        "name": "Inne",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       }
     ]
   },
@@ -436,35 +913,75 @@
     "subcategories": [
       {
         "id": "it-naprawa-laptopow-pc-czyszczenie-termopasty",
-        "name": "Naprawa laptopów/PC (czyszczenie, termopasty)"
+        "name": "Naprawa laptopów/PC (czyszczenie, termopasty)",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "it-instalacja-systemu-sterownikow-office",
-        "name": "Instalacja systemu, sterowników, Office"
+        "name": "Instalacja systemu, sterowników, Office",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "it-usuwanie-wirusow-malware",
-        "name": "Usuwanie wirusów / malware"
+        "name": "Usuwanie wirusów / malware",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "it-konfiguracja-wi-fi-drukarki-sieci-mesh",
-        "name": "Konfiguracja Wi-Fi / drukarki / sieci mesh"
+        "name": "Konfiguracja Wi-Fi / drukarki / sieci mesh",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "it-backup-w-chmurze-odzysk-podstawowy-danych",
-        "name": "Backup w chmurze, odzysk podstawowy danych"
+        "name": "Backup w chmurze, odzysk podstawowy danych",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "it-konfiguracja-telefonu-migracja-danych",
-        "name": "Konfiguracja telefonu / migracja danych"
+        "name": "Konfiguracja telefonu / migracja danych",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "it-smart-home-konfiguracja-aplikacji-i-scen",
-        "name": "Smart Home – konfiguracja aplikacji i scen"
+        "name": "Smart Home – konfiguracja aplikacji i scen",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "it-inne",
-        "name": "Inne"
+        "name": "Inne",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       }
     ]
   },
@@ -475,27 +992,57 @@
     "subcategories": [
       {
         "id": "zdrowie-telekonsultacja-lekarza",
-        "name": "Telekonsultacja lekarza"
+        "name": "Telekonsultacja lekarza",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "zdrowie-wizyty-domowe-opieka-podstawowa",
-        "name": "Wizyty domowe (opieka podstawowa)"
+        "name": "Wizyty domowe (opieka podstawowa)",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "zdrowie-wizyty-pielegniarskie-zastrzyki-opatrunki",
-        "name": "Wizyty pielęgniarskie (zastrzyki, opatrunki)"
+        "name": "Wizyty pielęgniarskie (zastrzyki, opatrunki)",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "zdrowie-fizjoterapeuta-domowy",
-        "name": "Fizjoterapeuta domowy"
+        "name": "Fizjoterapeuta domowy",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "zdrowie-asystent-seniora-towarzyszenie",
-        "name": "Asystent seniora / towarzyszenie"
+        "name": "Asystent seniora / towarzyszenie",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "zdrowie-inne",
-        "name": "Inne"
+        "name": "Inne",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       }
     ]
   },
@@ -506,101 +1053,206 @@
     "subcategories": [
       {
         "id": "zwierzeta-konsultacja-weterynaryjna",
-        "name": "Konsultacja weterynaryjna"
+        "name": "Konsultacja weterynaryjna",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "zwierzeta-wyprowadzanie-psa-regularnie-jednorazowo",
-        "name": "Wyprowadzanie psa (regularnie / jednorazowo)"
+        "name": "Wyprowadzanie psa (regularnie / jednorazowo)",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "zwierzeta-opieka-dzienna-wyjazdowa-pet-sitting",
-        "name": "Opieka dzienna / wyjazdowa (pet sitting)"
+        "name": "Opieka dzienna / wyjazdowa (pet sitting)",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "zwierzeta-wizyty-karmienie-czyszczenie-kuwety",
-        "name": "Wizyty karmienie / czyszczenie kuwety"
+        "name": "Wizyty karmienie / czyszczenie kuwety",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "zwierzeta-transport-do-weterynarza",
-        "name": "Transport do weterynarza"
+        "name": "Transport do weterynarza",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "zwierzeta-groomer-mobilny-strzyzenie",
-        "name": "Groomer mobilny / strzyżenie"
+        "name": "Groomer mobilny / strzyżenie",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "zwierzeta-behawiorysta-trening-podstawowy",
-        "name": "Behawiorysta / trening podstawowy"
+        "name": "Behawiorysta / trening podstawowy",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "zwierzeta-weterynarz-domowy",
-        "name": "Weterynarz domowy"
+        "name": "Weterynarz domowy",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "zwierzeta-inne",
-        "name": "Inne"
+        "name": "Inne",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       }
     ]
   },
   {
     "id": "dezynsekcja-szkodniki",
-    "name": "Dezynsekcja Szkodniki",
+    "name": "Dezynsekcja/szkodniki",
     "icon": "🐛",
     "subcategories": [
       {
         "id": "dezynsekcja-szkodniki-zwalczanie-pluskiew-karaluchow-prusakow",
-        "name": "Zwalczanie pluskiew / karaluchów / prusaków"
+        "name": "Zwalczanie pluskiew / karaluchów / prusaków",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "dezynsekcja-szkodniki-zwalczanie-mrowek-rybikow",
-        "name": "Zwalczanie mrówek / rybików"
+        "name": "Zwalczanie mrówek / rybików",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "dezynsekcja-szkodniki-osy-szerszenie-bezpieczne-usuwanie",
-        "name": "Osy / szerszenie – bezpieczne usuwanie"
+        "name": "Osy / szerszenie – bezpieczne usuwanie",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "dezynsekcja-szkodniki-deratyzacja-gryzonie-monitoring-haccp",
-        "name": "Deratyzacja (gryzonie) + monitoring HACCP"
+        "name": "Deratyzacja (gryzonie) + monitoring HACCP",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "dezynsekcja-szkodniki-zabezpieczenia-po-inwazji-siatki-uszczelnienia",
-        "name": "Zabezpieczenia po inwazji (siatki, uszczelnienia)"
+        "name": "Zabezpieczenia po inwazji (siatki, uszczelnienia)",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "dezynsekcja-szkodniki-inne",
-        "name": "Inne"
+        "name": "Inne",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       }
     ]
   },
   {
     "id": "przeprowadzki-transport",
-    "name": "Przeprowadzki Transport",
+    "name": "Przeprowadzki i transport",
     "icon": "🚚",
     "subcategories": [
       {
         "id": "przeprowadzki-transport-taxi-bagazowe-ma-e-przeprowadzki",
-        "name": "Taxi bagażowe (małe przeprowadzki)"
+        "name": "Taxi bagażowe (małe przeprowadzki)",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "przeprowadzki-transport-transport-gabarytow",
-        "name": "Transport gabarytów"
+        "name": "Transport gabarytów",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "przeprowadzki-transport-demontaz-montaz-mebli-pakowanie",
-        "name": "Demontaż/montaż mebli, pakowanie"
+        "name": "Demontaż/montaż mebli, pakowanie",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "przeprowadzki-transport-wnoszenie-znoszenie-ekipy",
-        "name": "Wnoszenie / znoszenie (ekipy)"
+        "name": "Wnoszenie / znoszenie (ekipy)",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "przeprowadzki-transport-kurier-miejski-ekspres-lokalny",
-        "name": "Kurier miejski (ekspres lokalny)"
+        "name": "Kurier miejski (ekspres lokalny)",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "przeprowadzki-transport-inne",
-        "name": "Inne"
+        "name": "Inne",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       }
     ]
   },
@@ -611,124 +1263,249 @@
     "subcategories": [
       {
         "id": "gaz-przeglad-instalacji",
-        "name": "Przegląd instalacji"
+        "name": "Przegląd instalacji",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "gaz-wyciek-gazu",
-        "name": "Wyciek gazu"
+        "name": "Wyciek gazu",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "gaz-montaz-kuchenki-gazowej",
-        "name": "Montaż kuchenki gazowej"
+        "name": "Montaż kuchenki gazowej",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "gaz-wymiana-reduktorow-wezy",
-        "name": "Wymiana reduktorów / węży"
+        "name": "Wymiana reduktorów / węży",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "gaz-proby-szczelnosci-i-protoko-y",
-        "name": "Próby szczelności i protokoły"
+        "name": "Próby szczelności i protokoły",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "gaz-inne",
-        "name": "Inne"
+        "name": "Inne",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       }
     ]
   },
   {
     "id": "wywoz-utylizacja",
-    "name": "Wywoz Utylizacja",
+    "name": "Wywóz/utylizacja",
     "icon": "🗑️",
     "subcategories": [
       {
         "id": "wywoz-utylizacja-wywoz-gruzu-kontener",
-        "name": "Wywóz gruzu / kontener"
+        "name": "Wywóz gruzu / kontener",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "wywoz-utylizacja-wywoz-gabarytow-mebli",
-        "name": "Wywóz gabarytów / mebli"
+        "name": "Wywóz gabarytów / mebli",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "wywoz-utylizacja-utylizacja-elektrosmieci-agd-rtv",
-        "name": "Utylizacja elektrośmieci (AGD/RTV)"
+        "name": "Utylizacja elektrośmieci (AGD/RTV)",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "wywoz-utylizacja-wywoz-zieleni-ga-ezi",
-        "name": "Wywóz zieleni / gałęzi"
+        "name": "Wywóz zieleni / gałęzi",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "wywoz-utylizacja-czyszczenie-piwnic-strychow",
-        "name": "Czyszczenie piwnic/strychów"
+        "name": "Czyszczenie piwnic/strychów",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "wywoz-utylizacja-wywoz-z-omu",
-        "name": "Wywóz złomu"
+        "name": "Wywóz złomu",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "wywoz-utylizacja-wywoz-fekalii",
-        "name": "Wywóz fekalii"
+        "name": "Wywóz fekalii",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "wywoz-utylizacja-inne",
-        "name": "Inne"
+        "name": "Inne",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       }
     ]
   },
   {
     "id": "pomoc-24-7",
-    "name": "Pomoc 24 7",
+    "name": "Pomoc 24/7",
     "icon": "⏰",
     "subcategories": [
       {
         "id": "pomoc-24-7-awaria-hydrauliczna-wyciek",
-        "name": "Awaria hydrauliczna (wyciek)"
+        "name": "Awaria hydrauliczna (wyciek)",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "pomoc-24-7-awaria-elektryczna-zabezpieczenia",
-        "name": "Awaria elektryczna (zabezpieczenia)"
+        "name": "Awaria elektryczna (zabezpieczenia)",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "pomoc-24-7-awaryjne-otwieranie-drzwi-slusarz",
-        "name": "Awaryjne otwieranie drzwi (ślusarz)"
+        "name": "Awaryjne otwieranie drzwi (ślusarz)",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "pomoc-24-7-pomoc-drogowa-rozruch-ko-o",
-        "name": "Pomoc drogowa / rozruch / koło"
+        "name": "Pomoc drogowa / rozruch / koło",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "pomoc-24-7-zabezpieczenie-po-zalaniu-dachu",
-        "name": "Zabezpieczenie po zalaniu / dachu"
+        "name": "Zabezpieczenie po zalaniu / dachu",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "pomoc-24-7-inne",
-        "name": "Inne"
+        "name": "Inne",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       }
     ]
   },
   {
     "id": "zlota-raczka",
-    "name": "Zlota Raczka",
+    "name": "Złota rączka",
     "icon": "🔧",
     "subcategories": [
       {
         "id": "zlota-raczka-montaz-tv-karniszy-rolet-obrazow",
-        "name": "Montaż TV / karniszy / rolet / obrazów"
+        "name": "Montaż TV / karniszy / rolet / obrazów",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "zlota-raczka-drobne-naprawy-w-domu-zawiasy-zamki-meblowe",
-        "name": "Drobne naprawy w domu (zawiasy, zamki meblowe)"
+        "name": "Drobne naprawy w domu (zawiasy, zamki meblowe)",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "zlota-raczka-silikonowanie-uszczelnienia-poprawki",
-        "name": "Silikonowanie, uszczelnienia, poprawki"
+        "name": "Silikonowanie, uszczelnienia, poprawki",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "zlota-raczka-skrecanie-mebli-po-ki-uchwyty",
-        "name": "Skręcanie mebli / półki / uchwyty"
+        "name": "Skręcanie mebli / półki / uchwyty",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "zlota-raczka-godzina-dla-domu-mix-drobiazgow",
-        "name": "„Godzina dla domu” (mix drobiazgów)"
+        "name": "„Godzina dla domu” (mix drobiazgów)",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       }
     ]
   },
@@ -739,119 +1516,229 @@
     "subcategories": [
       {
         "id": "codzienne-sprawy-zakupy-na-szybko",
-        "name": "Zakupy na szybko"
+        "name": "Zakupy na szybko",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "codzienne-sprawy-odbior-zwrot-paczek",
-        "name": "Odbiór/zwrot paczek"
+        "name": "Odbiór/zwrot paczek",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "codzienne-sprawy-pomoc-przy-przeprowadzce-light-pude-ka",
-        "name": "Pomoc przy przeprowadzce light (pudełka)"
+        "name": "Pomoc przy przeprowadzce light (pudełka)",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "codzienne-sprawy-drobne-porzadki",
-        "name": "Drobne porządki"
+        "name": "Drobne porządki",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "codzienne-sprawy-inne",
-        "name": "Inne"
+        "name": "Inne",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       }
     ]
   },
   {
     "id": "urzedy-formalnosci",
-    "name": "Urzedy Formalnosci",
+    "name": "Urzędy i formalności",
     "icon": "📄",
     "subcategories": [
       {
         "id": "urzedy-formalnosci-wype-nianie-wnioskow-epuap-profil-zaufany",
-        "name": "Wypełnianie wniosków / ePUAP / profil zaufany"
+        "name": "Wypełnianie wniosków / ePUAP / profil zaufany",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "urzedy-formalnosci-rejestracja-auta-dowod-rejestracyjny",
-        "name": "Rejestracja auta / dowód rejestracyjny"
+        "name": "Rejestracja auta / dowód rejestracyjny",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "urzedy-formalnosci-t-umaczenie-krotkich-pism-nie-przysieg-e",
-        "name": "Tłumaczenie krótkich pism (nie-przysięgłe)"
+        "name": "Tłumaczenie krótkich pism (nie-przysięgłe)",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "urzedy-formalnosci-umawianie-wizyt-rezerwacje",
-        "name": "Umawianie wizyt / rezerwacje"
+        "name": "Umawianie wizyt / rezerwacje",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "urzedy-formalnosci-inne",
-        "name": "Inne"
+        "name": "Inne",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       }
     ]
   },
   {
     "id": "edukacja-korepetycje",
-    "name": "Edukacja Korepetycje",
+    "name": "Edukacja i korepetycje",
     "icon": "🎓",
     "subcategories": [
       {
         "id": "edukacja-korepetycje-matematyka-jezyki-matura",
-        "name": "Matematyka / języki / matura"
+        "name": "Matematyka / języki / matura",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "edukacja-korepetycje-nauka-obs-ugi-komputera-telefonu",
-        "name": "Nauka obsługi komputera/telefonu"
+        "name": "Nauka obsługi komputera/telefonu",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "edukacja-korepetycje-pomoc-zadania-domowe",
-        "name": "Pomoc „zadania domowe”"
+        "name": "Pomoc „zadania domowe”",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "edukacja-korepetycje-kursy-krotkie-excel-cv-linkedin",
-        "name": "Kursy krótkie (Excel, CV/LinkedIn)"
+        "name": "Kursy krótkie (Excel, CV/LinkedIn)",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "edukacja-korepetycje-inne",
-        "name": "Inne"
+        "name": "Inne",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       }
     ]
   },
   {
     "id": "rower-hulajnoga",
-    "name": "Rower Hulajnoga",
+    "name": "Rower / hulajnoga",
     "icon": "🚲",
     "subcategories": [
       {
         "id": "rower-hulajnoga-serwis-roweru-hamulce-przerzutki",
-        "name": "Serwis roweru (hamulce, przerzutki)"
+        "name": "Serwis roweru (hamulce, przerzutki)",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "rower-hulajnoga-wymiana-detki-opony",
-        "name": "Wymiana dętki / opony"
+        "name": "Wymiana dętki / opony",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "rower-hulajnoga-konserwacja-hulajnogi-elektrycznej",
-        "name": "Konserwacja hulajnogi elektrycznej"
+        "name": "Konserwacja hulajnogi elektrycznej",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "rower-hulajnoga-inne",
-        "name": "Inne"
+        "name": "Inne",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       }
     ]
   },
   {
     "id": "monitoring-alarms",
-    "name": "Monitoring Alarms",
+    "name": "Monitoring i alarmy (zabezpieczenia domu)",
     "icon": "📷",
     "subcategories": [
       {
         "id": "monitoring-alarms-montaz-kamer-wideodomofonow",
-        "name": "Montaż kamer / wideodomofonów"
+        "name": "Montaż kamer / wideodomofonów",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "monitoring-alarms-konfiguracja-alarmu-czujnikow",
-        "name": "Konfiguracja alarmu / czujników"
+        "name": "Konfiguracja alarmu / czujników",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "monitoring-alarms-inne",
-        "name": "Inne"
+        "name": "Inne",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       }
     ]
   },
@@ -862,19 +1749,39 @@
     "subcategories": [
       {
         "id": "akwarystyka-zak-adanie-i-start-akwarium",
-        "name": "Zakładanie i start akwarium"
+        "name": "Zakładanie i start akwarium",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "akwarystyka-aranzacja-aquascaping",
-        "name": "Aranżacja / aquascaping"
+        "name": "Aranżacja / aquascaping",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "akwarystyka-podmiany-wody-i-serwis-cykliczny",
-        "name": "Podmiany wody i serwis cykliczny"
+        "name": "Podmiany wody i serwis cykliczny",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "akwarystyka-inne",
-        "name": "Inne"
+        "name": "Inne",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       }
     ]
   },
@@ -885,35 +1792,75 @@
     "subcategories": [
       {
         "id": "wynajem-wynajem-przyczep-i-lawe",
-        "name": "Wynajem przyczep i lawe"
+        "name": "Wynajem przyczep i lawe",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "wynajem-wynajem-maszyn-budowlanych",
-        "name": "Wynajem maszyn budowlanych"
+        "name": "Wynajem maszyn budowlanych",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "wynajem-wynajem-narzedzi-i-ogrodowych",
-        "name": "Wynajem narzędzi i ogrodowych"
+        "name": "Wynajem narzędzi i ogrodowych",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "wynajem-wynajem-foto-video-av",
-        "name": "Wynajem foto-video/AV"
+        "name": "Wynajem foto-video/AV",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "wynajem-wynajem-sprzetu-eventowego",
-        "name": "Wynajem sprzętu eventowego"
+        "name": "Wynajem sprzętu eventowego",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "wynajem-wynajem-sport-outdoor",
-        "name": "Wynajem sport/outdoor"
+        "name": "Wynajem sport/outdoor",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "wynajem-wynajem-samochodu",
-        "name": "Wynajem samochodu"
+        "name": "Wynajem samochodu",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "wynajem-inne",
-        "name": "Inne"
+        "name": "Inne",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       }
     ]
   },
@@ -924,66 +1871,398 @@
     "subcategories": [
       {
         "id": "architektura-konsultacje-online",
-        "name": "Konsultacje online"
+        "name": "Konsultacje online",
+        "tier": "large",
+        "offerOnlySuggested": true,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "architektura-projekt-koncepcyjny-mieszkania-pokoju",
-        "name": "Projekt koncepcyjny mieszkania/pokoju"
+        "name": "Projekt koncepcyjny mieszkania/pokoju",
+        "tier": "large",
+        "offerOnlySuggested": true,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "architektura-wizualizacje-3d",
-        "name": "Wizualizacje 3D"
+        "name": "Wizualizacje 3D",
+        "tier": "large",
+        "offerOnlySuggested": true,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "architektura-inwentaryzacja-pomiarowa-2d-3d",
-        "name": "Inwentaryzacja pomiarowa 2D/3D"
+        "name": "Inwentaryzacja pomiarowa 2D/3D",
+        "tier": "large",
+        "offerOnlySuggested": true,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "architektura-audyt-funkcjonalny-lokalu-us-ugu-uk-ad-scian-strefy",
-        "name": "Audyt funkcjonalny lokalu/usługu (układ ścian, strefy)"
+        "name": "Audyt funkcjonalny lokalu/usługu (układ ścian, strefy)",
+        "tier": "large",
+        "offerOnlySuggested": true,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       },
       {
         "id": "architektura-projekt-budowlany-przebudowa",
-        "name": "Projekt budowlany / przebudowa"
+        "name": "Projekt budowlany / przebudowa",
+        "tier": "large",
+        "offerOnlySuggested": true,
+        "b2b": false,
+        "base_price_min": 15000,
+        "base_price_max": 80000
       }
     ]
   },
   {
-    "id": "teleporada",
-    "name": "Teleporada",
-    "icon": "📞",
+    "id": "budowa-inwestycje",
+    "name": "Budowa i inwestycje",
+    "icon": "🏗️",
     "subcategories": [
       {
-        "id": "teleporada-lekarz",
-        "name": "Lekarz"
+        "id": "budowa-inwestycje-budowa-domu",
+        "name": "Budowa domu",
+        "tier": "large",
+        "offerOnlySuggested": true,
+        "b2b": false,
+        "base_price_min": 450000,
+        "base_price_max": 850000
       },
       {
-        "id": "teleporada-prawnik",
-        "name": "Prawnik"
+        "id": "budowa-inwestycje-dom-pod-klucz",
+        "name": "Dom pod klucz",
+        "tier": "large",
+        "offerOnlySuggested": true,
+        "b2b": false,
+        "base_price_min": 500000,
+        "base_price_max": 950000
       },
       {
-        "id": "teleporada-specjalista-it",
-        "name": "Specjalista IT"
+        "id": "budowa-inwestycje-stan-surowy",
+        "name": "Stan surowy",
+        "tier": "large",
+        "offerOnlySuggested": true,
+        "b2b": false,
+        "base_price_min": 200000,
+        "base_price_max": 450000
       },
       {
-        "id": "teleporada-doradca-biznesowy",
-        "name": "Doradca biznesowy"
+        "id": "budowa-inwestycje-generalny-remont-domu",
+        "name": "Generalny remont domu",
+        "tier": "large",
+        "offerOnlySuggested": true,
+        "b2b": false,
+        "base_price_min": 80000,
+        "base_price_max": 350000
       },
       {
-        "id": "teleporada-psycholog",
-        "name": "Psycholog"
+        "id": "budowa-inwestycje-wykonczenie-wnetrz-kompleks",
+        "name": "Wykończenie wnętrz (kompleks)",
+        "tier": "large",
+        "offerOnlySuggested": true,
+        "b2b": false,
+        "base_price_min": 50000,
+        "base_price_max": 200000
       },
       {
-        "id": "teleporada-korepetycje",
-        "name": "Korepetycje"
+        "id": "budowa-inwestycje-budowa-hali-obiektu",
+        "name": "Budowa hali / obiektu",
+        "tier": "large",
+        "offerOnlySuggested": true,
+        "b2b": false,
+        "base_price_min": 300000,
+        "base_price_max": 2000000
       },
       {
-        "id": "teleporada-doradca-nieruchomosci",
-        "name": "Doradca nieruchomości"
+        "id": "budowa-inwestycje-generalny-wykonawca",
+        "name": "Generalny wykonawca",
+        "tier": "large",
+        "offerOnlySuggested": true,
+        "b2b": false,
+        "base_price_min": 100000,
+        "base_price_max": 500000
       },
       {
-        "id": "teleporada-inne",
-        "name": "Inne"
+        "id": "budowa-inwestycje-fotowoltaika-instalacja",
+        "name": "Fotowoltaika (instalacja)",
+        "tier": "large",
+        "offerOnlySuggested": true,
+        "b2b": false,
+        "base_price_min": 25000,
+        "base_price_max": 80000
+      },
+      {
+        "id": "budowa-inwestycje-budowa-basenu",
+        "name": "Budowa basenu",
+        "tier": "large",
+        "offerOnlySuggested": true,
+        "b2b": false,
+        "base_price_min": 80000,
+        "base_price_max": 250000
+      },
+      {
+        "id": "budowa-inwestycje-budowa-ogrodu-od-zera",
+        "name": "Budowa ogrodu od zera",
+        "tier": "large",
+        "offerOnlySuggested": true,
+        "b2b": false,
+        "base_price_min": 30000,
+        "base_price_max": 120000
+      },
+      {
+        "id": "budowa-inwestycje-inne",
+        "name": "Inne",
+        "tier": "large",
+        "offerOnlySuggested": true,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
+      }
+    ]
+  },
+  {
+    "id": "nieruchomosci",
+    "name": "Nieruchomości",
+    "icon": "🏠",
+    "subcategories": [
+      {
+        "id": "nieruchomosci-odbior-mieszkania-domu",
+        "name": "Odbiór mieszkania / domu",
+        "tier": "medium",
+        "offerOnlySuggested": true,
+        "b2b": false,
+        "base_price_min": 800,
+        "base_price_max": 3500
+      },
+      {
+        "id": "nieruchomosci-rzeczoznawca-majatkowy",
+        "name": "Rzeczoznawca majątkowy",
+        "tier": "medium",
+        "offerOnlySuggested": true,
+        "b2b": false,
+        "base_price_min": 1500,
+        "base_price_max": 8000
+      },
+      {
+        "id": "nieruchomosci-inspekcja-domu-lokalu",
+        "name": "Inspekcja domu / lokalu",
+        "tier": "medium",
+        "offerOnlySuggested": true,
+        "b2b": false,
+        "base_price_min": 600,
+        "base_price_max": 2500
+      },
+      {
+        "id": "nieruchomosci-kosztorys-wycena-robot",
+        "name": "Kosztorys / wycena robót",
+        "tier": "medium",
+        "offerOnlySuggested": true,
+        "b2b": false,
+        "base_price_min": 2000,
+        "base_price_max": 15000
+      },
+      {
+        "id": "nieruchomosci-geodeta-mapa",
+        "name": "Geodeta / mapa",
+        "tier": "medium",
+        "offerOnlySuggested": true,
+        "b2b": false,
+        "base_price_min": 800,
+        "base_price_max": 5000
+      },
+      {
+        "id": "nieruchomosci-inne",
+        "name": "Inne",
+        "tier": "medium",
+        "offerOnlySuggested": true,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
+      }
+    ]
+  },
+  {
+    "id": "motoryzacja-rozszerzona",
+    "name": "Motoryzacja",
+    "icon": "🚗",
+    "subcategories": [
+      {
+        "id": "motoryzacja-rozszerzona-mechanik-mobilny",
+        "name": "Mechanik mobilny",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 150,
+        "base_price_max": 800
+      },
+      {
+        "id": "motoryzacja-rozszerzona-lakiernik-naprawa-blacharska",
+        "name": "Lakiernik / naprawa blacharska",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 500,
+        "base_price_max": 8000
+      },
+      {
+        "id": "motoryzacja-rozszerzona-detailing",
+        "name": "Detailing",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 200,
+        "base_price_max": 1500
+      },
+      {
+        "id": "motoryzacja-rozszerzona-diagnostyka-komputerowa",
+        "name": "Diagnostyka komputerowa",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 100,
+        "base_price_max": 400
+      },
+      {
+        "id": "motoryzacja-rozszerzona-inne",
+        "name": "Inne",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
+      }
+    ]
+  },
+  {
+    "id": "eventy",
+    "name": "Eventy",
+    "icon": "🎉",
+    "subcategories": [
+      {
+        "id": "eventy-dj-oprawa-muzyczna",
+        "name": "DJ / oprawa muzyczna",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 800,
+        "base_price_max": 5000
+      },
+      {
+        "id": "eventy-fotograf",
+        "name": "Fotograf",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 600,
+        "base_price_max": 4000
+      },
+      {
+        "id": "eventy-animator-animatorzy",
+        "name": "Animator / animatorzy",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 400,
+        "base_price_max": 2500
+      },
+      {
+        "id": "eventy-inne",
+        "name": "Inne",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
+      }
+    ]
+  },
+  {
+    "id": "prawo-biznes",
+    "name": "Prawo i biznes",
+    "icon": "⚖️",
+    "subcategories": [
+      {
+        "id": "prawo-biznes-ksiegowosc-rozliczenia",
+        "name": "Księgowość / rozliczenia",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": true,
+        "base_price_min": 300,
+        "base_price_max": 3000
+      },
+      {
+        "id": "prawo-biznes-kontroling-finanse",
+        "name": "Kontroling / finanse",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": true,
+        "base_price_min": 500,
+        "base_price_max": 5000
+      },
+      {
+        "id": "prawo-biznes-software-house-wdrozenia-it",
+        "name": "Software house / wdrożenia IT",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": true,
+        "base_price_min": 5000,
+        "base_price_max": 100000
+      },
+      {
+        "id": "prawo-biznes-fit-out-biur",
+        "name": "Fit-out biur",
+        "tier": "medium",
+        "offerOnlySuggested": true,
+        "b2b": true,
+        "base_price_min": 50000,
+        "base_price_max": 500000
+      },
+      {
+        "id": "prawo-biznes-prawnik-konsultacja",
+        "name": "Prawnik / konsultacja",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": true,
+        "base_price_min": 200,
+        "base_price_max": 2000
+      },
+      {
+        "id": "prawo-biznes-doradca-kredytowy",
+        "name": "Doradca kredytowy",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": true,
+        "base_price_min": 0,
+        "base_price_max": 0
+      },
+      {
+        "id": "prawo-biznes-notariusz",
+        "name": "Notariusz",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": true,
+        "base_price_min": 100,
+        "base_price_max": 500
+      },
+      {
+        "id": "prawo-biznes-inne",
+        "name": "Inne",
+        "tier": "medium",
+        "offerOnlySuggested": false,
+        "b2b": true,
+        "base_price_min": 0,
+        "base_price_max": 0
       }
     ]
   },
@@ -994,7 +2273,12 @@
     "subcategories": [
       {
         "id": "inne-inne-opisz-problem",
-        "name": "Inne opisz problem"
+        "name": "Inne opisz problem",
+        "tier": "quick",
+        "offerOnlySuggested": false,
+        "b2b": false,
+        "base_price_min": 0,
+        "base_price_max": 0
       }
     ]
   }

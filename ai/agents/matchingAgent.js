@@ -32,6 +32,12 @@ function serviceSearchCandidates(service) {
   if (/elektr|gniazd|prąd|prad/i.test(s)) {
     list.push('elektryk_naprawa', 'elektryk');
   }
+  if (/budow|inwestycj|dom pod klucz|generalny remont|hala|fotowoltaik/i.test(s)) {
+    list.push('budowa-inwestycje', 'remont-wykonczenia');
+  }
+  if (/nieruchom|odbior mieszkania|rzeczoznawc/i.test(s)) {
+    list.push('nieruchomosci');
+  }
   return [...new Set(list.filter(Boolean))];
 }
 

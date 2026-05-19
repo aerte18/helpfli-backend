@@ -471,7 +471,8 @@ router.post("/", auth, async (req, res) => {
       aiTriage, // MVP: cache AI triage result
       aiBrief,
       paymentPreference = "system", // MVP: 'system' | 'external'
-      paymentMethod = "system" // Legacy: 'system' | 'external'
+      paymentMethod = "system", // Legacy: 'system' | 'external'
+      orderMode = "standard" // 'standard' | 'offers_only'
     } = req.body;
 
     // Attachments can arrive as JSON string or objects array.
@@ -512,6 +513,12 @@ router.post("/", auth, async (req, res) => {
     // Walidacja wymaganych pól
     if (!service || !description) {
       return res.status(400).json({ error: "Usługa i opis są wymagane" });
+    }
+
+    const normalizedOrderMode = orderMode === 'offers_only' ? 'offers_only' : 'standard';
+    let normalizedPaymentPreference = paymentPreference || 'system';
+    if (normalizedOrderMode === 'offers_only') {
+      normalizedPaymentPreference = 'external';
     }
 
     const normalizedAiBrief = normalizeAiBrief(aiBrief);
@@ -618,8 +625,9 @@ router.post("/", auth, async (req, res) => {
       matchMode: matchMode,
       aiTriage: aiTriage || null,
       ...(normalizedAiBrief ? { aiBrief: normalizedAiBrief, source: 'ai' } : {}),
+      orderMode: normalizedOrderMode,
       // Payment preferences (paymentPreference = flow: system vs external; paymentMethod = konkretna metoda Stripe, domyślnie unknown)
-      paymentPreference: paymentPreference || 'system', // 'system' | 'external'
+      paymentPreference: normalizedPaymentPreference, // 'system' | 'external'
       // paymentMethod w schemie Order to enum ['card','p24','blik','unknown'] – nie ustawiać na 'system'/'external'
       // Location (geo)
       ...(locationObj && {
@@ -1091,6 +1099,13 @@ router.get('/open', auth, async (req, res) => {
     const offersCountMap = new Map(offersCounts.map(item => [String(item._id), item.count]));
     
     console.log('🔍 GET_OPEN_ORDERS: Found orders before filtering:', orders.length);
+
+    const providerScope = user?.providerOrderScope || 'both';
+    if (providerScope === 'quick_only') {
+      orders = orders.filter((o) => o.orderMode !== 'offers_only');
+    } else if (providerScope === 'large_only') {
+      orders = orders.filter((o) => o.orderMode === 'offers_only');
+    }
     
     // Sortuj ręcznie: najpierw podbite, potem pilne, potem normalne
     const sortNow = new Date();
@@ -1203,7 +1218,8 @@ router.get('/open', auth, async (req, res) => {
         // Załączniki (zdjęcia/filmy)
         attachments: order.attachments || [],
         // Źródło zlecenia (AI vs manual)
-        source: order.source || 'manual'
+        source: order.source || 'manual',
+        orderMode: order.orderMode || 'standard',
       };
 
       // Dla Fast-Track zleceń - pokaż pełne szczegóły + oznaczenie

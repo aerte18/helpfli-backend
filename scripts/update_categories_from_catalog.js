@@ -4,6 +4,19 @@ const path = require('path');
 const categoriesPath = path.join(__dirname, '../data/categories_pl.json');
 const legacyCategoriesPath = path.join(__dirname, '../data/categories_pl.json');
 const sourcePath = path.join(__dirname, '../data/services_catalog.json');
+const catalogSource = require('../data/services_catalog.source');
+
+const PARENT_ICONS = {
+  'budowa-inwestycje': '🏗️',
+  nieruchomosci: '🏠',
+  'motoryzacja-rozszerzona': '🚗',
+  eventy: '🎉',
+  'prawo-biznes': '⚖️',
+};
+
+const parentLabelsFromSource = Object.fromEntries(
+  (catalogSource || []).map((c) => [String(c.id).trim(), c.label]).filter(([id]) => id)
+);
 
 try {
   const existingIcons = {};
@@ -39,11 +52,16 @@ try {
 
   const categories = Object.entries(grouped).map(([parent, items]) => ({
     id: parent,
-    name: legacyNames[parent] || toTitle(parent),
-    icon: existingIcons[parent] || '❓',
+    name: parentLabelsFromSource[parent] || legacyNames[parent] || toTitle(parent),
+    icon: PARENT_ICONS[parent] || existingIcons[parent] || '❓',
     subcategories: items.map(child => ({
       id: child.slug,
-      name: child.name_pl
+      name: child.name_pl,
+      tier: child.tier || 'quick',
+      offerOnlySuggested: Boolean(child.offer_only_suggested ?? child.offerOnlySuggested),
+      b2b: Boolean(child.b2b),
+      base_price_min: Number(child.base_price_min) || 0,
+      base_price_max: Number(child.base_price_max) || 0,
     }))
   }));
 

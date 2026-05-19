@@ -952,10 +952,16 @@ router.post("/:id/accept", auth, async (req, res) => {
     const providerFlow = validFlow(offer.paymentMethod) ? offer.paymentMethod : null;
     const requestFlow = validFlow(paymentMethod) ? paymentMethod : null;
     const orderFlow = validFlow(order.paymentPreference) ? order.paymentPreference : null;
-    const effectivePaymentFlow =
+    const isOffersOnlyOrder = order.orderMode === 'offers_only';
+
+    let effectivePaymentFlow =
       order.paymentPreference === "both"
         ? (providerFlow || requestFlow || "system")
         : (orderFlow || requestFlow || "system");
+
+    if (isOffersOnlyOrder) {
+      effectivePaymentFlow = 'external';
+    }
 
     // Oblicz opłaty (bazując na aktualnej subskrypcji klienta, a nie danych z frontu)
     const baseAmount = offer.amount;
@@ -970,7 +976,9 @@ router.post("/:id/accept", auth, async (req, res) => {
     const clientPlanKey = activeSubscription?.planKey || null;
     const zeroCommissionPlans = ['CLIENT_PRO']; // Plany z 0% prowizji od tej opłaty
     const platformFeePercent = zeroCommissionPlans.includes(clientPlanKey) ? 0 : 5;
-    const platformFee = Math.round(baseAmount * (platformFeePercent / 100));
+    const platformFee = isOffersOnlyOrder
+      ? 0
+      : Math.round(baseAmount * (platformFeePercent / 100));
     
     const guaranteeFee = (effectivePaymentFlow === 'system' && includeGuarantee)
       ? Math.round(baseAmount * 0.07)
@@ -997,6 +1005,9 @@ router.post("/:id/accept", auth, async (req, res) => {
     order.acceptedOfferId = offer._id;
     order.acceptedAt = new Date();
     order.requestInvoice = requestInvoice;
+    if (isOffersOnlyOrder) {
+      order.contactUnlockedAt = new Date();
+    }
     
     // Ustaw ceny i opłaty
     order.pricing = {
@@ -1226,10 +1237,13 @@ router.post("/:id/accept", auth, async (req, res) => {
       ok: true, 
       orderId: order._id, 
       offerId: offer._id,
+      orderMode: order.orderMode || 'standard',
       paymentMethod: effectivePaymentFlow,
       includeGuarantee,
       totalAmount,
-      breakdown: order.pricing
+      breakdown: order.pricing,
+      suggestAddFavorite: isOffersOnlyOrder,
+      providerId: offer.providerId,
     });
   } catch (e) {
     logger.error("ACCEPT_OFFER_ERROR:", {

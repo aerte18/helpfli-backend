@@ -6,6 +6,7 @@
 const Order = require('../../models/Order');
 const Service = require('../../models/Service');
 const { mergeAttachmentLists } = require('../utils/orderConciergeSync');
+const { shouldSuggestOffersOnly } = require('../utils/serviceMeta');
 
 function buildAiBrief(params, context) {
   if (context.aiBrief) return context.aiBrief;
@@ -104,6 +105,13 @@ async function createOrderTool(params, context = {}) {
       ? Math.round(((Number(budget.min) || 0) + (Number(budget.max) || Number(budget.min) || 0)) / 2)
       : null;
 
+    const offersOnly = params.orderMode === 'offers_only' || shouldSuggestOffersOnly({
+      serviceMeta: serviceObj,
+      budgetMin: budget?.min,
+      budgetMax: budget?.max,
+      description: fullDescription,
+    });
+
     const order = await Order.create({
       client: userId,
       service: serviceValue,
@@ -113,6 +121,8 @@ async function createOrderTool(params, context = {}) {
       urgency: validUrgency,
       status: 'open',
       source: 'ai',
+      orderMode: offersOnly ? 'offers_only' : 'standard',
+      paymentPreference: offersOnly ? 'external' : 'system',
       budget: budgetMid,
       budgetRange: budget || null,
       attachments: mergedAttachments,

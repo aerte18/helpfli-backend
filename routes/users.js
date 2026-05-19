@@ -95,7 +95,7 @@ router.put("/me/availability", authMiddleware, async (req, res) => {
 // PATCH /api/users/me - ogólna aktualizacja profilu użytkownika
 router.patch("/me", authMiddleware, async (req, res) => {
   try {
-    const allowedFields = ['providerPaymentPreference', 'name', 'phone', 'location', 'address', 'isB2B', 'b2b'];
+    const allowedFields = ['providerPaymentPreference', 'providerOrderScope', 'name', 'phone', 'location', 'address', 'isB2B', 'b2b'];
     const updateData = {};
     
     // Aktualizuj tylko dozwolone pola
@@ -116,6 +116,13 @@ router.patch("/me", authMiddleware, async (req, res) => {
     
     if (Object.keys(updateData).length === 0) {
       return res.status(400).json({ message: 'Brak pól do aktualizacji' });
+    }
+
+    if (
+      updateData.providerOrderScope &&
+      !['quick_only', 'large_only', 'both'].includes(updateData.providerOrderScope)
+    ) {
+      return res.status(400).json({ message: 'Nieprawidłowy rodzaj zleceń (providerOrderScope)' });
     }
     
     await User.findByIdAndUpdate(req.user._id, updateData);

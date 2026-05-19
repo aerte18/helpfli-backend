@@ -10,6 +10,7 @@ const { normalizeUrgency, normalizeServiceName } = require('../utils/normalize')
 const { evaluateOrderDraftPreflight } = require('../utils/preflightQualityEvaluator');
 const { cleanDescriptionText, formatLocationDisplay } = require('../utils/orderConciergeSync');
 const { analyzeOrderGaps } = require('../utils/orderGapAnalyzer');
+const { getServiceMetaBySlug, shouldSuggestOffersOnly } = require('../utils/serviceMeta');
 
 /**
  * Główna funkcja agenta Order Draft
@@ -102,10 +103,20 @@ async function runOrderDraftAgent({
       locationReady &&
       orderPayload.description.length >= 10;
 
+    const serviceMeta = await getServiceMetaBySlug(service || orderPayload.service);
+    const suggestOffersOnly = shouldSuggestOffersOnly({
+      serviceMeta,
+      budgetMin: orderPayload.budget?.min,
+      budgetMax: orderPayload.budget?.max,
+      description: `${orderPayload.description} ${userMessages}`,
+    });
+
     return {
       ok: true,
       agent: 'order_draft',
       canCreate,
+      suggestOffersOnly,
+      serviceMeta,
       orderPayload: canCreate ? { ...orderPayload, service } : orderPayload,
       missing,
       optionalMissing: gapAnalysis.recommended.map((r) => r.label),

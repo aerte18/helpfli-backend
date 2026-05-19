@@ -35,7 +35,10 @@ module.exports = [
     "Kominiarz – przeglądy okresowe",
     "Inne"
   ]},
-  { id: "remont-wykonczenia", label: "Remont i wykończenia", children: [
+  { id: "remont-wykonczenia", label: "Remont i wykończenia", tier: "medium", children: [
+    { name: "Remont mieszkania (kompleks)", base_price_min: 40000, base_price_max: 150000, offerOnlySuggested: true },
+    { name: "Remont kuchni", base_price_min: 15000, base_price_max: 45000 },
+    { name: "Remont łazienki", base_price_min: 8000, base_price_max: 35000 },
     "Malowanie",
     "Gładzie / szpachlowanie / naprawy ścian",
     "Zabudowy GK / sufity podwieszane",
@@ -236,13 +239,57 @@ module.exports = [
     "Wynajem samochodu",
     "Inne"
   ]},
-  { id: "architektura", label: "Architektura", children: [
+  { id: "architektura", label: "Architektura", tier: "large", offerOnlySuggested: true, children: [
     "Konsultacje online",
     "Projekt koncepcyjny mieszkania/pokoju",
     "Wizualizacje 3D",
     "Inwentaryzacja pomiarowa 2D/3D",
     "Audyt funkcjonalny lokalu/usługu (układ ścian, strefy)",
-    "Projekt budowlany / przebudowa"
+    { name: "Projekt budowlany / przebudowa", offerOnlySuggested: true, base_price_min: 15000, base_price_max: 80000 }
+  ]},
+  { id: "budowa-inwestycje", label: "Budowa i inwestycje", tier: "large", offerOnlySuggested: true, children: [
+    { name: "Budowa domu", base_price_min: 450000, base_price_max: 850000 },
+    { name: "Dom pod klucz", base_price_min: 500000, base_price_max: 950000 },
+    { name: "Stan surowy", base_price_min: 200000, base_price_max: 450000 },
+    { name: "Generalny remont domu", base_price_min: 80000, base_price_max: 350000 },
+    { name: "Wykończenie wnętrz (kompleks)", base_price_min: 50000, base_price_max: 200000 },
+    { name: "Budowa hali / obiektu", base_price_min: 300000, base_price_max: 2000000 },
+    { name: "Generalny wykonawca", base_price_min: 100000, base_price_max: 500000 },
+    { name: "Fotowoltaika (instalacja)", base_price_min: 25000, base_price_max: 80000 },
+    { name: "Budowa basenu", base_price_min: 80000, base_price_max: 250000 },
+    { name: "Budowa ogrodu od zera", base_price_min: 30000, base_price_max: 120000 },
+    "Inne"
+  ]},
+  { id: "nieruchomosci", label: "Nieruchomości", tier: "medium", offerOnlySuggested: true, children: [
+    { name: "Odbiór mieszkania / domu", base_price_min: 800, base_price_max: 3500 },
+    { name: "Rzeczoznawca majątkowy", base_price_min: 1500, base_price_max: 8000 },
+    { name: "Inspekcja domu / lokalu", base_price_min: 600, base_price_max: 2500 },
+    { name: "Kosztorys / wycena robót", base_price_min: 2000, base_price_max: 15000 },
+    { name: "Geodeta / mapa", base_price_min: 800, base_price_max: 5000 },
+    "Inne"
+  ]},
+  { id: "motoryzacja-rozszerzona", label: "Motoryzacja", tier: "medium", children: [
+    { name: "Mechanik mobilny", base_price_min: 150, base_price_max: 800 },
+    { name: "Lakiernik / naprawa blacharska", base_price_min: 500, base_price_max: 8000 },
+    { name: "Detailing", base_price_min: 200, base_price_max: 1500 },
+    { name: "Diagnostyka komputerowa", base_price_min: 100, base_price_max: 400 },
+    "Inne"
+  ]},
+  { id: "eventy", label: "Eventy", tier: "medium", children: [
+    { name: "DJ / oprawa muzyczna", base_price_min: 800, base_price_max: 5000 },
+    { name: "Fotograf", base_price_min: 600, base_price_max: 4000 },
+    { name: "Animator / animatorzy", base_price_min: 400, base_price_max: 2500 },
+    "Inne"
+  ]},
+  { id: "prawo-biznes", label: "Prawo i biznes", tier: "medium", b2b: true, children: [
+    { name: "Księgowość / rozliczenia", base_price_min: 300, base_price_max: 3000, b2b: true },
+    { name: "Kontroling / finanse", base_price_min: 500, base_price_max: 5000, b2b: true },
+    { name: "Software house / wdrożenia IT", base_price_min: 5000, base_price_max: 100000, b2b: true },
+    { name: "Fit-out biur", base_price_min: 50000, base_price_max: 500000, b2b: true, offerOnlySuggested: true },
+    { name: "Prawnik / konsultacja", base_price_min: 200, base_price_max: 2000 },
+    { name: "Doradca kredytowy", base_price_min: 0, base_price_max: 0 },
+    { name: "Notariusz", base_price_min: 100, base_price_max: 500 },
+    "Inne"
   ]},
   { id: "inne", label: "Inne", children: [
     "Inne opisz problem"

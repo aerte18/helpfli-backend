@@ -433,7 +433,19 @@ router.get('/:slug', async (req, res) => {
     const underscored = normalized.replace(/-/g, '_');
     const variants = [...new Set([raw, raw.toLowerCase(), normalized, underscored])].filter(Boolean);
 
-    const service = await Service.findOne({ slug: { $in: variants } }).lean();
+    let service = await Service.findOne({ slug: { $in: variants } }).lean();
+    
+    if (!service) {
+      const hit = (STATIC_CATALOG || []).find(
+        (s) => variants.includes(String(s.slug || '').toLowerCase())
+      );
+      if (hit) {
+        service = {
+          ...hit,
+          offerOnlySuggested: Boolean(hit.offer_only_suggested ?? hit.offerOnlySuggested),
+        };
+      }
+    }
     
     if (!service) {
       return res.status(404).json({ 

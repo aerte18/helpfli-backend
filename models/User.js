@@ -148,6 +148,12 @@ const userSchema = new mongoose.Schema({
     enum: ['system', 'external', 'both'], 
     default: 'system' 
   }, // Provider akceptuje: tylko Helpfli, tylko poza systemem, lub oba
+  /** Jakie zlecenia provider chce widzieć (powiadomienia / lista) */
+  providerOrderScope: {
+    type: String,
+    enum: ['quick_only', 'large_only', 'both'],
+    default: 'both'
+  },
   // Dane do faktur (dla roli client)
   billing: {
     customerType: { type: String, enum: ['individual', 'company'], default: 'individual' },
