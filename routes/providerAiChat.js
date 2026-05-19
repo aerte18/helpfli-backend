@@ -176,14 +176,21 @@ router.post('/', authMiddleware, async (req, res) => {
               const budget = o.budgetMax != null ? ` do ${o.budgetMax} zł` : (o.budgetMin != null ? ` od ${o.budgetMin} zł` : '');
               return `• ${o.service || 'Usługa'}${o.city ? ` (${o.city})` : ''}${budget} – ${o.link}`;
             });
-            aiResponse = `${aiResponse}\n\n${summary}\n\n${lines.join('\n')}`;
+            aiResponse = `${summary}\n\n${lines.join('\n')}`;
           } else if (toolResult.success && toolResult.result?.orders?.length === 0) {
-            aiResponse = `${aiResponse}\n\nAktualnie nie ma otwartych zleceń dopasowanych do Twoich usług. Sprawdź ponownie później lub poszerz kategorie usług w profilu.`;
+            aiResponse =
+              'Aktualnie nie ma otwartych zleceń dopasowanych do Twoich usług. Sprawdź ponownie później lub poszerz kategorie usług w profilu — pełna lista jest w zakładce „Zlecenia”.';
+          } else if (!toolResult.success) {
+            console.error('searchOrdersForProvider:', toolResult.error);
+            aiResponse = `${aiResponse}\n\nNie udało się wczytać listy zleceń (${toolResult.error || 'błąd narzędzia'}). Otwórz zakładkę „Zlecenia” w panelu.`;
           }
         } catch (err) {
           console.error('searchOrdersForProvider failed:', err);
           aiResponse = `${aiResponse}\n\nNie udało się wczytać listy zleceń. Spróbuj w zakładce „Zlecenia” w panelu.`;
         }
+      } else if (orchestratorResult.nextStep === 'communication_help' && !orderDetails) {
+        // Porady bez kontekstu konkretnego zlecenia — użyj odpowiedzi orchestratora (bez pustego suggest_offer)
+        aiResponse = orchestratorResult.reply || aiResponse;
       }
       
       // Routing do agentów (wyniki w payloadzie, nie wklejane do tekstu)

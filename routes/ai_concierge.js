@@ -193,6 +193,17 @@ router.post('/concierge/upload', authMiddleware, uploadConcierge.array('files', 
   }
 });
 
+// POST /api/ai/concierge/v2 — agent orchestrator (mount też w ai_v2.js; tu na wypadek gdy ai_v2 nie załaduje się)
+let conciergeHandlerV2;
+try {
+  conciergeHandlerV2 = require('../ai').conciergeHandler;
+} catch (loadErr) {
+  console.warn('[ai_concierge] concierge v2 handler unavailable:', loadErr.message);
+}
+if (conciergeHandlerV2) {
+  router.post('/concierge/v2', authMiddleware, conciergeHandlerV2);
+}
+
 // POST /api/ai/concierge/analyze
 // body: { description, locationText, lat, lon, urgency, imageUrls, conversationHistory? }
 router.post('/concierge/analyze', authMiddleware, validate('aiAnalyze'), async (req, res) => {

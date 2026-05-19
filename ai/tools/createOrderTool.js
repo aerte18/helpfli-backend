@@ -6,7 +6,7 @@
 const Order = require('../../models/Order');
 const Service = require('../../models/Service');
 const { mergeAttachmentLists } = require('../utils/orderConciergeSync');
-const { shouldSuggestOffersOnly } = require('../utils/serviceMeta');
+const { shouldSuggestOffersOnly } = require('../../utils/serviceMeta');
 
 function buildAiBrief(params, context) {
   if (context.aiBrief) return context.aiBrief;

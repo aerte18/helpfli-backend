@@ -15,26 +15,42 @@ async function runProviderOrchestrator({ messages, orderContext = {}, providerIn
     const lastMessage = messages
       .filter(m => m.role === 'user')
       .pop();
-    const userText = (lastMessage?.content || lastMessage?.text || '').toLowerCase();
-    
+    let userText = (lastMessage?.content || lastMessage?.text || '').toLowerCase();
+
+    const userMsgs = messages.filter((m) => m.role === 'user');
+    if (/^(jak|co dalej|a jak|jak to)\??$/i.test(userText.trim()) && userMsgs.length >= 2) {
+      const prev = (userMsgs[userMsgs.length - 2].content || userMsgs[userMsgs.length - 2].text || '').toLowerCase();
+      userText = `${prev} ${userText}`.trim();
+    }
+
     // Heurystyczna klasyfikacja intencji
     const modeIntent = modeToIntent(assistantMode);
     let intent = modeIntent.intent;
     let nextStep = modeIntent.nextStep;
     let parsed = null;
-    
+    const heuristicLocked = { value: false };
+
     const wantsFindOrders =
-      /najlepsz(e|y|a)?\s+(zlecen|ofert)|znajd[źz]\s+(zlecen|ofert)|szukam\s+(zlecen|ofert)|otwarte\s+zlecen|dopasowane\s+zlecen|gdzie\s+zarobi|potencjał\s+zarobku|czy\s+są\s+(jakieś\s+)?(zlecen|ofert)|oferty?\s+(z|dla)\s+(agd|hydraul|elektr|remont)/i.test(
+      /najlepsz(e|y|a)?\s+(zlecen|ofert)|pokaż\s+(zlecen|ofert)|znajd[źz]\s+(zlecen|ofert)|szukam\s+(zlecen|ofert)|otwarte\s+zlecen|dopasowane\s+zlecen|gdzie\s+zarobi|potencjał\s+zarobku|czy\s+są\s+(jakieś\s+)?(zlecen|ofert)|oferty?\s+(z|dla)\s+(agd|hydraul|elektr|remont)/i.test(
         userText
       );
     const wantsOffer = /(napisz|przygotuj|stwórz|wstaw).{0,24}(ofert|propozycj)|profesjonaln[aą]\s+ofert/i.test(userText);
     const wantsPrice = /(cena|cenę|wycen|ile\s+koszt|koszt|kwot)/i.test(userText);
-    const wantsWin = /(wygra|szans[aę]\s+na|konkurenc|poprawić\s+skuteczno|skutecznoś[cć]\s+(moich\s+)?ofert)/i.test(userText);
+    const wantsCoaching =
+      /(efektywno|skuteczno|wyboru?\s+ofert|jak\s+(zwiększy|poprawić|lepiej|wybierać)|poprawić\s+(skuteczno|efektywno)|lepsze\s+oferty)/i.test(
+        userText
+      );
+    const wantsWin = /(wygra|szans[aę]\s+na|konkurenc)/i.test(userText);
     const wantsQuestions = /(pytan|dopyta|zapyta|brakuje|doprecyz)/i.test(userText);
 
     if (wantsFindOrders) {
       intent = 'find_orders';
       nextStep = 'search_orders';
+      heuristicLocked.value = true;
+    } else if (wantsCoaching && !wantsOffer) {
+      intent = 'communication';
+      nextStep = 'communication_help';
+      heuristicLocked.value = true;
     } else if (assistantMode === 'company_pro') {
       intent = 'create_offer';
       nextStep = 'suggest_offer';
@@ -44,9 +60,10 @@ async function runProviderOrchestrator({ messages, orderContext = {}, providerIn
     } else if (['risks', 'negotiation', 'followup'].includes(assistantMode)) {
       intent = 'communication';
       nextStep = 'communication_help';
-    } else if (wantsWin && !wantsOffer) {
+    } else if ((wantsWin || wantsCoaching) && !wantsOffer) {
       intent = 'communication';
       nextStep = 'communication_help';
+      heuristicLocked.value = true;
     } else if (wantsOffer || wantsQuestions) {
       intent = 'create_offer';
       nextStep = 'suggest_offer';
@@ -75,7 +92,7 @@ async function runProviderOrchestrator({ messages, orderContext = {}, providerIn
         parsed = llmResponse;
       }
       
-      if (parsed && parsed.agent === 'provider_orchestrator') {
+      if (parsed && parsed.agent === 'provider_orchestrator' && !heuristicLocked.value) {
         intent = parsed.intent || intent;
         nextStep = parsed.nextStep || nextStep;
       }
@@ -83,15 +100,17 @@ async function runProviderOrchestrator({ messages, orderContext = {}, providerIn
       console.warn('LLM provider orchestrator failed, using heuristic:', llmError.message);
     }
 
-    if (assistantMode === 'company_pro') {
-      intent = 'create_offer';
-      nextStep = 'suggest_offer';
-    } else if (assistantMode === 'pricing') {
-      intent = 'pricing';
-      nextStep = 'suggest_pricing';
-    } else if (['risks', 'negotiation', 'followup'].includes(assistantMode)) {
-      intent = 'communication';
-      nextStep = 'communication_help';
+    if (!heuristicLocked.value) {
+      if (assistantMode === 'company_pro') {
+        intent = 'create_offer';
+        nextStep = 'suggest_offer';
+      } else if (assistantMode === 'pricing') {
+        intent = 'pricing';
+        nextStep = 'suggest_pricing';
+      } else if (['risks', 'negotiation', 'followup'].includes(assistantMode)) {
+        intent = 'communication';
+        nextStep = 'communication_help';
+      }
     }
     
     // Wyekstraktuj dane
@@ -114,17 +133,28 @@ async function runProviderOrchestrator({ messages, orderContext = {}, providerIn
       company_pro: 'Przygotuję ofertę w trybie firmowym PRO z naciskiem na SLA, formalny ton i wymagania firmy.',
       general: 'Jak mogę Ci pomóc przy tym zleceniu?'
     };
+    const coachingReply =
+      'Kilka sprawdzonych sposobów na skuteczniejsze oferty:\n' +
+      '• Zacznij od 1–2 zdań o problemie klienta (pokaż, że czytałeś zlecenie).\n' +
+      '• Podaj konkretną cenę lub widełki i realny termin — bez „do uzgodnienia”.\n' +
+      '• Wypisz zakres prac punktami (co wchodzi, co nie).\n' +
+      '• Odpowiadaj w ciągu kilku godzin — szybkość podnosi szanse na wybór.\n' +
+      '• Jeśli możesz, dodaj zdjęcie z podobnej realizacji.\n\n' +
+      'Chcesz listę dopasowanych zleceń? Napisz: „pokaż najlepsze zlecenia”.';
+
     let fallbackReply = replies[intent] || 'Jak mogę Ci pomóc?';
-    if (intent === 'communication' && wantsWin && !parsed?.reply) {
-      fallbackReply =
-        'Kilka sprawdzonych sposobów na skuteczniejsze oferty:\n' +
-        '• Zacznij od 1–2 zdań o problemie klienta (pokaż, że czytałeś zlecenie).\n' +
-        '• Podaj konkretną cenę lub widełki i realny termin.\n' +
-        '• Wypisz zakres prac punktami — bez ogólników.\n' +
-        '• Jeśli możesz, dodaj zdjęcie z podobnej realizacji.\n\n' +
-        'Mogę też wyszukać dla Ciebie dopasowane zlecenia — napisz np. „znajdź najlepsze zlecenia”.';
+    if (intent === 'communication' && (wantsCoaching || wantsWin) && !parsed?.reply) {
+      fallbackReply = coachingReply;
     }
-    const naturalReply = (typeof parsed?.reply === 'string' && parsed.reply.trim()) ? parsed.reply.trim() : null;
+    const genericOfferLine = /pomogę ci stworzyć profesjonalną ofertę/i;
+    let naturalReply =
+      typeof parsed?.reply === 'string' && parsed.reply.trim() ? parsed.reply.trim() : null;
+    if (naturalReply && genericOfferLine.test(naturalReply) && ['communication', 'find_orders'].includes(intent)) {
+      naturalReply = null;
+    }
+    if (intent === 'communication' && (wantsCoaching || wantsWin) && !naturalReply) {
+      fallbackReply = coachingReply;
+    }
     
     return {
       ok: true,

@@ -10,7 +10,7 @@ const { normalizeUrgency, normalizeServiceName } = require('../utils/normalize')
 const { evaluateOrderDraftPreflight } = require('../utils/preflightQualityEvaluator');
 const { cleanDescriptionText, formatLocationDisplay } = require('../utils/orderConciergeSync');
 const { analyzeOrderGaps } = require('../utils/orderGapAnalyzer');
-const { getServiceMetaBySlug, shouldSuggestOffersOnly } = require('../utils/serviceMeta');
+const { getServiceMetaBySlug, shouldSuggestOffersOnly } = require('../../utils/serviceMeta');
 
 /**
  * Główna funkcja agenta Order Draft

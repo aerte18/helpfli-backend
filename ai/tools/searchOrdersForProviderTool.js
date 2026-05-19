@@ -62,7 +62,8 @@ async function searchOrdersForProviderTool(params, context) {
   }
   const query = andParts.length === 1 ? andParts[0] : { $and: andParts };
 
-  const providerScope = provider.providerOrderScope || 'both';
+  const scopeRaw = provider.providerOrderScope;
+  const providerScope = Array.isArray(scopeRaw) ? scopeRaw[0] : scopeRaw || 'both';
 
   const filterByProviderScope = (list) => {
     if (providerScope === 'quick_only') {
@@ -75,6 +76,13 @@ async function searchOrdersForProviderTool(params, context) {
   };
 
   const providerCity = (provider.location || '').trim();
+
+  const budgetValue = (o) => {
+    if (o.budgetRange && (o.budgetRange.max != null || o.budgetRange.min != null)) {
+      return o.budgetRange.max != null ? o.budgetRange.max : o.budgetRange.min;
+    }
+    return o.budget != null ? o.budget : 0;
+  };
 
   const normalizeSlug = (s) => String(s || '').toLowerCase().replace(/_/g, '-').trim();
   const canonicalText = (s) =>
@@ -183,13 +191,6 @@ async function searchOrdersForProviderTool(params, context) {
       .limit(limit * 2)
       .lean();
   }
-
-  const budgetValue = (o) => {
-    if (o.budgetRange && (o.budgetRange.max != null || o.budgetRange.min != null)) {
-      return o.budgetRange.max != null ? o.budgetRange.max : o.budgetRange.min;
-    }
-    return o.budget != null ? o.budget : 0;
-  };
 
   if (sortBy === 'earning_potential') {
     orders = orders.sort((a, b) => budgetValue(b) - budgetValue(a));
