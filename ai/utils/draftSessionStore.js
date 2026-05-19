@@ -24,7 +24,17 @@ function saveDraft(sessionId, draft) {
   return draft;
 }
 
-function mergeDraftContext({ previousDraft = null, extracted = {}, detectedService, urgency, lastUserText = '', userContext = {} }) {
+const { normalizeAttachmentsFromUrls, mergeAttachmentLists } = require('./orderConciergeSync');
+
+function mergeDraftContext({
+  previousDraft = null,
+  extracted = {},
+  detectedService,
+  urgency,
+  lastUserText = '',
+  userContext = {},
+  imageUrls = []
+}) {
   const previousPayload = previousDraft?.orderPayload || {};
   const previousExtracted = previousDraft?.extracted || payloadToExtracted(previousPayload);
   const signals = extractDraftSignals(lastUserText, previousDraft);
@@ -39,6 +49,15 @@ function mergeDraftContext({ previousDraft = null, extracted = {}, detectedServi
     mergedExtracted.location = typeof userContext.location === 'string'
       ? userContext.location
       : userContext.location.text || userContext.location.address || null;
+  }
+
+  const fromImages = normalizeAttachmentsFromUrls(imageUrls);
+  if (fromImages.length) {
+    mergedExtracted.attachments = mergeAttachmentLists(
+      mergedExtracted.attachments,
+      previousExtracted.attachments,
+      fromImages
+    );
   }
 
   return {

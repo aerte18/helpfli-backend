@@ -15,6 +15,7 @@ const {
   mergeDraftContext,
   attachStoredContext
 } = require('./utils/draftSessionStore');
+const { enrichConciergeWithOrderDraft } = require('./utils/orderConciergeSync');
 
 /**
  * Handler dla endpointu /api/ai/concierge/v2
@@ -224,8 +225,10 @@ async function conciergeHandler(req, res) {
       messages: finalMessages.length > 0 ? finalMessages : parsed.messages,
       userContext: {
         ...userContext,
-        userProfile, // Dodaj profil dla personalizacji
-        abVariants // Dodaj warianty A/B testing (Faza 3)
+        userProfile,
+        abVariants,
+        imageUrls: parsed.imageUrls || [],
+        extracted: {}
       },
       allowedServicesHint: parsed.allowedServicesHint || []
     });
@@ -243,12 +246,17 @@ async function conciergeHandler(req, res) {
       detectedService: conciergeResult.detectedService,
       urgency: conciergeResult.urgency,
       lastUserText: lastUserMessage?.content || '',
-      userContext
+      userContext,
+      imageUrls: parsed.imageUrls || []
     });
 
     conciergeResult.extracted = mergedDraftContext.extracted;
     conciergeResult.detectedService = mergedDraftContext.detectedService || conciergeResult.detectedService;
     conciergeResult.urgency = mergedDraftContext.urgency || conciergeResult.urgency;
+
+    if (mergedDraftContext.extracted?.attachments?.length) {
+      userContext.attachments = mergedDraftContext.extracted.attachments;
+    }
     
     if (lastUserMessage && lastUserMessage.content) {
       ConversationMemoryService.addMessage(
@@ -400,6 +408,15 @@ async function conciergeHandler(req, res) {
       || ['ask_more', 'diagnose', 'show_pricing', 'suggest_diy', 'suggest_providers', 'create_order'].includes(conciergeResult.nextStep);
     if (shouldBuildOrderDraft) {
       try {
+        if (imageAnalysis?.success && imageAnalysis.description) {
+          mergedDraftContext.extracted.details = Array.from(
+            new Set([
+              ...(mergedDraftContext.extracted.details || []),
+              `Zdjęcie: ${String(imageAnalysis.description).slice(0, 200)}`
+            ])
+          );
+        }
+
         agentPayload.orderDraft = await runOrderDraftAgent({
           messages: finalMessages.length > 0 ? finalMessages : parsed.messages,
           extracted: mergedDraftContext.extracted,
@@ -408,12 +425,27 @@ async function conciergeHandler(req, res) {
         });
         agentPayload.orderDraft = attachStoredContext(agentPayload.orderDraft, mergedDraftContext);
         saveDraft(sessionId, agentPayload.orderDraft);
-        if (agentPayload.orderDraft.canCreate && conciergeResult.nextStep === 'ask_more') {
-          conciergeResult.nextStep = 'create_order';
-        }
-        if (agentPayload.orderDraft.nextQuestion) {
+        enrichConciergeWithOrderDraft(conciergeResult, agentPayload.orderDraft, {
+          lastUserText: lastUserMessage?.content || ''
+        });
+        userContext.aiBrief = agentPayload.orderDraft.providerBrief
+          ? {
+              source: 'concierge',
+              title: agentPayload.orderDraft.providerBrief.title,
+              customerSummary: agentPayload.orderDraft.providerBrief.customerSummary,
+              bullets: agentPayload.orderDraft.providerBrief.bullets || [],
+              suggestedAttachments: agentPayload.orderDraft.providerBrief.suggestedAttachments || [],
+              questionsForProvider: agentPayload.orderDraft.providerBrief.questionsForProvider || [],
+              contextSnapshot: agentPayload.orderDraft.contextSnapshot || null,
+              quality: agentPayload.orderDraft.quality || null
+            }
+          : null;
+        if (agentPayload.orderDraft.nextQuestion && conciergeResult.nextStep === 'ask_more') {
           conciergeResult.questions = [agentPayload.orderDraft.nextQuestion];
-        } else if (agentPayload.orderDraft.questions?.length && (!conciergeResult.questions || conciergeResult.questions.length === 0)) {
+        } else if (
+          agentPayload.orderDraft.questions?.length &&
+          (!conciergeResult.questions || conciergeResult.questions.length === 0)
+        ) {
           conciergeResult.questions = agentPayload.orderDraft.questions.slice(0, 1);
         }
       } catch (error) {
@@ -465,8 +497,12 @@ async function conciergeHandler(req, res) {
       messageCount: finalMessages.length,
       responseTime,
       success: true,
-      llmProvider: 'claude',
-      tokensInput: 0, // Będzie uzupełnione jeśli dostępne
+      llmProvider: conciergeResult.llmMeta?.provider || 'claude',
+      llmModel:
+        conciergeResult.llmMeta?.provider === 'gemini'
+          ? (process.env.AI_CHEAP_MODEL || 'gemini-2.0-flash')
+          : (process.env.AI_SMART_MODEL || process.env.CLAUDE_DEFAULT || null),
+      tokensInput: 0,
       tokensOutput: 0,
       quality: {
         confidence: conciergeResult.confidence || 0.8
@@ -478,10 +514,17 @@ async function conciergeHandler(req, res) {
         agentsCalled: agentChain,
         personalized: !!userProfile,
         webSearchPerformed: !!webSearchResults,
-        imageAnalysisPerformed: !!imageAnalysis
+        imageAnalysisPerformed: !!imageAnalysis,
+        llmTier: conciergeResult.llmMeta?.tier,
+        llmEscalated: conciergeResult.llmMeta?.escalated === true,
+        llmRoutingMode: conciergeResult.llmMeta?.mode
       }
     }).catch(err => console.error('Error tracking analytics:', err));
     
+    if (finalResult.llmMeta) {
+      delete finalResult.llmMeta;
+    }
+
     return res.json({
       ok: true,
       agent: 'concierge',
@@ -523,7 +566,8 @@ async function conciergeHandler(req, res) {
         performed: true,
         resultsCount: webSearchResults.results.length,
         topResults: webSearchResults.results.slice(0, 2)
-      } : null
+      } : null,
+      abVariants
     });
 
   } catch (error) {
