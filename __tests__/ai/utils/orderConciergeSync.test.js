@@ -108,6 +108,7 @@ describe('orderConciergeSync phased flow', () => {
 
   it('allows provider matching on follow-up about nearby contractors', () => {
     expect(isProviderSearchFollowUp('a są jacykolwiek w okolicy')).toBe(true);
+    expect(isProviderSearchFollowUp('a nie ma nikogo w oklicy 20 km')).toBe(true);
     expect(
       canRunProviderMatching({
         chosenPath: 'providers',

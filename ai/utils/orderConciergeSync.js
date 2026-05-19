@@ -7,7 +7,7 @@ const WANTS_ORDER_PATTERN =
 const WANTS_PROVIDERS_PATTERN =
   /(?:znajd[zź]|poszukaj|wyszukaj|pokaż|pokaz|szukaj).{0,40}(?:wykonawc|fachowc|hydraulik|specjalist)|znajd[zź]\s+prosz[eę]?|pokaż (mi )?(wykonawc|list)|pokaz (mi )?(wykonawc|list)|masz (już )?wynik|i jak masz|są wyniki|kto może przyjechać/i;
 const PROVIDERS_FOLLOWUP_PATTERN =
-  /i jak masz|masz wyniki|są wyniki|co znalaz|znalazłeś|znalazles|pokaż (mi )?(ich|list)|gdzie (są|sa) (ci )?wykonawc|w okolicy|w\s+okolic|jakikolwiek|jakichkolwiek|ktokolwiek|s[aą]\s+jacy|s[aą]\s+jacyś|jest ktoś|jest ktos|ktoś w pobliżu|ktos w poblizu|poszerz|szerszy obszar|dalej szukaj/i;
+  /i jak masz|masz wyniki|są wyniki|co znalaz|znalazłeś|znalazles|pokaż (mi )?(ich|list)|gdzie (są|sa) (ci )?wykonawc|w okolicy|w\s+okolic|jakikolwiek|jakichkolwiek|ktokolwiek|s[aą]\s+jacy|s[aą]\s+jacyś|jest ktoś|jest ktos|ktoś w pobliżu|ktos w poblizu|poszerz|szerszy obszar|dalej szukaj|\d+\s*km|w promieniu|w promieniu|nikt w|nie ma nikogo/i;
 const WANTS_PRICING_PATTERN = /cen|koszt|widełki|widełek|wycen|ile (to )?koszt|orientacyjn(e|ych) widełki/i;
 const WANTS_DIY_PATTERN = /sam(odzielnie)?|diy|krok po kroku|zr[oó]b(ię|ie)?\s+sam|bezpieczne kroki/i;
 const DIY_FAILED_PATTERN =

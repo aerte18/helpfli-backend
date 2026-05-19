@@ -35,24 +35,38 @@ function serviceSearchCandidates(service) {
   return [...new Set(list.filter(Boolean))];
 }
 
+function parseRadiusKmFromMessages(messages = []) {
+  const lastUser = [...(messages || [])].reverse().find((m) => m.role === 'user');
+  const text = lastUser?.content || lastUser?.text || '';
+  const m = String(text).match(/(\d{1,3})\s*km/i);
+  if (!m) return null;
+  return Math.min(100, Math.max(5, parseInt(m[1], 10)));
+}
+
 async function fetchProvidersForMatching({
   service,
   location,
   urgency,
-  relaxSearch = false
+  relaxSearch = false,
+  maxDistanceKm = null
 }) {
-  const urgencyKey = urgency === 'urgent' ? 'now' : urgency === 'standard' ? 'today' : 'normal';
+  const urgencyKey = urgency === 'urgent' ? 'now' : 'normal';
+  const radius =
+    maxDistanceKm || (relaxSearch ? 40 : 30);
   const candidates = serviceSearchCandidates(service);
   if (relaxSearch) candidates.push(null);
 
+  const searchOpts = { maxDistanceKm: radius };
+
   for (const code of candidates) {
-    let data = await recommendProviders(code, location.lat, location.lng, 5, urgencyKey);
+    let data = await recommendProviders(code, location.lat, location.lng, 5, urgencyKey, searchOpts);
     if (data?.length) {
       return { data, serviceUsed: code || service, searchExpanded: false };
     }
     if (relaxSearch) {
       data = await recommendProviders(code, location.lat, location.lng, 5, urgencyKey, {
-        relaxServiceFilter: true
+        relaxServiceFilter: true,
+        maxDistanceKm: radius
       });
       if (data?.length) {
         return { data, serviceUsed: code || service, searchExpanded: true };
@@ -101,13 +115,19 @@ async function runMatchingAgent({
       let providersData = relaxSearch
         ? null
         : await CacheService.getProviderSearch(service, cacheKey, 5);
+      if (Array.isArray(providersData) && providersData.length === 0) {
+        providersData = null;
+      }
       
+      const radiusKm = parseRadiusKmFromMessages(messages) || (relaxSearch ? 40 : null);
+
       if (!providersData || providersData.length === 0) {
         const fetched = await fetchProvidersForMatching({
           service,
           location,
           urgency,
-          relaxSearch
+          relaxSearch,
+          maxDistanceKm: radiusKm
         });
         providersData = fetched.data;
         searchExpanded = fetched.searchExpanded;

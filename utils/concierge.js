@@ -345,35 +345,41 @@ async function computePriceHints(serviceCode, location = {}) {
 }
 
 // 5) Ranking providerów 0–100: skuteczność, %system, ocena, odległość, tier, dostępność, promocje
+async function resolveProviderServiceIds(serviceCode) {
+  if (!serviceCode) return [];
+  const { resolveServicesForSearchFilter } = require('./resolveServiceSearch');
+  const raw = String(serviceCode).trim();
+  const { ids } = await resolveServicesForSearchFilter(raw);
+  if (ids.length) return ids;
+
+  const parts = raw.toLowerCase().replace(/_/g, '-').split('-').filter(Boolean);
+  for (let len = Math.min(parts.length, 3); len >= 1; len--) {
+    const prefix = parts.slice(0, len).join('-');
+    const { ids: fallbackIds } = await resolveServicesForSearchFilter(prefix);
+    if (fallbackIds.length) return fallbackIds;
+  }
+  return [];
+}
+
 async function recommendProviders(serviceCode, lat, lon, limit = 3, urgency = 'normal', options = {}) {
   try {
-    const { relaxServiceFilter = false } = options;
+    const { relaxServiceFilter = false, maxDistanceKm = null } = options;
     const User = require('../models/User');
     const Order = require('../models/Order');
-    const Service = require('../models/Service');
     const Rating = require('../models/Rating');
     const { withListableProviders } = require('./listableProviderQuery');
 
-    // Mapowanie kodu usługi na ObjectId
-    let serviceId = null;
-    if (serviceCode && !relaxServiceFilter) {
-      const service = await Service.findOne({ 
-        $or: [
-          { code: serviceCode },
-          { name: { $regex: serviceCode, $options: 'i' } }
-        ]
-      });
-      serviceId = service?._id;
-    }
+    const serviceIds =
+      serviceCode && !relaxServiceFilter ? await resolveProviderServiceIds(serviceCode) : [];
 
     // surowa lista providerów kandydatów (po usłudze)
     const query = withListableProviders({ role: 'provider' });
-    if (serviceId) {
-      query.services = serviceId;
+    if (serviceIds.length) {
+      query.services = { $in: serviceIds };
     }
-    
-    // Dla pilnych zleceń preferuj dostępnych teraz
-    if (urgency === 'today' || urgency === 'now') {
+
+    // Tylko „teraz” wymaga online — offline nadal widoczny (niższy ranking dostępności)
+    if (urgency === 'now') {
       query['provider_status.isOnline'] = true;
     }
     
@@ -395,8 +401,10 @@ async function recommendProviders(serviceCode, lat, lon, limit = 3, urgency = 'n
     // policz metryki z Orders (ostatnie 180 dni)
     const since = new Date(Date.now() - 180*24*60*60*1000);
     const matchStage = { createdAt: { $gte: since } };
-    if (serviceId) {
-      matchStage.service = serviceId;
+    if (serviceIds.length === 1) {
+      matchStage.service = serviceIds[0];
+    } else if (serviceIds.length > 1) {
+      matchStage.service = { $in: serviceIds };
     }
     const orderStats = await Order.aggregate([
       { $match: matchStage },
@@ -433,7 +441,9 @@ async function recommendProviders(serviceCode, lat, lon, limit = 3, urgency = 'n
       const dk = (lat && lon && p.locationLat && p.locationLon) 
         ? distKm(lat, lon, p.locationLat, p.locationLon) 
         : null;
-      const distScore = dk == null ? 0.6 : Math.max(0, 1 - Math.min(dk/30, 1)); // 1 przy 0 km, 0 przy 30+ km
+      const radiusKm = maxDistanceKm && maxDistanceKm > 0 ? maxDistanceKm : 30;
+      if (dk != null && dk > radiusKm) return null;
+      const distScore = dk == null ? 0.6 : Math.max(0, 1 - Math.min(dk / radiusKm, 1));
 
       // Dostępność (online teraz)
       const availability = p.provider_status?.isOnline === true ? 1.0 : 0.3;
@@ -493,7 +503,7 @@ async function recommendProviders(serviceCode, lat, lon, limit = 3, urgency = 'n
       };
     });
 
-    return scored.sort((a,b) => b.score - a.score).slice(0, limit);
+    return scored.filter(Boolean).sort((a, b) => b.score - a.score).slice(0, limit);
   } catch (error) {
     console.error('Recommend providers error:', error);
     return [];
@@ -609,6 +619,7 @@ module.exports = {
   findPartsByNameOrType,
   reAnalyzeDraft,
   recommendProviders,
+  resolveProviderServiceIds,
   pickBestService,
   computePriceHints,
   findSimilarOrders,
