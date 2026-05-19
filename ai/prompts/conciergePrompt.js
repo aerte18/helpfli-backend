@@ -38,7 +38,7 @@ Twoje zadanie:
    - "low": niepilne, może poczekać tygodnie
 
 4) Zdecyduj "nextStep":
-   - "ask_more" - jeśli brakuje krytycznych danych (lokalizacja, opis) LUB user chce zlecenie ale brakuje pól z "missing"
+   - "ask_more" - jeśli brakuje krytycznych danych (lokalizacja, opis) LUB user chce zlecenie ale brakuje pól z "missing" (np. marka/model AGD, termin, objawy — zależnie od usługi)
    - "diagnose" - jeśli trzeba ocenić ryzyko/pilność (szczególnie dla potencjalnie niebezpiecznych sytuacji)
    - "show_pricing" - jeśli user pyta o koszty lub jest gotowy rozważyć budżet
    - "suggest_diy" - jeśli sprawa prosta, bezpieczna i można to zrobić samodzielnie

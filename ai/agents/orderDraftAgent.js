@@ -9,6 +9,7 @@ const { validateOrderDraftResponse } = require('../schemas/conciergeSchemas');
 const { normalizeUrgency, normalizeServiceName } = require('../utils/normalize');
 const { evaluateOrderDraftPreflight } = require('../utils/preflightQualityEvaluator');
 const { cleanDescriptionText, formatLocationDisplay } = require('../utils/orderConciergeSync');
+const { analyzeOrderGaps } = require('../utils/orderGapAnalyzer');
 
 /**
  * Główna funkcja agenta Order Draft
@@ -19,53 +20,36 @@ const { cleanDescriptionText, formatLocationDisplay } = require('../utils/orderC
  * @param {string} params.urgency - Pilność
  * @returns {Promise<Object>} Response agenta
  */
-async function runOrderDraftAgent({ messages, extracted = {}, detectedService, urgency = 'standard', fallbackLocation = null }) {
+async function runOrderDraftAgent({
+  messages,
+  extracted = {},
+  detectedService,
+  urgency = 'standard',
+  fallbackLocation = null,
+  chosenPath = null,
+  lastUserText = ''
+}) {
   try {
-    // Sprawdź czy mamy wszystkie potrzebne dane
-    const missing = [];
-    const questions = [];
-    
-    const service = normalizeServiceName(detectedService);
-    if (!service || service === 'inne') {
-      missing.push('kategoria usługi');
-      questions.push('Jaka usługa jest potrzebna?');
-    }
-    
     const userMessageCount = messages.filter((m) => m.role === 'user').length;
+    const service = normalizeServiceName(detectedService);
 
     const locationText =
       (typeof extracted.location === 'object' ? extracted.location?.text : extracted.location) || null;
     const locationIsAutoOnly = /aktualna lokalizacja klienta/i.test(String(locationText || ''));
-    if (!locationText || String(locationText).trim().length < 2 || (locationIsAutoOnly && userMessageCount < 2)) {
-      missing.push('lokalizacja');
-      questions.push('W jakiej lokalizacji potrzebujesz pomocy? (miasto lub dzielnica)');
-    }
+    const locationReady =
+      locationText &&
+      String(locationText).trim().length >= 2 &&
+      !(locationIsAutoOnly && userMessageCount < 2);
 
     const userMessages = messages
-      .filter(m => m.role === 'user')
-      .map(m => m.content || m.text || '')
+      .filter((m) => m.role === 'user')
+      .map((m) => m.content || m.text || '')
       .join(' ');
 
     const description = cleanDescriptionText(buildDescription(userMessages, extracted)).slice(0, 240);
-    const descLower = description.toLowerCase();
 
-    if (!description || description.length < 10) {
-      missing.push('opis problemu');
-      questions.push('Opisz dokładniej problem');
-    }
-
-    const isAppliance = /pralk|zmywark|lod[oó]wk|piekarnik|zmywark|agd|beko|samsung|lg\b|whirlpool/i.test(descLower);
-    const hasSymptomDetail = /(kod|błąd|bled|e\d{2,}|nie (włącz|wlacz)|nie wiruje|cieknie|hałas|halas|wyświetla|wyswietla|pękni|pekni)/i.test(
-      descLower
-    );
-    if (isAppliance && userMessageCount < 2 && !hasSymptomDetail) {
-      missing.push('szczegóły (marka, objawy lub kod błędu)');
-      questions.push('Jaki objaw widzisz (np. kod błędu, brak wirowania) i jaka to marka/model pralki?');
-    }
-    
-    // Przygotuj payload zlecenia
     const orderPayload = {
-      service,
+      service: service || 'inne',
       description: description.slice(0, 240),
       location: formatLocationDisplay(locationText, fallbackLocation) || locationText,
       status: 'draft',
@@ -75,20 +59,64 @@ async function runOrderDraftAgent({ messages, extracted = {}, detectedService, u
       attachments: extracted.attachments || []
     };
 
-    const completion = calculateCompletion(orderPayload, missing);
-    const nextPrompt = pickNextPrompt(missing, extracted, orderPayload);
-    const quickReplies = buildQuickReplies(nextPrompt, urgency);
-    const providerBrief = buildProviderBrief(orderPayload, extracted, missing);
-    const quality = await evaluateOrderDraftPreflight({ orderPayload, extracted, missing });
-    const contextSnapshot = buildContextSnapshot(orderPayload, extracted, userMessages);
-    
+    const gapAnalysis = analyzeOrderGaps({
+      messages,
+      orderPayload,
+      extracted,
+      detectedService: service,
+      chosenPath,
+      lastUserText
+    });
+
+    const enrichedExtracted = gapAnalysis.enrichedExtracted || extracted;
+    if (enrichedExtracted.details?.length) {
+      orderPayload.description = cleanDescriptionText(
+        buildDescription(userMessages, enrichedExtracted)
+      ).slice(0, 240);
+    }
+
+    const missing = gapAnalysis.missingLabels;
+    const questions = [];
+    const nextPrompt = gapAnalysis.nextGap
+      ? {
+          field: gapAnalysis.nextGap.field,
+          question: gapAnalysis.nextGap.question
+        }
+      : pickNextPrompt(missing, enrichedExtracted, orderPayload);
+
+    const quickReplies =
+      gapAnalysis.nextGap?.quickReplies?.length > 0
+        ? gapAnalysis.nextGap.quickReplies
+        : buildQuickReplies(nextPrompt, urgency);
+
+    const completion = calculateCompletion(orderPayload, missing, gapAnalysis);
+    const providerBrief = buildProviderBrief(orderPayload, enrichedExtracted, missing, gapAnalysis);
+    const quality = await evaluateOrderDraftPreflight({ orderPayload, extracted: enrichedExtracted, missing });
+    const contextSnapshot = buildContextSnapshot(orderPayload, enrichedExtracted, userMessages);
+
+    const canCreate =
+      gapAnalysis.blockers.length === 0 &&
+      userMessageCount >= 1 &&
+      orderPayload.service &&
+      orderPayload.service !== 'inne' &&
+      locationReady &&
+      orderPayload.description.length >= 10;
+
     return {
       ok: true,
       agent: 'order_draft',
-      canCreate: missing.length === 0 && userMessageCount >= 1,
-      orderPayload,
+      canCreate,
+      orderPayload: canCreate ? { ...orderPayload, service } : orderPayload,
       missing,
-      optionalMissing: buildOptionalMissing(extracted, orderPayload),
+      optionalMissing: gapAnalysis.recommended.map((r) => r.label),
+      gapAnalysis: {
+        family: gapAnalysis.family,
+        strictMode: gapAnalysis.strictMode,
+        filled: gapAnalysis.filled,
+        blockers: gapAnalysis.blockers.map((b) => b.label),
+        recommended: gapAnalysis.recommended.map((r) => r.label)
+      },
+      extracted: enrichedExtracted,
       questions: nextPrompt?.question ? [nextPrompt.question] : questions.slice(0, 1),
       nextQuestion: nextPrompt?.question || null,
       nextField: nextPrompt?.field || null,
@@ -122,13 +150,16 @@ function buildDescription(userMessages, extracted = {}) {
   return base.includes(detailText) ? base : `${base}. Szczegóły: ${detailText}`;
 }
 
-function calculateCompletion(orderPayload, missing = []) {
+function calculateCompletion(orderPayload, missing = [], gapAnalysis = null) {
+  const gapTotal = (gapAnalysis?.filled?.length || 0) + (gapAnalysis?.blockers?.length || 0);
+  const gapDone = gapAnalysis?.filled?.length || 0;
   const fields = [
     orderPayload.service && orderPayload.service !== 'inne',
     orderPayload.description && orderPayload.description.length >= 10,
     !!orderPayload.location,
     !!orderPayload.preferredTime,
-    !!orderPayload.urgency
+    !!orderPayload.urgency,
+    gapTotal === 0 ? true : gapDone / Math.max(gapTotal, 1) >= 0.6
   ];
   const done = fields.filter(Boolean).length;
   return {
@@ -228,7 +259,7 @@ function buildSummary(orderPayload, missing = []) {
   };
 }
 
-function buildProviderBrief(orderPayload = {}, extracted = {}, missing = []) {
+function buildProviderBrief(orderPayload = {}, extracted = {}, missing = [], gapAnalysis = null) {
   const details = Array.isArray(extracted.details) ? extracted.details.filter(Boolean) : [];
   const title = buildProviderTitle(orderPayload, details);
   const bullets = [
@@ -244,7 +275,10 @@ function buildProviderBrief(orderPayload = {}, extracted = {}, missing = []) {
     bullets,
     suggestedAttachments: suggestAttachments(orderPayload, extracted),
     questionsForProvider: buildProviderQuestions(orderPayload, extracted),
-    missingForBetterOffers: missing.length > 0 ? missing : buildOptionalMissing(extracted, orderPayload)
+    missingForBetterOffers:
+      missing.length > 0
+        ? missing
+        : (gapAnalysis?.recommended || []).map((r) => r.label).slice(0, 5)
   };
 }
 

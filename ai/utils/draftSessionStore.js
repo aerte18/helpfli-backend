@@ -112,6 +112,27 @@ function extractDraftSignals(text = '', previousDraft = null) {
       ? 'low'
       : null;
 
+  const deviceMatch = lower.match(/\b(pralka|zmywarka|lod[oó]wka|piekarnik|kuchenka|suszarka)\b/);
+  if (deviceMatch) extracted.deviceType = deviceMatch[1];
+
+  const brandMatch = lower.match(
+    /\b(samsung|beko|lg|bosch|whirlpool|amica|electrolux|siemens|miele|aeg|indesit|candy)\b/i
+  );
+  if (brandMatch) extracted.brand = brandMatch[1];
+
+  const modelMatch = value.match(/\b(?:model|mod\.?)\s*[:#]?\s*([\w.-]{2,20})\b/i);
+  if (modelMatch) extracted.model = modelMatch[1];
+
+  const codeMatch = lower.match(/\b([efk]\d{2,4})\b/);
+  if (codeMatch) {
+    extracted.details = [...(extracted.details || []), `Kod błędu: ${codeMatch[1].toUpperCase()}`];
+  }
+
+  if (/marka:\s*(\w+)/i.test(value)) {
+    const m = value.match(/marka:\s*(\w+)/i);
+    if (m) extracted.brand = m[1];
+  }
+
   return { extracted, urgency };
 }
 

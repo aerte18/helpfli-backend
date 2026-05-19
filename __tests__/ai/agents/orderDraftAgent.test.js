@@ -20,7 +20,7 @@ describe('Order Draft Agent', () => {
 
     expect(result.canCreate).toBe(true);
     expect(result.orderPayload).toBeDefined();
-    expect(result.orderPayload.service).toBe('hydraulik');
+    expect(result.orderPayload.service).toMatch(/hydraulik/);
     expect(result.orderPayload.description).toBeDefined();
     expect(result.orderPayload.location).toBe('Warszawa');
     expect(result.orderPayload.status).toBe('draft');

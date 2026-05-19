@@ -21,7 +21,8 @@ const {
   computeConversationStep,
   detectChosenPathFromText,
   applyDisplayFieldsToDraft,
-  buildConversationSummary
+  buildConversationSummary,
+  enrichConciergeWithMatching
 } = require('./utils/orderConciergeSync');
 const { getChosenPath, setChosenPath } = require('./utils/conciergeSessionStore');
 
@@ -411,20 +412,6 @@ async function conciergeHandler(req, res) {
       }
     }
     
-    // Agent Matching - znajdź wykonawców (tylko po wyborze ścieżki wykonawców)
-    if (!blockHeavyAgents && conciergeResult.nextStep === 'suggest_providers') {
-      try {
-        agentPayload.matching = await runMatchingAgent({
-          service: conciergeResult.detectedService,
-          urgency: conciergeResult.urgency || 'standard',
-          budget: conciergeResult.extracted?.budget,
-          userContext
-        });
-      } catch (error) {
-        console.error('Matching agent failed:', error.message);
-      }
-    }
-    
     // Agent Order Draft - przygotuj lub aktualizuj draft zlecenia przy każdej rozmowie usługowej.
     const shouldBuildOrderDraft = ['service_request', 'pricing', 'providers', 'diy'].includes(conciergeResult.intent)
       || ['ask_more', 'diagnose', 'show_pricing', 'suggest_diy', 'suggest_providers', 'create_order'].includes(conciergeResult.nextStep);
@@ -449,7 +436,9 @@ async function conciergeHandler(req, res) {
           extracted: mergedDraftContext.extracted,
           detectedService: conciergeResult.detectedService,
           urgency: conciergeResult.urgency || 'standard',
-          fallbackLocation
+          fallbackLocation,
+          chosenPath,
+          lastUserText: lastUserMessage?.content || ''
         });
         agentPayload.orderDraft = attachStoredContext(agentPayload.orderDraft, mergedDraftContext);
         agentPayload.orderDraft = applyDisplayFieldsToDraft(agentPayload.orderDraft, fallbackLocation);
@@ -511,6 +500,33 @@ async function conciergeHandler(req, res) {
         }
       } catch (error) {
         console.error('Order draft agent failed:', error.message);
+      }
+    }
+
+    const shouldMatchProviders =
+      !blockHeavyAgents &&
+      (chosenPath === 'providers' ||
+        conciergeResult.nextStep === 'suggest_providers' ||
+        conciergeResult.uiPhase === 'providers');
+
+    if (shouldMatchProviders) {
+      try {
+        agentPayload.matching = await runMatchingAgent({
+          service: conciergeResult.detectedService,
+          urgency: conciergeResult.urgency || 'standard',
+          budget: conciergeResult.extracted?.budget || agentPayload.orderDraft?.orderPayload?.budget,
+          userContext: {
+            ...userContext,
+            location: userContext.location || {
+              text: agentPayload.orderDraft?.orderPayload?.location || conciergeResult.extracted?.location
+            }
+          }
+        });
+        enrichConciergeWithMatching(conciergeResult, agentPayload.matching);
+        conciergeResult.uiPhase = 'providers';
+        conciergeResult.conversationStep = computeConversationStep('providers');
+      } catch (error) {
+        console.error('Matching agent failed:', error.message);
       }
     }
 

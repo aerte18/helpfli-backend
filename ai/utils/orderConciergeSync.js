@@ -5,7 +5,9 @@
 const WANTS_ORDER_PATTERN =
   /wystaw|utwórz|utworz|stwórz|stworz|załóż|zaloz|chc[eę]\s+(utworzyć|utworzyc)\s+zlecen|chc[eę]\s+zlecen|potwierdzam.*zlecen|utworzyć zlecenie|utworzyc zlecenie/i;
 const WANTS_PROVIDERS_PATTERN =
-  /wykonawc|fachowc|znajd[zź].* (wykonawc|fachowc)|pokaż wykonawc|pokaz wykonawc|pokaz najlepiej|szukaj (wykonawc|fachowc)/i;
+  /wykonawc|fachowc|hydraulik|elektryk|monter|specjalist|znajd[zź]|poszukaj|wyszukaj|pokaż wykonawc|pokaz wykonawc|pokaz najlepiej|szukaj (wykonawc|fachowc)|masz (już )?wynik|i jak masz|są wyniki|pokaż (mi )?list|kto może przyjechać/i;
+const PROVIDERS_FOLLOWUP_PATTERN =
+  /i jak masz|masz wyniki|są wyniki|co znalaz|znalazłeś|znalazles|pokaż (mi )?(ich|list)|gdzie (są|sa) (ci )?wykonawc/i;
 const WANTS_PRICING_PATTERN = /cen|koszt|widełki|widełek|wycen|ile (to )?koszt|orientacyjn(e|ych) widełki/i;
 const WANTS_DIY_PATTERN = /sam(odzielnie)?|diy|krok po kroku|zr[oó]b(ię|ie)?\s+sam|bezpieczne kroki/i;
 const DIY_FAILED_PATTERN =
@@ -39,14 +41,21 @@ function wantsDiy(text = '') {
 }
 
 function detectChosenPathFromText(text = '', existingPath = null) {
-  if (existingPath) return existingPath;
   const t = String(text || '');
   if (DIY_FAILED_PATTERN.test(t)) return 'order';
   if (wantsToCreateOrder(t)) return 'order';
-  if (wantsProviders(t)) return 'providers';
+  if (wantsProviders(t) || PROVIDERS_FOLLOWUP_PATTERN.test(t)) return 'providers';
   if (wantsPricing(t)) return 'pricing';
   if (wantsDiy(t)) return 'diy';
-  return null;
+  return existingPath || null;
+}
+
+function isCoreOrderMissing(label = '') {
+  return /kategoria usługi|opis problemu|lokalizacja/i.test(String(label));
+}
+
+function filterCoreMissing(missing = []) {
+  return (missing || []).filter(isCoreOrderMissing);
 }
 
 function stripOrderReadyFooter(text = '') {
@@ -94,7 +103,8 @@ function computeUiPhase({
     return missing.length > 0 ? 'clarify' : 'create_order';
   }
   if (path === 'providers') {
-    return missing.length > 0 ? 'clarify' : 'providers';
+    const coreMissing = filterCoreMissing(missing);
+    return coreMissing.length > 0 ? 'clarify' : 'providers';
   }
   if (path === 'pricing') {
     return missing.length > 0 ? 'clarify' : 'pricing';
@@ -166,17 +176,24 @@ function enrichConciergeWithOrderDraft(
   const missing = draft.missing || [];
   const path = chosenPath || detectChosenPathFromText(lastUserText);
 
-  if (missing.length > 0) {
+  const effectiveMissing = path === 'providers' ? filterCoreMissing(missing) : missing;
+
+  if (effectiveMissing.length > 0) {
     concierge.nextStep = 'ask_more';
-    concierge.missing = missing;
+    concierge.missing = effectiveMissing;
     concierge.questions = draft.nextQuestion ? [draft.nextQuestion] : (draft.questions || []).slice(0, 1);
     if (!concierge.reply?.includes('?') && draft.nextQuestion) {
       concierge.reply = `${concierge.reply}\n\n${draft.nextQuestion}`.trim();
     }
-    if (path === 'order' && missing.length) {
-      const missingList = missing.join(', ');
-      if (!concierge.reply.toLowerCase().includes(missingList.slice(0, 6).toLowerCase())) {
-        concierge.reply = `${concierge.reply}\n\nDo zlecenia brakuje mi jeszcze: **${missingList}**.`.trim();
+    if (path === 'order') {
+      const gap = draft.gapAnalysis;
+      const filled = gap?.filled?.map((f) => f.label).join(', ');
+      const need = missing.join(', ');
+      if (filled && !/mam już|zebrane/i.test(concierge.reply || '')) {
+        concierge.reply = `${concierge.reply}\n\n**Mam już:** ${filled}.`.trim();
+      }
+      if (need && !concierge.reply.toLowerCase().includes(need.slice(0, 8).toLowerCase())) {
+        concierge.reply = `${concierge.reply}\n\n**Do zlecenia potrzebuję jeszcze:** ${need}.`.trim();
       }
     }
     return concierge;
@@ -265,6 +282,37 @@ function mergeAttachmentLists(...lists) {
   return out;
 }
 
+function enrichConciergeWithMatching(concierge = {}, matching = null) {
+  if (!matching) return concierge;
+
+  const providers = matching.topProviders || [];
+  if (providers.length === 0) {
+    const note = matching.notes?.[0] || 'Nie znalazłem wykonawców w tej okolicy — spróbuj poszerzyć obszar lub utwórz zlecenie.';
+    if (/szukam|zaraz będą wyniki|będą wyniki/i.test(concierge.reply || '')) {
+      concierge.reply = note;
+    } else if (!concierge.reply?.includes(note.slice(0, 20))) {
+      concierge.reply = `${concierge.reply}\n\n${note}`.trim();
+    }
+    return concierge;
+  }
+
+  const count = providers.length;
+  const names = providers
+    .slice(0, 3)
+    .map((p) => p.name)
+    .join(', ');
+  const summary = `Znalazłem ${count} ${count === 1 ? 'wykonawcę' : 'wykonawców'} w okolicy${names ? `: ${names}` : ''}. Wybierz profil poniżej.`;
+
+  if (/szukam|zaraz będą wyniki|będą wyniki|zaraz będą/i.test(concierge.reply || '')) {
+    concierge.reply = summary;
+  } else if (!/znalazłem|znaleźliśmy|oto wykonawc/i.test(concierge.reply || '')) {
+    concierge.reply = `${concierge.reply}\n\n${summary}`.trim();
+  }
+
+  concierge.nextStep = 'suggest_providers';
+  return concierge;
+}
+
 function applyDisplayFieldsToDraft(draft, fallbackLocation = null) {
   if (!draft?.orderPayload) return draft;
   const payload = draft.orderPayload;
@@ -289,6 +337,9 @@ module.exports = {
   wantsPricing,
   wantsDiy,
   detectChosenPathFromText,
+  isCoreOrderMissing,
+  filterCoreMissing,
+  PROVIDERS_FOLLOWUP_PATTERN,
   enrichConciergeWithOrderDraft,
   computeUiPhase,
   computeConversationStep,
@@ -299,5 +350,6 @@ module.exports = {
   cleanDescriptionText,
   formatLocationDisplay,
   applyDisplayFieldsToDraft,
+  enrichConciergeWithMatching,
   CHOSEN_PATH_MAP
 };

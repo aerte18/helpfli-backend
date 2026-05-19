@@ -4,6 +4,7 @@ const {
   computeConversationStep,
   wantsToCreateOrder,
   detectChosenPathFromText,
+  enrichConciergeWithMatching,
   buildConversationSummary,
   cleanDescriptionText,
   applyDisplayFieldsToDraft
@@ -59,6 +60,21 @@ describe('orderConciergeSync phased flow', () => {
     })).toBe('create_order');
     expect(wantsToCreateOrder('wystaw zlecenie')).toBe(true);
     expect(detectChosenPathFromText('Pokaż wykonawców')).toBe('providers');
+  });
+
+  it('overrides stored diy path when user asks to find providers', () => {
+    expect(detectChosenPathFromText('znajdź proszę', 'diy')).toBe('providers');
+    expect(detectChosenPathFromText('i jak masz?', 'diy')).toBe('providers');
+    expect(detectChosenPathFromText('ok', 'providers')).toBe('providers');
+  });
+
+  it('replaces searching fluff with matching summary', () => {
+    const concierge = { reply: 'Szukam hydraulików. Zaraz będą wyniki.' };
+    enrichConciergeWithMatching(concierge, {
+      topProviders: [{ name: 'Jan K.' }, { name: 'Piotr M.' }]
+    });
+    expect(concierge.reply).toMatch(/znalazłem/i);
+    expect(concierge.reply).not.toMatch(/zaraz będą wyniki/i);
   });
 
   it('cleans description and location for display', () => {
