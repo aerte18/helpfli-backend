@@ -66,6 +66,21 @@ const orderSchema = new mongoose.Schema({
   /** standard = obecny flow; offers_only = lead gen (oferty → kontakt → poza systemem) */
   orderMode: { type: String, enum: ['standard', 'offers_only'], default: 'standard', index: true },
   contactUnlockedAt: { type: Date, default: null },
+  /** unpaid | processing | succeeded | waived (np. CLIENT_PRO) */
+  contactUnlockStatus: {
+    type: String,
+    enum: ['unpaid', 'processing', 'succeeded', 'waived'],
+    default: 'unpaid',
+  },
+  contactUnlockFeePln: { type: Number, default: null },
+  /** Tylko zweryfikowani wykonawcy widzą zlecenie na rynku */
+  verifiedProvidersOnly: { type: Boolean, default: false, index: true },
+  listingAddonsStatus: {
+    type: String,
+    enum: ['none', 'pending', 'processing', 'succeeded', 'waived'],
+    default: 'none',
+  },
+  listingAddonsPaidAt: { type: Date, default: null },
   requestInvoice: { type: Boolean, default: false }, // Klient prosił o fakturę przy płatności
   priority: { type: String, enum: ['normal', 'priority'], default: 'normal' }, // Nowe pole - priorytet zlecenia
   priorityFee: { type: Number, default: 0 }, // Dopłata za priorytet (w groszach)

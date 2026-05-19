@@ -1249,7 +1249,7 @@ router.post('/seed', async (_req, res) => {
 			name: 'PRO (klient)',
 			priceMonthly: 49,
 			priceYearly: 470, // 49 * 12 * 0.8 = 470.4 (20% zniżki)
-			perks: ['AI nielimit', 'AI Camera Assistant (wszystkie funkcje)', 'Pilne zlecenia bezpłatne (bez limitu)', 'Podbicie ofert bezpłatne (bez limitu)', 'Priorytet do top wykonawców', 'Brak platform fee (0%)'],
+			perks: ['AI nielimit', 'AI Camera Assistant (wszystkie funkcje)', 'Pilne zlecenia bezpłatne (bez limitu)', 'Podbicie ofert bezpłatne (bez limitu)', 'Priorytet do top wykonawców', 'Brak platform fee (0%)', 'Duże projekty: darmowe odblokowanie kontaktu'],
 			feeDiscountPercent: 15,
 			platformFeePercent: 0, // Brak platform fee dla PRO
 			freeExpressPerMonth: 0,
@@ -1291,7 +1291,7 @@ router.post('/seed', async (_req, res) => {
 			name: 'PRO (usługodawca)',
 			priceMonthly: 99,
 			priceYearly: 950, // 99 * 12 * 0.8 = 950.4 (20% zniżki)
-			perks: ['Odpowiedzi: nielimitowane', 'Priorytet w wynikach', 'Zaawansowane statystyki', 'Badge Helpfli PRO', 'Raporty PDF', 'Brak platform fee (0%)'],
+			perks: ['Odpowiedzi: nielimitowane', 'Priorytet w wynikach', 'Zaawansowane statystyki', 'Badge Helpfli PRO', 'Raporty PDF', 'Brak platform fee (0%)', 'Duże projekty: max 1 slot na ofertę'],
 			platformFeePercent: 0,
 			providerOffersLimit: 999999,
 			providerTier: 'pro',

@@ -597,6 +597,108 @@ router.post('/create-additional-intent', authMiddleware, async (req, res) => {
 });
 
 // POST /api/payments/create-commission-intent
+// Odblokowanie kontaktu po wyborze wykonawcy (tryb offers_only)
+// body: { orderId }
+router.post('/create-contact-unlock-intent', authMiddleware, async (req, res) => {
+  try {
+    if (!stripe) {
+      return res.status(503).json({ message: 'Płatności są chwilowo niedostępne (brak konfiguracji Stripe).' });
+    }
+    const { orderId, methodHint = 'card' } = req.body;
+    const order = await Order.findById(orderId).populate('client');
+    if (!order) return res.status(404).json({ message: 'Nie znaleziono zlecenia' });
+
+    if (order.orderMode !== 'offers_only') {
+      return res.status(400).json({ message: 'To zlecenie nie wymaga opłaty za kontakt' });
+    }
+
+    const clientId = order.client?._id || order.client;
+    if (!clientId || String(clientId) !== String(req.user._id)) {
+      return res.status(403).json({ message: 'Tylko klient może odblokować kontakt' });
+    }
+
+    const UserSubscription = require('../models/UserSubscription');
+    const activeSubscription = await UserSubscription.findOne({
+      user: req.user._id,
+      validUntil: { $gt: new Date() },
+    }).lean();
+    const clientPlanKey = activeSubscription?.planKey || null;
+    const {
+      clientHasFreeContactUnlock,
+      getContactUnlockFeePln,
+      isContactUnlocked,
+    } = require('../utils/offersOnlyMonetization');
+
+    if (isContactUnlocked(order)) {
+      return res.status(400).json({ message: 'Kontakt jest już odblokowany' });
+    }
+
+    const feePln = getContactUnlockFeePln(clientPlanKey);
+    if (clientHasFreeContactUnlock(clientPlanKey) || feePln <= 0) {
+      order.contactUnlockStatus = 'waived';
+      order.contactUnlockFeePln = 0;
+      order.contactUnlockedAt = new Date();
+      await order.save();
+      return res.json({ waived: true, contactUnlocked: true });
+    }
+
+    if (order.contactUnlockStatus === 'processing') {
+      return res.status(400).json({ message: 'Płatność za kontakt jest w trakcie realizacji' });
+    }
+
+    const nominalGrosze = Math.round(feePln * 100);
+    const STRIPE_MIN_PLN_GROSZE = 200;
+    const amount = Math.max(nominalGrosze, STRIPE_MIN_PLN_GROSZE);
+
+    const intentPayload = {
+      amount,
+      currency: CURRENCY,
+      capture_method: 'automatic',
+      description: `Odblokowanie kontaktu — zlecenie #${order._id}`,
+      metadata: {
+        orderId: String(order._id),
+        clientId: String(clientId),
+        type: 'contact_unlock',
+        contactUnlockFeePln: String(feePln),
+      },
+      statement_descriptor_suffix: 'HELPFLI',
+    };
+
+    const intent = await createPaymentIntentPreferLocalWallets(stripe, intentPayload);
+    const allowedMethods = ['card', 'p24', 'blik', 'unknown'];
+    const payMethod = allowedMethods.includes(methodHint) ? methodHint : 'card';
+
+    const payment = await Payment.create({
+      order: order._id,
+      provider: order.provider || null,
+      client: clientId,
+      stripePaymentIntentId: intent.id,
+      amount,
+      currency: CURRENCY,
+      method: payMethod,
+      status: paymentIntentStatusForPaymentModel(intent.status),
+      platformFeePercent: 1,
+      platformFeeAmount: amount,
+      metadata: { type: 'contact_unlock', contactUnlockFeePln: feePln },
+    });
+
+    order.contactUnlockStatus = 'processing';
+    order.contactUnlockFeePln = feePln;
+    order.paymentId = payment._id;
+    await order.save();
+
+    res.json({
+      clientSecret: intent.client_secret,
+      paymentIntentId: intent.id,
+      contactUnlockFeePln: feePln,
+      chargedAmountPln: amount / 100,
+    });
+  } catch (e) {
+    console.error('create-contact-unlock-intent', e);
+    res.status(500).json({ message: 'Błąd tworzenia płatności za kontakt' });
+  }
+});
+
 // Tworzy PaymentIntent tylko na opłatę serwisową (platform fee) przy płatności poza systemem.
 // body: { orderId }
 router.post('/create-commission-intent', authMiddleware, async (req, res) => {
@@ -1740,6 +1842,64 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
         return res.json({ received: true });
       }
 
+      if (intent.metadata?.type === 'contact_unlock') {
+        const orderId = intent.metadata?.orderId;
+        try {
+          const order = orderId ? await Order.findById(orderId) : null;
+          const payment = await Payment.findOne({ stripePaymentIntentId: intent.id });
+          if (order) {
+            order.contactUnlockStatus = 'succeeded';
+            order.contactUnlockedAt = new Date();
+            await order.save();
+          }
+          if (payment) {
+            payment.status = 'succeeded';
+            payment.method = intent.payment_method_types?.[0] || payment.method;
+            await payment.save();
+          }
+        } catch (e) {
+          console.error('Contact unlock webhook handling error:', e);
+        }
+        return res.json({ received: true });
+      }
+
+      if (intent.metadata?.type === 'listing_addons') {
+        const orderId = intent.metadata?.orderId;
+        try {
+          const order = orderId ? await Order.findById(orderId) : null;
+          const payment = await Payment.findOne({ stripePaymentIntentId: intent.id });
+          const { applyListingAddonsToOrder } = require('../utils/listingAddons');
+          if (order) {
+            await applyListingAddonsToOrder(order, {
+              fastTrack: intent.metadata.fastTrack === '1',
+              highlight: intent.metadata.highlight === '1',
+              verifiedProvidersOnly: intent.metadata.verifiedProvidersOnly === '1',
+            });
+            try {
+              const Revenue = require('../models/Revenue');
+              await Revenue.create({
+                orderId: order._id,
+                clientId: order.client,
+                type: 'priority_fee',
+                amount: payment?.amount || Math.round(Number(intent.metadata.totalPln || 0) * 100),
+                description: 'Boost widoczności zlecenia (offers_only)',
+                status: 'paid',
+              });
+            } catch (revErr) {
+              console.warn('Revenue listing_addons:', revErr.message);
+            }
+          }
+          if (payment) {
+            payment.status = 'succeeded';
+            payment.method = intent.payment_method_types?.[0] || payment.method;
+            await payment.save();
+          }
+        } catch (e) {
+          console.error('Listing addons webhook handling error:', e);
+        }
+        return res.json({ received: true });
+      }
+
       // Błąd płatności dopłaty
       if (intent.metadata?.type === 'additional_payment') {
         const orderId = intent.metadata?.orderId;
@@ -1915,6 +2075,44 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
           }
         } catch (e) {
           console.error('External commission payment_failed handling error:', e);
+        }
+        return res.json({ received: true });
+      }
+
+      if (intent.metadata?.type === 'contact_unlock') {
+        const orderId = intent.metadata?.orderId;
+        try {
+          const order = orderId ? await Order.findById(orderId) : null;
+          const payment = await Payment.findOne({ stripePaymentIntentId: intent.id });
+          if (order) {
+            order.contactUnlockStatus = 'unpaid';
+            await order.save();
+          }
+          if (payment) {
+            payment.status = 'failed';
+            await payment.save();
+          }
+        } catch (e) {
+          console.error('Contact unlock payment_failed handling error:', e);
+        }
+        return res.json({ received: true });
+      }
+
+      if (intent.metadata?.type === 'listing_addons') {
+        const orderId = intent.metadata?.orderId;
+        try {
+          const order = orderId ? await Order.findById(orderId) : null;
+          const payment = await Payment.findOne({ stripePaymentIntentId: intent.id });
+          if (order && order.listingAddonsStatus === 'processing') {
+            order.listingAddonsStatus = 'none';
+            await order.save();
+          }
+          if (payment) {
+            payment.status = 'failed';
+            await payment.save();
+          }
+        } catch (e) {
+          console.error('Listing addons payment_failed handling error:', e);
         }
         return res.json({ received: true });
       }

@@ -1106,6 +1106,14 @@ router.get('/open', auth, async (req, res) => {
     } else if (providerScope === 'large_only') {
       orders = orders.filter((o) => o.orderMode === 'offers_only');
     }
+
+    const { providerMeetsVerifiedFilter } = require('../utils/listingAddons');
+    if (user?.role === 'provider' || user?.role === 'company_owner') {
+      const providerProfile = await User.findById(req.user._id).select('verified kyc badges').lean();
+      if (!providerMeetsVerifiedFilter(providerProfile)) {
+        orders = orders.filter((o) => !o.verifiedProvidersOnly);
+      }
+    }
     
     // Sortuj ręcznie: najpierw podbite, potem pilne, potem normalne
     const sortNow = new Date();
@@ -2516,6 +2524,25 @@ router.get('/:id', auth, async (req, res) => {
     order.ratings = await Rating.find({ orderId: order._id })
       .select("from to orderId rating comment createdAt")
       .lean();
+
+    const { applyContactMasking, isContactUnlocked, getContactUnlockFeePln } = require('../utils/offersOnlyMonetization');
+    const UserSubscription = require('../models/UserSubscription');
+    let clientPlanKey = null;
+    if (isOwner) {
+      const sub = await UserSubscription.findOne({
+        user: req.user._id,
+        validUntil: { $gt: new Date() },
+      }).lean();
+      clientPlanKey = sub?.planKey || null;
+    }
+    order.contactLocked = order.orderMode === 'offers_only' && !isContactUnlocked(order);
+    order.contactUnlockRequired = order.contactLocked && isOwner;
+    order.contactUnlockFeePln = order.contactLocked
+      ? getContactUnlockFeePln(clientPlanKey)
+      : 0;
+    if (order.orderMode === 'offers_only' && !isContactUnlocked(order)) {
+      applyContactMasking(order, { viewerId: req.user._id, isOwner, isAssignedProvider });
+    }
     
     res.json(order);
   } catch (err) {
@@ -3367,6 +3394,127 @@ router.get('/my/stats', auth, async (req, res) => {
   } catch (error) {
     console.error('Order stats error:', error);
     res.status(500).json({ message: 'Błąd pobierania statystyk zleceń', error: error.message });
+  }
+});
+
+// POST /api/orders/:id/listing-addons — opcjonalne boosty przy wystawieniu (tryb offers_only)
+router.post('/:id/listing-addons', auth, async (req, res) => {
+  try {
+    const orderId = req.params.id;
+    const userId = req.user._id;
+    const { fastTrack = false, highlight = false, verifiedProvidersOnly = false } = req.body || {};
+
+    if (!fastTrack && !highlight && !verifiedProvidersOnly) {
+      return res.status(400).json({ message: 'Wybierz co najmniej jedną opcję widoczności.' });
+    }
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: 'Zlecenie nie znalezione' });
+    if (String(order.client) !== String(userId)) {
+      return res.status(403).json({ message: 'Brak uprawnień' });
+    }
+    if (order.orderMode !== 'offers_only') {
+      return res.status(400).json({ message: 'Boosty widoczności dostępne tylko w trybie „Pozyskaj tylko oferty”.' });
+    }
+    if (!['open', 'collecting_offers'].includes(order.status)) {
+      return res.status(400).json({ message: 'Można dokupić widoczność tylko dla otwartego zlecenia.' });
+    }
+    if (order.listingAddonsStatus === 'processing') {
+      return res.status(400).json({ message: 'Płatność za widoczność jest w toku.' });
+    }
+
+    const UserSubscription = require('../models/UserSubscription');
+    const subscription = await UserSubscription.findOne({
+      user: userId,
+      validUntil: { $gt: new Date() },
+    }).lean();
+    const clientPlanKey = subscription?.planKey || 'CLIENT_FREE';
+
+    const {
+      calculateListingAddons,
+      applyListingAddonsToOrder,
+    } = require('../utils/listingAddons');
+
+    const quote = calculateListingAddons({
+      fastTrack: Boolean(fastTrack),
+      highlight: Boolean(highlight),
+      verifiedProvidersOnly: Boolean(verifiedProvidersOnly),
+      clientPlanKey,
+    });
+
+    if (quote.totalPln <= 0) {
+      await applyListingAddonsToOrder(order, {
+        fastTrack: Boolean(fastTrack),
+        highlight: Boolean(highlight),
+        verifiedProvidersOnly: Boolean(verifiedProvidersOnly),
+      });
+      order.listingAddonsStatus = 'waived';
+      await order.save();
+      return res.json({
+        success: true,
+        waived: true,
+        requiresPayment: false,
+        totalPln: 0,
+        breakdown: quote.breakdown,
+        message: 'Opcje widoczności aktywowane (w pakiecie PRO).',
+      });
+    }
+
+    const Stripe = require('stripe');
+    const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
+    if (!stripe) {
+      return res.status(503).json({ message: 'Płatności są chwilowo niedostępne.' });
+    }
+
+    const amountGrosze = Math.max(Math.round(quote.totalPln * 100), 200);
+    const { paymentIntentStatusForPaymentModel } = require('../utils/paymentIntentStatusForPaymentModel');
+    const Payment = require('../models/Payment');
+
+    const intent = await stripe.paymentIntents.create({
+      amount: amountGrosze,
+      currency: 'pln',
+      payment_method_types: ['card', 'p24', 'blik'],
+      description: `Widoczność zlecenia #${order._id}`,
+      statement_descriptor_suffix: 'HELPFLI',
+      metadata: {
+        type: 'listing_addons',
+        orderId: String(order._id),
+        clientId: String(userId),
+        fastTrack: fastTrack ? '1' : '0',
+        highlight: highlight ? '1' : '0',
+        verifiedProvidersOnly: verifiedProvidersOnly ? '1' : '0',
+        totalPln: String(quote.totalPln),
+      },
+    });
+
+    const payment = await Payment.create({
+      purpose: 'order',
+      order: order._id,
+      client: userId,
+      stripePaymentIntentId: intent.id,
+      amount: amountGrosze,
+      currency: 'pln',
+      method: 'unknown',
+      status: paymentIntentStatusForPaymentModel(intent.status),
+      metadata: { type: 'listing_addons', ...quote.breakdown },
+    });
+
+    order.listingAddonsStatus = 'processing';
+    order.paymentId = payment._id;
+    await order.save();
+
+    return res.json({
+      success: true,
+      requiresPayment: true,
+      clientSecret: intent.client_secret,
+      paymentIntentId: intent.id,
+      totalPln: quote.totalPln,
+      chargedAmountPln: amountGrosze / 100,
+      breakdown: quote.breakdown,
+    });
+  } catch (error) {
+    console.error('Listing addons error:', error);
+    res.status(500).json({ message: 'Błąd aktywacji opcji widoczności', error: error.message });
   }
 });
 

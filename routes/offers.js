@@ -290,12 +290,29 @@ router.post("/", auth, async (req, res) => {
       return res.status(400).json({ message: "etaMinutes musi być dodatnią liczbą" });
     }
     
-    // Sprawdź limity ofert miesięcznie
     const provider = await User.findById(req.user._id);
     if (!provider) return res.status(404).json({ message: "Provider nie istnieje" });
-    
-    // Sprawdź czy nie przekroczył limitu ofert w tym miesiącu
-    if (provider.monthlyOffersUsed >= provider.monthlyOffersLimit) {
+
+    const orderForSlots = await Order.findById(orderId).select('orderMode service').lean();
+    if (!orderForSlots) return res.status(404).json({ message: "Zlecenie nie istnieje" });
+
+    const UserSubscription = require('../models/UserSubscription');
+    const providerSub = await UserSubscription.findOne({
+      user: req.user._id,
+      validUntil: { $gt: new Date() },
+    }).lean();
+    const providerPlanKey = providerSub?.planKey || 'PROV_FREE';
+
+    const { resolveOfferSlotCost } = require('../utils/offersOnlyMonetization');
+    const slotInfo = await resolveOfferSlotCost({
+      order: orderForSlots,
+      serviceSlug: orderForSlots.service,
+      providerPlanKey,
+    });
+    const slotCost = slotInfo.slots || 1;
+
+    // Sprawdź limity ofert miesięcznie (duży projekt może kosztować 2–3 sloty)
+    if (provider.monthlyOffersUsed + slotCost > provider.monthlyOffersLimit) {
       // Utwórz powiadomienie zamiast zwracania błędu
       const Notification = require('../models/Notification');
       const remaining = provider.monthlyOffersLimit - provider.monthlyOffersUsed;
@@ -339,13 +356,20 @@ router.post("/", auth, async (req, res) => {
         });
       }
 
-      return res.status(403).json({ 
-        message: `Przekroczono limit ofert miesięcznie (${provider.monthlyOffersLimit}). Sprawdź powiadomienia aby zobaczyć szczegóły.`
+      return res.status(403).json({
+        message:
+          slotCost > 1
+            ? `Ta oferta wymaga ${slotCost} slotów w pakiecie (duży projekt). Wykorzystałeś limit ${provider.monthlyOffersLimit} odpowiedzi w tym miesiącu.`
+            : `Przekroczono limit ofert miesięcznie (${provider.monthlyOffersLimit}). Sprawdź powiadomienia aby zobaczyć szczegóły.`,
+        code: 'offer_limit_exceeded',
+        slotCost,
+        slotsUsed: provider.monthlyOffersUsed,
+        slotsLimit: provider.monthlyOffersLimit,
       });
     }
-    
+
     // Sprawdź czy limit jest niski (mniej niż 20% pozostało) i wyślij ostrzeżenie
-    const remaining = provider.monthlyOffersLimit - provider.monthlyOffersUsed;
+    const remaining = provider.monthlyOffersLimit - provider.monthlyOffersUsed - slotCost;
     const warningThreshold = Math.max(1, Math.floor(provider.monthlyOffersLimit * 0.2)); // 20% lub minimum 1
     
     if (remaining <= warningThreshold && remaining > 0) {
@@ -507,8 +531,8 @@ router.post("/", auth, async (req, res) => {
       await order.save();
     }
 
-    // Zwiększ licznik ofert miesięcznie
-    provider.monthlyOffersUsed += 1;
+    // Zwiększ licznik ofert miesięcznie (duży projekt = więcej slotów)
+    provider.monthlyOffersUsed += slotCost;
     await provider.save();
 
     // Rejestruj przychód z boost oferty
@@ -576,9 +600,11 @@ router.post("/", auth, async (req, res) => {
       };
     }
 
-    res.json({ 
+    res.json({
       offer: created,
-      pricingAdvice
+      pricingAdvice,
+      slotCost,
+      slotsRemaining: Math.max(0, provider.monthlyOffersLimit - provider.monthlyOffersUsed),
     });
   } catch (e) {
     logger.error("CREATE_OFFER_ERROR:", {
@@ -1005,8 +1031,27 @@ router.post("/:id/accept", auth, async (req, res) => {
     order.acceptedOfferId = offer._id;
     order.acceptedAt = new Date();
     order.requestInvoice = requestInvoice;
+    const {
+      clientHasFreeContactUnlock,
+      getContactUnlockFeePln,
+    } = require('../utils/offersOnlyMonetization');
+
+    let requiresContactUnlock = false;
+    let contactUnlockFeePln = 0;
+
     if (isOffersOnlyOrder) {
-      order.contactUnlockedAt = new Date();
+      const fee = getContactUnlockFeePln(clientPlanKey);
+      if (clientHasFreeContactUnlock(clientPlanKey) || fee <= 0) {
+        order.contactUnlockStatus = 'waived';
+        order.contactUnlockFeePln = 0;
+        order.contactUnlockedAt = new Date();
+      } else {
+        order.contactUnlockStatus = 'unpaid';
+        order.contactUnlockFeePln = fee;
+        order.contactUnlockedAt = null;
+        requiresContactUnlock = true;
+        contactUnlockFeePln = fee;
+      }
     }
     
     // Ustaw ceny i opłaty
@@ -1233,9 +1278,9 @@ router.post("/:id/accept", auth, async (req, res) => {
     // Wyślij powiadomienia email + push
     await notifyOfferAccepted({ app: req.app, orderId: order._id, offerId: offer._id });
 
-    res.json({ 
-      ok: true, 
-      orderId: order._id, 
+    res.json({
+      ok: true,
+      orderId: order._id,
       offerId: offer._id,
       orderMode: order.orderMode || 'standard',
       paymentMethod: effectivePaymentFlow,
@@ -1244,6 +1289,10 @@ router.post("/:id/accept", auth, async (req, res) => {
       breakdown: order.pricing,
       suggestAddFavorite: isOffersOnlyOrder,
       providerId: offer.providerId,
+      requiresContactUnlock,
+      contactUnlockFeePln,
+      contactUnlockWaived: isOffersOnlyOrder && !requiresContactUnlock,
+      clientPlanKey,
     });
   } catch (e) {
     logger.error("ACCEPT_OFFER_ERROR:", {
