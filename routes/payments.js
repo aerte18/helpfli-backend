@@ -1476,6 +1476,34 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
       return res.json({ received: true });
     }
 
+    // Escrow (capture_method: manual) — po autoryzacji karty status = requires_capture (nie succeeded)
+    if (event.type === 'payment_intent.amount_capturable_updated') {
+      const intent = event.data.object;
+      const orderId = intent.metadata?.orderId;
+      if (orderId && intent.status === 'requires_capture') {
+        try {
+          const order = await Order.findById(orderId);
+          const payment = await Payment.findOne({ stripePaymentIntentId: intent.id });
+          if (payment) {
+            payment.status = paymentIntentStatusForPaymentModel(intent.status);
+            payment.method = intent.payment_method_types?.[0] || payment.method;
+            await payment.save();
+          }
+          if (order && order.status === 'accepted') {
+            order.status = 'funded';
+            order.paymentStatus = 'processing';
+            order.payment = order.payment || {};
+            order.payment.intentId = intent.id;
+            order.payment.method = intent.payment_method_types?.[0] || order.payment.method;
+            await order.save();
+          }
+        } catch (e) {
+          console.error('payment_intent.amount_capturable_updated webhook error:', e);
+        }
+      }
+      return res.json({ received: true });
+    }
+
     if (event.type === 'payment_intent.succeeded') {
       const intent = event.data.object;
 
