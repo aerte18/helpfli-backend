@@ -57,6 +57,13 @@ const orderSchema = new mongoose.Schema({
   paymentReason: { type: String, default: null }, // Uzasadnienie dopłaty
   additionalPaymentStatus: { type: String, enum: ['none', 'processing', 'succeeded', 'failed', 'refunded', 'partial_refund'], default: 'none' },
   additionalPaymentPaidAt: { type: Date, default: null },
+  /** Po zakończeniu przez wykonawcę: klient musi zaakceptować (lub zgłosić spór) przed potwierdzeniem odbioru — tylko płatność systemowa */
+  clientCompletionStatus: {
+    type: String,
+    enum: ['pending', 'accepted', 'rejected'],
+    default: null,
+  },
+  clientCompletionAcceptedAt: { type: Date, default: null },
   // Email Marketing
   emailMarketing: {
     abandonedCartSent: { type: Boolean, default: false },

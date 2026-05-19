@@ -2726,6 +2726,44 @@ router.post('/:id/fund', auth, loadOrderById, async (req, res) => {
   }
 });
 
+// Klient akceptuje zakończenie zgłoszone przez wykonawcę (bez uwag / z uwagami). Dopłata = osobna płatność.
+router.post('/:id/accept-completion', auth, loadOrderById, async (req, res) => {
+  try {
+    const order = req.order;
+    if (String(order.client) !== String(req.user._id)) {
+      return res.status(403).json({ message: 'Tylko klient może zaakceptować zakończenie' });
+    }
+    if (order.status !== 'completed') {
+      return res.status(400).json({ message: 'Zlecenie nie zostało jeszcze zakończone przez wykonawcę' });
+    }
+    const isExternalPayment =
+      order.paymentMethod === 'external' || order.paymentPreference === 'external';
+    if (isExternalPayment) {
+      return res.status(400).json({ message: 'Przy płatności poza systemem nie wymagamy osobnej akceptacji' });
+    }
+    if (order.clientCompletionStatus === 'accepted') {
+      return res.json({ message: 'Zakończenie zostało już zaakceptowane', order });
+    }
+    if (order.clientCompletionStatus === 'rejected') {
+      return res.status(400).json({
+        message: 'Zakończenie zostało odrzucone (spór). Poczekaj na rozstrzygnięcie lub zamknij sprawę.',
+      });
+    }
+    if (order.completionType === 'with_payment') {
+      return res.status(400).json({
+        message: 'Przy dopłacie najpierw zaakceptuj kwotę i opłać ją — potem potwierdzisz odbiór.',
+      });
+    }
+    order.clientCompletionStatus = 'accepted';
+    order.clientCompletionAcceptedAt = new Date();
+    await order.save();
+    res.json({ message: 'Zaakceptowano zakończenie zlecenia', order });
+  } catch (e) {
+    console.error('accept-completion error:', e);
+    res.status(500).json({ message: 'Błąd akceptacji zakończenia' });
+  }
+});
+
 // Potwierdzenie odbioru przez klienta → uwolnienie środków
 router.post('/:id/confirm-receipt', auth, loadOrderById, async (req, res) => {
   try {
@@ -2737,8 +2775,28 @@ router.post('/:id/confirm-receipt', auth, loadOrderById, async (req, res) => {
       return res.status(400).json({ message: 'Potwierdzenie odbioru jest dostępne po zakończeniu zlecenia' });
     }
     const isExternalPayment = order.paymentMethod === 'external' || order.paymentPreference === 'external';
+    if (!isExternalPayment && order.clientCompletionStatus === 'pending') {
+      return res.status(400).json({
+        message: 'Najpierw zaakceptuj zakończenie zlecenia (lub zgłoś spór), potem potwierdź odbiór.',
+      });
+    }
+    if (!isExternalPayment && order.clientCompletionStatus === 'rejected') {
+      return res.status(400).json({
+        message: 'Zakończenie zostało odrzucone — poczekaj na rozstrzygnięcie sporu.',
+      });
+    }
     if (order.completionType === 'with_payment' && !isExternalPayment && order.additionalPaymentStatus !== 'succeeded') {
       return res.status(400).json({ message: 'Najpierw opłać dopłatę, aby potwierdzić odbiór zlecenia' });
+    }
+    if (
+      order.completionType === 'with_payment' &&
+      !isExternalPayment &&
+      order.additionalPaymentStatus === 'succeeded' &&
+      order.clientCompletionStatus !== 'accepted'
+    ) {
+      order.clientCompletionStatus = 'accepted';
+      order.clientCompletionAcceptedAt = order.clientCompletionAcceptedAt || new Date();
+      await order.save();
     }
     if (order.paymentPreference === 'system') {
       const paymentForOrder = await Payment.findOne({ order: order._id }).sort({ createdAt: -1 });
@@ -3020,6 +3078,15 @@ router.post('/:id/complete', auth, loadOrderById, requireKycForOrderComplete, as
       order.deliveredOnTime = null;
     }
     
+    const isExternalPayment =
+      order.paymentMethod === 'external' || order.paymentPreference === 'external';
+    if (!isExternalPayment) {
+      order.clientCompletionStatus = 'pending';
+      order.clientCompletionAcceptedAt = null;
+    } else {
+      order.clientCompletionStatus = null;
+    }
+
     await order.save();
     
     // Emit Socket.IO event do pokoju order
@@ -3838,6 +3905,9 @@ router.post('/:id/dispute', auth, loadOrderById, async (req, res) => {
     order.disputeReason = reason || '';
     order.disputeReportedBy = req.user._id;
     order.disputeReportedAt = new Date();
+    if (isClient) {
+      order.clientCompletionStatus = 'rejected';
+    }
     order.status = 'disputed';
 
     const mediationHours = Number(process.env.DISPUTE_MEDIATION_HOURS || 72);

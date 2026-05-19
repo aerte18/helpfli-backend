@@ -1997,6 +1997,8 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
           if (order) {
             order.additionalPaymentStatus = 'succeeded';
             order.additionalPaymentPaidAt = new Date();
+            order.clientCompletionStatus = 'accepted';
+            order.clientCompletionAcceptedAt = order.clientCompletionAcceptedAt || new Date();
             await order.save();
           }
           if (payment) {
@@ -2009,7 +2011,7 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
         }
         return res.json({ received: true });
       }
-      
+
       // Obsługa subscription upgrade przez PaymentIntent (fallback)
       if (intent.metadata?.type === 'subscription_upgrade') {
         const userId = intent.metadata.userId;
