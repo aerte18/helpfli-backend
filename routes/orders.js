@@ -2830,15 +2830,25 @@ router.post('/:id/start', auth, loadOrderById, async (req, res) => {
       return res.status(403).json({ message: 'Tylko przypisany wykonawca może rozpocząć pracę' });
     }
     
-    // Sprawdź status zlecenia
-    if (order.status !== 'accepted') {
-      return res.status(400).json({ message: 'Zlecenie musi być zaakceptowane przed rozpoczęciem pracy' });
+    // Po opłacie escrow status to funded (nie accepted)
+    if (!['accepted', 'funded'].includes(order.status)) {
+      return res.status(400).json({
+        message: 'Zlecenie musi być opłacone (lub zaakceptowane z płatnością) przed rozpoczęciem pracy',
+      });
     }
-    
-    // Dla płatności przez system - sprawdź czy płatność została wykonana.
-    // Flow system/external jest przechowywany w paymentPreference.
-    if (order.paymentPreference === 'system' && order.paymentStatus !== 'succeeded' && !order.paidInSystem) {
-      return res.status(400).json({ message: 'Zlecenie musi być opłacone przed rozpoczęciem pracy (paymentPreference: system)' });
+
+    // Dla płatności przez system — funded / processing (escrow) / succeeded liczą się jako opłacone
+    if (order.paymentPreference === 'system') {
+      const escrowPaid =
+        order.status === 'funded' ||
+        order.paymentStatus === 'succeeded' ||
+        order.paymentStatus === 'processing' ||
+        order.paidInSystem;
+      if (!escrowPaid) {
+        return res.status(400).json({
+          message: 'Zlecenie musi być opłacone przed rozpoczęciem pracy (płatność przez Helpfli)',
+        });
+      }
     }
     if (order.paymentPreference === 'external') {
       const platformFee = Number(order?.pricing?.platformFee || 0);
