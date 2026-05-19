@@ -23,12 +23,19 @@ async function runProviderOrchestrator({ messages, orderContext = {}, providerIn
     let nextStep = modeIntent.nextStep;
     let parsed = null;
     
-    const wantsOffer = /(ofert|propozycj|wiadomo|napisz|przygotuj|wstaw)/i.test(userText);
-    const wantsPrice = /(cena|cenę|wycen|ile|koszt|kwot)/i.test(userText);
-    const wantsWin = /(wygra|szans|konkurenc|lepiej|skuteczn)/i.test(userText);
+    const wantsFindOrders =
+      /najlepsz(e|y|a)?\s+(zlecen|ofert)|znajd[źz]\s+(zlecen|ofert)|szukam\s+(zlecen|ofert)|otwarte\s+zlecen|dopasowane\s+zlecen|gdzie\s+zarobi|potencjał\s+zarobku|czy\s+są\s+(jakieś\s+)?(zlecen|ofert)|oferty?\s+(z|dla)\s+(agd|hydraul|elektr|remont)/i.test(
+        userText
+      );
+    const wantsOffer = /(napisz|przygotuj|stwórz|wstaw).{0,24}(ofert|propozycj)|profesjonaln[aą]\s+ofert/i.test(userText);
+    const wantsPrice = /(cena|cenę|wycen|ile\s+koszt|koszt|kwot)/i.test(userText);
+    const wantsWin = /(wygra|szans[aę]\s+na|konkurenc|poprawić\s+skuteczno|skutecznoś[cć]\s+(moich\s+)?ofert)/i.test(userText);
     const wantsQuestions = /(pytan|dopyta|zapyta|brakuje|doprecyz)/i.test(userText);
 
-    if (assistantMode === 'company_pro') {
+    if (wantsFindOrders) {
+      intent = 'find_orders';
+      nextStep = 'search_orders';
+    } else if (assistantMode === 'company_pro') {
       intent = 'create_offer';
       nextStep = 'suggest_offer';
     } else if (assistantMode === 'pricing') {
@@ -37,20 +44,18 @@ async function runProviderOrchestrator({ messages, orderContext = {}, providerIn
     } else if (['risks', 'negotiation', 'followup'].includes(assistantMode)) {
       intent = 'communication';
       nextStep = 'communication_help';
-    } else if (wantsOffer || wantsPrice || wantsWin || wantsQuestions) {
-      if (wantsOffer || wantsWin || wantsQuestions) {
-        intent = 'create_offer';
-        nextStep = 'suggest_offer';
-      } else {
-        intent = 'pricing';
-        nextStep = 'suggest_pricing';
-      }
+    } else if (wantsWin && !wantsOffer) {
+      intent = 'communication';
+      nextStep = 'communication_help';
+    } else if (wantsOffer || wantsQuestions) {
+      intent = 'create_offer';
+      nextStep = 'suggest_offer';
+    } else if (wantsPrice) {
+      intent = 'pricing';
+      nextStep = 'suggest_pricing';
     } else if (userText.includes('komunikacja') || userText.includes('jak napisać') || userText.includes('odpowiedź')) {
       intent = 'communication';
       nextStep = 'communication_help';
-    } else if (/najlepsze zlecenia|gdzie zarobić|dopasowane|szukam zleceń|pokaż zlecenia|znajdź zlecenia|które zlecenia|potencjał zarobku|otwarte zlecenia/.test(userText)) {
-      intent = 'find_orders';
-      nextStep = 'search_orders';
     }
     
     // Spróbuj użyć LLM dla lepszej klasyfikacji
@@ -104,12 +109,21 @@ async function runProviderOrchestrator({ messages, orderContext = {}, providerIn
     const replies = {
       create_offer: 'Pomogę Ci stworzyć profesjonalną ofertę, żeby zwiększyć szansę na wygraną.',
       pricing: 'Pomogę Ci dobrać konkurencyjną cenę do tego zlecenia.',
-      communication: 'Pokażę Ci, jak lepiej się komunikować z klientem.',
-      find_orders: 'Sprawdzam zlecenia najlepiej dopasowane do Ciebie.',
+      communication: 'Podpowiem, jak pisać oferty i komunikować się skuteczniej z klientem.',
+      find_orders: 'Sprawdzam zlecenia najlepiej dopasowane do Ciebie — chwilę…',
       company_pro: 'Przygotuję ofertę w trybie firmowym PRO z naciskiem na SLA, formalny ton i wymagania firmy.',
       general: 'Jak mogę Ci pomóc przy tym zleceniu?'
     };
-    const fallbackReply = replies[intent] || 'Jak mogę Ci pomóc?';
+    let fallbackReply = replies[intent] || 'Jak mogę Ci pomóc?';
+    if (intent === 'communication' && wantsWin && !parsed?.reply) {
+      fallbackReply =
+        'Kilka sprawdzonych sposobów na skuteczniejsze oferty:\n' +
+        '• Zacznij od 1–2 zdań o problemie klienta (pokaż, że czytałeś zlecenie).\n' +
+        '• Podaj konkretną cenę lub widełki i realny termin.\n' +
+        '• Wypisz zakres prac punktami — bez ogólników.\n' +
+        '• Jeśli możesz, dodaj zdjęcie z podobnej realizacji.\n\n' +
+        'Mogę też wyszukać dla Ciebie dopasowane zlecenia — napisz np. „znajdź najlepsze zlecenia”.';
+    }
     const naturalReply = (typeof parsed?.reply === 'string' && parsed.reply.trim()) ? parsed.reply.trim() : null;
     
     return {
