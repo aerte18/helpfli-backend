@@ -11,7 +11,7 @@ function getDraft(sessionId) {
     drafts.delete(sessionId);
     return null;
   }
-  return entry.draft;
+  return entry.draft || null;
 }
 
 function saveDraft(sessionId, draft) {
@@ -33,7 +33,8 @@ function mergeDraftContext({
   urgency,
   lastUserText = '',
   userContext = {},
-  imageUrls = []
+  imageUrls = [],
+  userMessageCount = 0
 }) {
   const previousPayload = previousDraft?.orderPayload || {};
   const previousExtracted = previousDraft?.extracted || payloadToExtracted(previousPayload);
@@ -45,7 +46,13 @@ function mergeDraftContext({
     ...signals.extracted
   };
 
-  if (!mergedExtracted.location && userContext.location) {
+  const userConfirmedLocation =
+    /aktualn(a|ej|ą) lokalizacj|moja lokalizacja|użyj mojej|uzyj mojej/i.test(String(lastUserText || ''));
+  if (
+    !mergedExtracted.location &&
+    userContext.location &&
+    (userConfirmedLocation || userMessageCount >= 2)
+  ) {
     mergedExtracted.location = typeof userContext.location === 'string'
       ? userContext.location
       : userContext.location.text || userContext.location.address || null;

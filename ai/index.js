@@ -15,7 +15,15 @@ const {
   mergeDraftContext,
   attachStoredContext
 } = require('./utils/draftSessionStore');
-const { enrichConciergeWithOrderDraft } = require('./utils/orderConciergeSync');
+const {
+  enrichConciergeWithOrderDraft,
+  computeUiPhase,
+  computeConversationStep,
+  detectChosenPathFromText,
+  applyDisplayFieldsToDraft,
+  buildConversationSummary
+} = require('./utils/orderConciergeSync');
+const { getChosenPath, setChosenPath } = require('./utils/conciergeSessionStore');
 
 /**
  * Handler dla endpointu /api/ai/concierge/v2
@@ -56,6 +64,13 @@ async function conciergeHandler(req, res) {
     
     // Pobierz lub utwórz sessionId (z requestu lub generuj nowy)
     const sessionId = parsed.sessionId || req.headers['x-session-id'] || `session_${Date.now()}_${userId}`;
+    let chosenPath = parsed.chosenPath || getChosenPath(sessionId) || null;
+    const lastUserMessageEarly = (parsed.messages || []).filter((m) => m.role === 'user').pop();
+    const detectedPath = detectChosenPathFromText(lastUserMessageEarly?.content || '', chosenPath);
+    if (detectedPath) {
+      chosenPath = detectedPath;
+      setChosenPath(sessionId, chosenPath);
+    }
     
     // Pobierz kontekst z pamięci (ostatnie wiadomości + preferencje)
     const memoryContext = await ConversationMemoryService.getContext(userId, sessionId, 10, 'concierge');
@@ -240,6 +255,8 @@ async function conciergeHandler(req, res) {
       .pop();
 
     const previousOrderDraft = getDraft(sessionId);
+    const userMessageCount = finalMessages.filter((m) => m.role === 'user').length;
+
     const mergedDraftContext = mergeDraftContext({
       previousDraft: previousOrderDraft,
       extracted: conciergeResult.extracted || {},
@@ -247,7 +264,8 @@ async function conciergeHandler(req, res) {
       urgency: conciergeResult.urgency,
       lastUserText: lastUserMessage?.content || '',
       userContext,
-      imageUrls: parsed.imageUrls || []
+      imageUrls: parsed.imageUrls || [],
+      userMessageCount
     });
 
     conciergeResult.extracted = mergedDraftContext.extracted;
@@ -328,6 +346,8 @@ async function conciergeHandler(req, res) {
       }
     }
 
+    const blockHeavyAgents = ['ask_more', 'offer_choices'].includes(conciergeResult.nextStep);
+
     // Routing do innych agentów na podstawie nextStep
     // Agent Diagnostyczny - ocena ryzyka/pilności
     if (conciergeResult.nextStep === 'diagnose') {
@@ -363,8 +383,10 @@ async function conciergeHandler(req, res) {
       }
     }
     
-    // Agent Kosztowy - widełki cenowe
-    if (conciergeResult.nextStep === 'show_pricing') {
+    let uiPhase = 'clarify';
+
+    // Agent Kosztowy - widełki cenowe (tylko gdy user wybrał ścieżkę ceny)
+    if (!blockHeavyAgents && conciergeResult.nextStep === 'show_pricing') {
       try {
         agentPayload.pricing = await runPricingAgent({
           service: conciergeResult.detectedService,
@@ -378,7 +400,7 @@ async function conciergeHandler(req, res) {
     }
     
     // Agent DIY - instrukcje krok po kroku
-    if (conciergeResult.nextStep === 'suggest_diy') {
+    if (!blockHeavyAgents && conciergeResult.nextStep === 'suggest_diy') {
       try {
         agentPayload.diy = await runDIYAgent({
           service: conciergeResult.detectedService,
@@ -389,8 +411,8 @@ async function conciergeHandler(req, res) {
       }
     }
     
-    // Agent Matching - znajdź wykonawców
-    if (conciergeResult.nextStep === 'suggest_providers') {
+    // Agent Matching - znajdź wykonawców (tylko po wyborze ścieżki wykonawców)
+    if (!blockHeavyAgents && conciergeResult.nextStep === 'suggest_providers') {
       try {
         agentPayload.matching = await runMatchingAgent({
           service: conciergeResult.detectedService,
@@ -417,17 +439,56 @@ async function conciergeHandler(req, res) {
           );
         }
 
+        const fallbackLocation =
+          userContext.location?.text ||
+          mergedDraftContext.extracted?.location ||
+          null;
+
         agentPayload.orderDraft = await runOrderDraftAgent({
           messages: finalMessages.length > 0 ? finalMessages : parsed.messages,
           extracted: mergedDraftContext.extracted,
           detectedService: conciergeResult.detectedService,
-          urgency: conciergeResult.urgency || 'standard'
+          urgency: conciergeResult.urgency || 'standard',
+          fallbackLocation
         });
         agentPayload.orderDraft = attachStoredContext(agentPayload.orderDraft, mergedDraftContext);
+        agentPayload.orderDraft = applyDisplayFieldsToDraft(agentPayload.orderDraft, fallbackLocation);
         saveDraft(sessionId, agentPayload.orderDraft);
         enrichConciergeWithOrderDraft(conciergeResult, agentPayload.orderDraft, {
-          lastUserText: lastUserMessage?.content || ''
+          lastUserText: lastUserMessage?.content || '',
+          userMessageCount,
+          chosenPath,
+          fallbackLocation
         });
+
+        uiPhase = computeUiPhase({
+          concierge: conciergeResult,
+          draft: agentPayload.orderDraft,
+          lastUserText: lastUserMessage?.content || '',
+          userMessageCount,
+          chosenPath
+        });
+
+        if (uiPhase === 'clarify' || uiPhase === 'choose_action') {
+          delete agentPayload.matching;
+          delete agentPayload.pricing;
+          delete agentPayload.diy;
+        }
+        if (uiPhase !== 'providers') delete agentPayload.matching;
+        if (uiPhase !== 'pricing') delete agentPayload.pricing;
+        if (uiPhase !== 'diy') delete agentPayload.diy;
+
+        conciergeResult.uiPhase = uiPhase;
+        conciergeResult.conversationStep = computeConversationStep(uiPhase);
+        conciergeResult.conversationSummary =
+          conciergeResult.conversationSummary ||
+          (uiPhase === 'choose_action'
+            ? buildConversationSummary(agentPayload.orderDraft, {
+                detectedService: conciergeResult.detectedService,
+                fallbackLocation
+              })
+            : null);
+        conciergeResult.chosenPath = chosenPath;
         userContext.aiBrief = agentPayload.orderDraft.providerBrief
           ? {
               source: 'concierge',
@@ -452,6 +513,20 @@ async function conciergeHandler(req, res) {
         console.error('Order draft agent failed:', error.message);
       }
     }
+
+    if (!conciergeResult.uiPhase) {
+      conciergeResult.uiPhase = computeUiPhase({
+        concierge: conciergeResult,
+        draft: agentPayload.orderDraft || null,
+        lastUserText: lastUserMessage?.content || '',
+        userMessageCount,
+        chosenPath
+      });
+    }
+    if (!conciergeResult.conversationStep) {
+      conciergeResult.conversationStep = computeConversationStep(conciergeResult.uiPhase);
+    }
+    conciergeResult.chosenPath = chosenPath;
 
     // Personalizuj odpowiedź (Faza 3)
     let finalResult = conciergeResult;
@@ -538,6 +613,10 @@ async function conciergeHandler(req, res) {
       } : null,
       urgency: finalResult.urgency,
       nextStep: finalResult.nextStep,
+      uiPhase: finalResult.uiPhase || uiPhase || 'clarify',
+      conversationStep: finalResult.conversationStep || computeConversationStep(finalResult.uiPhase || uiPhase),
+      conversationSummary: finalResult.conversationSummary || null,
+      chosenPath: finalResult.chosenPath || chosenPath || null,
       // Dla frontendu - odpowiedź tekstowa
       reply: finalResult.reply,
       toolUsed: finalResult.toolUsed || null,

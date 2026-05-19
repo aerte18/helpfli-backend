@@ -39,6 +39,8 @@ function validateConciergeRequest(body) {
     }
   }
 
+  const chosenPath = body.chosenPath && typeof body.chosenPath === 'string' ? body.chosenPath.trim() : null;
+
   return {
     messages: messages.map(m => ({
       role: m.role || 'user',
@@ -46,7 +48,9 @@ function validateConciergeRequest(body) {
     })),
     userContext: userContext && typeof userContext === 'object' ? userContext : {},
     imageUrls: Array.isArray(body.imageUrls) ? body.imageUrls : [],
-    allowedServicesHint: Array.isArray(body.allowedServicesHint) ? body.allowedServicesHint : []
+    allowedServicesHint: Array.isArray(body.allowedServicesHint) ? body.allowedServicesHint : [],
+    sessionId: body.sessionId || null,
+    chosenPath: chosenPath || null
   };
 }
 
@@ -78,7 +82,8 @@ function validateConciergeResponseShape(ai) {
     'show_pricing',
     'suggest_diy',
     'suggest_providers',
-    'create_order'
+    'create_order',
+    'offer_choices'
   ];
   if (!validNextSteps.includes(ai.nextStep)) {
     throw new Error(`AI.nextStep must be one of: ${validNextSteps.join(', ')}`);

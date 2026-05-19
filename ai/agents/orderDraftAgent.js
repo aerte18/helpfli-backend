@@ -8,6 +8,7 @@ const { callAgentLLM, safeParseJSON } = require('../utils/llmAdapter');
 const { validateOrderDraftResponse } = require('../schemas/conciergeSchemas');
 const { normalizeUrgency, normalizeServiceName } = require('../utils/normalize');
 const { evaluateOrderDraftPreflight } = require('../utils/preflightQualityEvaluator');
+const { cleanDescriptionText, formatLocationDisplay } = require('../utils/orderConciergeSync');
 
 /**
  * Główna funkcja agenta Order Draft
@@ -18,7 +19,7 @@ const { evaluateOrderDraftPreflight } = require('../utils/preflightQualityEvalua
  * @param {string} params.urgency - Pilność
  * @returns {Promise<Object>} Response agenta
  */
-async function runOrderDraftAgent({ messages, extracted = {}, detectedService, urgency = 'standard' }) {
+async function runOrderDraftAgent({ messages, extracted = {}, detectedService, urgency = 'standard', fallbackLocation = null }) {
   try {
     // Sprawdź czy mamy wszystkie potrzebne dane
     const missing = [];
@@ -30,31 +31,43 @@ async function runOrderDraftAgent({ messages, extracted = {}, detectedService, u
       questions.push('Jaka usługa jest potrzebna?');
     }
     
+    const userMessageCount = messages.filter((m) => m.role === 'user').length;
+
     const locationText =
       (typeof extracted.location === 'object' ? extracted.location?.text : extracted.location) || null;
-    if (!locationText || String(locationText).trim().length < 2) {
+    const locationIsAutoOnly = /aktualna lokalizacja klienta/i.test(String(locationText || ''));
+    if (!locationText || String(locationText).trim().length < 2 || (locationIsAutoOnly && userMessageCount < 2)) {
       missing.push('lokalizacja');
-      questions.push('W jakiej lokalizacji potrzebujesz pomocy?');
+      questions.push('W jakiej lokalizacji potrzebujesz pomocy? (miasto lub dzielnica)');
     }
-    
-    // Wyekstraktuj description z rozmowy
+
     const userMessages = messages
       .filter(m => m.role === 'user')
       .map(m => m.content || m.text || '')
       .join(' ');
-    
-    const description = buildDescription(userMessages, extracted).slice(0, 240);
-    
+
+    const description = cleanDescriptionText(buildDescription(userMessages, extracted)).slice(0, 240);
+    const descLower = description.toLowerCase();
+
     if (!description || description.length < 10) {
       missing.push('opis problemu');
       questions.push('Opisz dokładniej problem');
+    }
+
+    const isAppliance = /pralk|zmywark|lod[oó]wk|piekarnik|zmywark|agd|beko|samsung|lg\b|whirlpool/i.test(descLower);
+    const hasSymptomDetail = /(kod|błąd|bled|e\d{2,}|nie (włącz|wlacz)|nie wiruje|cieknie|hałas|halas|wyświetla|wyswietla|pękni|pekni)/i.test(
+      descLower
+    );
+    if (isAppliance && userMessageCount < 2 && !hasSymptomDetail) {
+      missing.push('szczegóły (marka, objawy lub kod błędu)');
+      questions.push('Jaki objaw widzisz (np. kod błędu, brak wirowania) i jaka to marka/model pralki?');
     }
     
     // Przygotuj payload zlecenia
     const orderPayload = {
       service,
       description: description.slice(0, 240),
-      location: locationText,
+      location: formatLocationDisplay(locationText, fallbackLocation) || locationText,
       status: 'draft',
       preferredTime: extracted.timeWindow || null,
       budget: extracted.budget || null,
@@ -72,7 +85,7 @@ async function runOrderDraftAgent({ messages, extracted = {}, detectedService, u
     return {
       ok: true,
       agent: 'order_draft',
-      canCreate: missing.length === 0,
+      canCreate: missing.length === 0 && userMessageCount >= 1,
       orderPayload,
       missing,
       optionalMissing: buildOptionalMissing(extracted, orderPayload),
