@@ -416,9 +416,7 @@ async function notifyChatMessage({ io, conversationId, messageId, senderId, reci
   const orderRef = conversation.order
     ? String(conversation.order)
     : null;
-  const chatLink = orderRef
-    ? `/orders/${orderRef}/chat`
-    : "/messages";
+  const chatLink = orderRef ? `/orders/${orderRef}?tab=chat` : "/messages";
 
   // Utwórz powiadomienia dla każdego odbiorcy
   for (const recipientId of recipients) {

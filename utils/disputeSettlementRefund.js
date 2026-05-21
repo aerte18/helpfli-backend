@@ -135,8 +135,20 @@ async function applyRefundToSinglePayment(payment, capGrosze, orderId) {
  */
 async function applyDisputeSettlementRefund(order, amountPln) {
   const refundGroszeRequested = Math.round(Number(amountPln) * 100);
-  if (!Number.isFinite(refundGroszeRequested) || refundGroszeRequested < 1) {
+  if (!Number.isFinite(refundGroszeRequested) || refundGroszeRequested < 0) {
     return { ok: false, code: "INVALID_AMOUNT", message: "Nieprawidłowa kwota zwrotu." };
+  }
+
+  if (refundGroszeRequested === 0) {
+    return {
+      ok: true,
+      amountGrosze: 0,
+      method: "zero_settlement",
+      stripeRef: null,
+      orderPaymentStatus: order.paymentStatus || "succeeded",
+      orderPaymentSubStatus: order.payment?.status || null,
+      additionalPaymentStatus: order.additionalPaymentStatus || null,
+    };
   }
 
   if (isExternalPayment(order)) {

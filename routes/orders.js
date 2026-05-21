@@ -2026,6 +2026,9 @@ router.get("/:id/dispute-case", auth, loadOrderById, async (req, res) => {
     const youCanRespondToSettlement =
       st.status === "pending" && offeredId && offeredId !== uid;
 
+    const { getSettlementRefundCaps } = require("../utils/disputeSettlementCaps");
+    const settlementCaps = await getSettlementRefundCaps(order);
+
     res.json({
       orderId: order._id,
       service: order.service,
@@ -2054,6 +2057,7 @@ router.get("/:id/dispute-case", auth, loadOrderById, async (req, res) => {
       youOfferedPendingSettlement,
       disputeResolved: order.disputeStatus === "resolved",
       mediationOpen: disputeTimelineOpenForActions(order),
+      settlementCaps,
     });
   } catch (e) {
     console.error("GET_DISPUTE_CASE", e);
@@ -2081,17 +2085,16 @@ router.post("/:id/dispute-case/message", auth, loadOrderById, async (req, res) =
     });
     await order.save();
     try {
-      const rid = await disputeNotifyRecipientUserId(order, req.user);
-      if (rid) {
-        await NotificationService.notifyDisputeCaseMessage({
-          orderId: String(order._id),
-          recipientId: rid,
-          service: order.service,
-          preview: text.slice(0, 200),
-        });
-      }
+      const io = req.app.get("io");
+      const { mirrorDisputeMessageToOrderChat } = require("../utils/mirrorDisputeMessageToChat");
+      await mirrorDisputeMessageToOrderChat({
+        order,
+        senderId: req.user._id,
+        text,
+        io,
+      });
     } catch (nErr) {
-      console.error("DISPUTE_MESSAGE_NOTIFY", nErr);
+      console.error("DISPUTE_MESSAGE_MIRROR_CHAT", nErr);
     }
     res.json({ message: "Dodano wiadomość", count: order.disputeMessages.length });
   } catch (e) {
@@ -2123,50 +2126,20 @@ router.post("/:id/dispute-case/settlement-offer", auth, loadOrderById, async (re
       return res.status(400).json({ message: "Oczekuje na decyzję drugiej strony w sprawie obecnej propozycji." });
     }
     const amount = Number(req.body?.amountPln);
-    if (!Number.isFinite(amount) || amount < 1) {
-      return res.status(400).json({ message: "Kwota musi być co najmniej 1 PLN" });
+    if (!Number.isFinite(amount) || amount < 0) {
+      return res.status(400).json({ message: "Kwota musi być 0 lub większa (0 = brak zwrotu dla klienta)" });
     }
-    const Offer = require("../models/Offer");
-    let maxPln = 200000;
-    if (order.acceptedOfferId) {
-      const off = await Offer.findById(order.acceptedOfferId).select("amount price");
-      if (off) maxPln = Math.max(Number(off.amount || off.price || 0), 1);
-    } else if (order.budget) {
-      maxPln = Math.max(Number(order.budget), 1);
-    }
+    const { getSettlementRefundCaps } = require("../utils/disputeSettlementCaps");
+    const { offerMaxPln, maxRefundPln } = await getSettlementRefundCaps(order);
     const rounded = Math.round(amount * 100) / 100;
-    if (rounded > maxPln + 0.005) {
+    if (rounded > offerMaxPln + 0.005) {
       return res.status(400).json({
-        message: `Kwota ugody nie może przekraczać ${maxPln.toFixed(2)} PLN (wartość zlecenia).`,
+        message: `Kwota ugody nie może przekraczać ${offerMaxPln.toFixed(2)} PLN (wartość zlecenia).`,
       });
     }
-
-    let paidCapPln = maxPln;
-    try {
-      const Payment = require("../models/Payment");
-      let totalGrosze = 0;
-      if (order.paymentId) {
-        const pm = await Payment.findById(order.paymentId).select("amount status").lean();
-        if (pm && ["succeeded", "processing", "partial_refund"].includes(pm.status)) {
-          totalGrosze += Number(pm.amount) || 0;
-        }
-      }
-      const addPid = order.payment?.additionalPaymentId;
-      if (addPid && order.additionalPaymentStatus === "succeeded") {
-        const ap = await Payment.findById(addPid).select("amount status").lean();
-        if (ap && ap.status === "succeeded") {
-          totalGrosze += Number(ap.amount) || 0;
-        }
-      }
-      if (totalGrosze > 0) {
-        paidCapPln = Math.min(maxPln, Math.round(totalGrosze) / 100);
-      }
-    } catch (_) {
-      /* cap zostaje z oferty */
-    }
-    if (rounded > paidCapPln + 0.005) {
+    if (rounded > maxRefundPln + 0.005) {
       return res.status(400).json({
-        message: `Kwota ugody nie może przekraczać ${paidCapPln.toFixed(2)} PLN (łącznie opłacone w systemie).`,
+        message: `Kwota ugody nie może przekraczać ${maxRefundPln.toFixed(2)} PLN (łącznie opłacone w systemie).`,
       });
     }
 
@@ -2181,9 +2154,13 @@ router.post("/:id/dispute-case/settlement-offer", auth, loadOrderById, async (re
       respondedBy: null,
     };
     order.disputeMessages = order.disputeMessages || [];
+    const offerLabel =
+      rounded < 0.005
+        ? "Propozycja ugody: brak zwrotu dla klienta (0 PLN) — druga strona może zaakceptować lub odrzucić."
+        : `Propozycja ugody: zwrot ${rounded.toFixed(2)} PLN dla klienta — druga strona może zaakceptować lub odrzucić.`;
     order.disputeMessages.push({
       kind: "system",
-      body: `Propozycja ugody: ${rounded.toFixed(2)} PLN — druga strona może zaakceptować lub odrzucić.`,
+      body: offerLabel,
       createdAt: new Date(),
     });
     await order.save();
@@ -2203,7 +2180,10 @@ router.post("/:id/dispute-case/settlement-offer", auth, loadOrderById, async (re
     } catch (nErr) {
       console.error("SETTLEMENT_OFFER_NOTIFY", nErr);
     }
-    res.json({ message: "Wysłano propozycję ugody", settlement: order.disputeSettlement });
+    res.json({
+      message: rounded < 0.005 ? "Wysłano propozycję ugody (0 PLN)" : "Wysłano propozycję ugody",
+      settlement: order.disputeSettlement,
+    });
   } catch (e) {
     console.error("SETTLEMENT_OFFER", e);
     res.status(500).json({ message: "Błąd zapisu propozycji" });
@@ -2273,6 +2253,9 @@ router.post("/:id/dispute-case/settlement-respond", auth, loadOrderById, async (
         settlementBody = `Ugoda zaakceptowana. Część autoryzacji (${pln} PLN) została zwolniona do klienta; pozostała kwota została pobrana zgodnie z ugodą.`;
       } else if (refundSummary.method === "split_refund") {
         settlementBody = `Ugoda zaakceptowana. Wykonano zwrot łącznie ${pln} PLN (główna płatność i/lub dopłata) na metodę płatności klienta (Stripe).`;
+      } else if (refundSummary.method === "zero_settlement") {
+        settlementBody =
+          "Ugoda zaakceptowana bez zwrotu środków (0 PLN). Spór zamknięty — rozliczenie w Stripe bez operacji zwrotu.";
       } else {
         settlementBody = `Ugoda zaakceptowana. Wykonano zwrot ${pln} PLN na metodę płatności klienta (Stripe).`;
       }

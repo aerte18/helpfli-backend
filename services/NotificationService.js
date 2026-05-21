@@ -528,10 +528,10 @@ class NotificationService {
     });
   }
 
-  /** Druga strona zlecenia — nowa wiadomość w wątku centrum sprawy */
+  /** Druga strona zlecenia — nowa wiadomość (powiadomienie → czat zlecenia, nie formularz sprawy) */
   async notifyDisputeCaseMessage({ orderId, recipientId, service, preview }) {
     if (!recipientId) return;
-    const linkPath = `/orders/${orderId}/sprawa`;
+    const linkPath = `/orders/${orderId}?tab=chat`;
     await this.sendNotification("dispute_case_message", [recipientId], {
       orderId,
       service,
