@@ -64,6 +64,8 @@ const orderSchema = new mongoose.Schema({
     default: null,
   },
   clientCompletionAcceptedAt: { type: Date, default: null },
+  /** Uwagi / feedback klienta przy akceptacji zakończenia (opcjonalnie) */
+  clientCompletionNotes: { type: String, default: null },
   // Email Marketing
   emailMarketing: {
     abandonedCartSent: { type: Boolean, default: false },

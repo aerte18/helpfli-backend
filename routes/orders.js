@@ -2754,6 +2754,10 @@ router.post('/:id/accept-completion', auth, loadOrderById, async (req, res) => {
         message: 'Przy dopłacie najpierw zaakceptuj kwotę i opłać ją — potem potwierdzisz odbiór.',
       });
     }
+    const clientNotes = req.body?.clientNotes ?? req.body?.clientCompletionNotes;
+    if (clientNotes != null && String(clientNotes).trim()) {
+      order.clientCompletionNotes = String(clientNotes).trim().slice(0, 8000);
+    }
     order.clientCompletionStatus = 'accepted';
     order.clientCompletionAcceptedAt = new Date();
     await order.save();
