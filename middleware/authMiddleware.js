@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { syncProviderSubscriptionLimits } = require('../utils/syncProviderSubscriptionLimits');
 
 const authMiddleware = async (req, res, next) => {
   const token = req.header('Authorization');
@@ -17,13 +18,16 @@ const authMiddleware = async (req, res, next) => {
       return res.status(401).json({ message: 'Konto zostało zamknięte lub wyłączone.' });
     }
     
-    // Aktualizuj lastSeenAt przy każdym żądaniu (tylko dla providerów)
     if (req.user.role === 'provider') {
+      await syncProviderSubscriptionLimits(req.user._id);
+      req.user = await User.findById(decoded.id)
+        .select('-password')
+        .populate('services', 'name_pl name_en parent_slug slug code icon');
       await User.findByIdAndUpdate(req.user._id, {
-        'provider_status.lastSeenAt': new Date()
+        'provider_status.lastSeenAt': new Date(),
       });
     }
-    
+
     next();
   } catch (err) {
     res.status(401).json({ message: 'Nieautoryzowany dostęp' });

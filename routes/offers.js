@@ -311,11 +311,20 @@ router.post("/", auth, async (req, res) => {
     });
     const slotCost = slotInfo.slots || 1;
 
+    const { getProviderOffersLimit, isUnlimitedLimit } = require('../utils/syncProviderSubscriptionLimits');
+    const offersLimit = await getProviderOffersLimit(provider._id, provider);
+    if (provider.monthlyOffersLimit !== offersLimit) {
+      provider.monthlyOffersLimit = offersLimit;
+    }
+
     // Sprawdź limity ofert miesięcznie (duży projekt może kosztować 2–3 sloty)
-    if (provider.monthlyOffersUsed + slotCost > provider.monthlyOffersLimit) {
+    if (
+      !isUnlimitedLimit(offersLimit) &&
+      provider.monthlyOffersUsed + slotCost > offersLimit
+    ) {
       // Utwórz powiadomienie zamiast zwracania błędu
       const Notification = require('../models/Notification');
-      const remaining = provider.monthlyOffersLimit - provider.monthlyOffersUsed;
+      const remaining = offersLimit - provider.monthlyOffersUsed;
       
       // Sprawdź czy już nie ma powiadomienia o przekroczeniu limitu (aby nie spamować)
       const existingNotification = await Notification.findOne({
@@ -345,10 +354,10 @@ router.post("/", auth, async (req, res) => {
           user: req.user._id,
           type: 'limit_exceeded',
           title: 'Przekroczono limit ofert',
-          message: `Wykorzystałeś wszystkie oferty w tym miesiącu (${provider.monthlyOffersLimit}). Ulepsz pakiet aby zwiększyć limit.`,
+          message: `Wykorzystałeś wszystkie oferty w tym miesiącu (${offersLimit}). Ulepsz pakiet aby zwiększyć limit.`,
           link: '/account/subscriptions',
           metadata: {
-            limit: provider.monthlyOffersLimit,
+            limit: offersLimit,
             used: provider.monthlyOffersUsed,
             providerTier: provider.providerTier || 'basic',
             upsell: suggestion
@@ -359,19 +368,20 @@ router.post("/", auth, async (req, res) => {
       return res.status(403).json({
         message:
           slotCost > 1
-            ? `Ta oferta wymaga ${slotCost} slotów w pakiecie (duży projekt). Wykorzystałeś limit ${provider.monthlyOffersLimit} odpowiedzi w tym miesiącu.`
-            : `Przekroczono limit ofert miesięcznie (${provider.monthlyOffersLimit}). Sprawdź powiadomienia aby zobaczyć szczegóły.`,
+            ? `Ta oferta wymaga ${slotCost} slotów w pakiecie (duży projekt). Wykorzystałeś limit ${offersLimit} odpowiedzi w tym miesiącu.`
+            : `Przekroczono limit ofert miesięcznie (${offersLimit}). Sprawdź powiadomienia aby zobaczyć szczegóły.`,
         code: 'offer_limit_exceeded',
         slotCost,
         slotsUsed: provider.monthlyOffersUsed,
-        slotsLimit: provider.monthlyOffersLimit,
+        slotsLimit: offersLimit,
       });
     }
 
     // Sprawdź czy limit jest niski (mniej niż 20% pozostało) i wyślij ostrzeżenie
-    const remaining = provider.monthlyOffersLimit - provider.monthlyOffersUsed - slotCost;
-    const warningThreshold = Math.max(1, Math.floor(provider.monthlyOffersLimit * 0.2)); // 20% lub minimum 1
-    
+    if (!isUnlimitedLimit(offersLimit)) {
+    const remaining = offersLimit - provider.monthlyOffersUsed - slotCost;
+    const warningThreshold = Math.max(1, Math.floor(offersLimit * 0.2));
+
     if (remaining <= warningThreshold && remaining > 0) {
       const Notification = require('../models/Notification');
       
@@ -388,17 +398,20 @@ router.post("/", auth, async (req, res) => {
           user: req.user._id,
           type: 'limit_warning',
           title: 'Niski limit ofert',
-          message: `Zostało Ci ${remaining} z ${provider.monthlyOffersLimit} ofert w tym miesiącu. Rozważ ulepszenie pakietu.`,
+          message: `Zostało Ci ${remaining} z ${offersLimit} ofert w tym miesiącu. Rozważ ulepszenie pakietu.`,
           link: '/account/subscriptions',
           metadata: {
-            limit: provider.monthlyOffersLimit,
+            limit: offersLimit,
             used: provider.monthlyOffersUsed,
             remaining: remaining
           }
         });
       }
     }
-    
+    }
+
+    await provider.save();
+
     const order = await Order.findById(orderId);
     if (!order) return res.status(404).json({ message: "Zlecenie nie istnieje" });
 

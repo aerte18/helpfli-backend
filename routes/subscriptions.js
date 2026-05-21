@@ -1128,6 +1128,8 @@ router.post('/update-payment-method', auth, async (req, res) => {
   }
 });
 
+const { syncProviderSubscriptionLimits } = require('../utils/syncProviderSubscriptionLimits');
+
 // POST /api/subscriptions/start-trial - rozpoczęcie 7-dniowego trialu PRO
 router.post('/start-trial', auth, async (req, res) => {
   try {
@@ -1169,14 +1171,15 @@ router.post('/start-trial', auth, async (req, res) => {
       existing.trialConverted = false;
       existing.freeExpressLeft = plan.freeExpressPerMonth || 0;
       await existing.save();
-      
-      return res.json({ 
+      await syncProviderSubscriptionLimits(req.user._id);
+
+      return res.json({
         message: 'Trial PRO rozpoczęty! Ciesz się 7 dniami za darmo',
         subscription: existing,
-        trialEndsAt: trialEndsAt.toISOString()
+        trialEndsAt: trialEndsAt.toISOString(),
       });
     }
-    
+
     // Utwórz nową subskrypcję trial
     const created = await UserSubscription.create({
       user: req.user._id,
@@ -1188,13 +1191,15 @@ router.post('/start-trial', auth, async (req, res) => {
       trialStartedAt: now,
       trialEndsAt: trialEndsAt,
       trialConverted: false,
-      freeExpressLeft: plan.freeExpressPerMonth || 0
+      freeExpressLeft: plan.freeExpressPerMonth || 0,
     });
-    
-    res.json({ 
+
+    await syncProviderSubscriptionLimits(req.user._id);
+
+    res.json({
       message: 'Trial PRO rozpoczęty! Ciesz się 7 dniami za darmo',
       subscription: created,
-      trialEndsAt: trialEndsAt.toISOString()
+      trialEndsAt: trialEndsAt.toISOString(),
     });
   } catch (error) {
     console.error('Error starting trial:', error);
