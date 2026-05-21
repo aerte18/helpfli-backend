@@ -2265,25 +2265,38 @@ router.post("/:id/dispute-case/settlement-respond", auth, loadOrderById, async (
         createdAt: new Date(),
       });
       order.disputeStatus = "resolved";
-      if (order.status === "disputed") {
-        const nextStatus = resolveWorkflowStatusAfterDisputeSettlement(order);
-        order.status = nextStatus;
-        const labelPl =
-          nextStatus === "completed"
-            ? "ukończone"
-            : "w realizacji";
-        order.disputeMessages.push({
-          kind: "system",
-          body: `Spór zamknięty ugodą. Status zlecenia ustawiono na: ${labelPl}. Centrum sprawy nadal możesz otworzyć, aby przeczytać archiwum wątku.`,
-          createdAt: new Date(),
-        });
-      } else {
-        order.disputeMessages.push({
-          kind: "system",
-          body: "Spór oznaczono jako zamknięty ugodą. Centrum sprawy pozostaje dostępne do wglądu.",
-          createdAt: new Date(),
-        });
+      if (["pending", "rejected"].includes(order.clientCompletionStatus)) {
+        order.clientCompletionStatus = "accepted";
+        order.clientCompletionAcceptedAt = order.clientCompletionAcceptedAt || new Date();
       }
+
+      const zeroOrProviderKeeps =
+        refundSummary.method === "zero_settlement" ||
+        refundSummary.method === "partial_capture" ||
+        (Number(refundSummary.amountGrosze) === 0 &&
+          !["refund", "split_refund"].includes(refundSummary.method));
+
+      let releasedAfterSettlement = false;
+      if (zeroOrProviderKeeps) {
+        try {
+          const { releaseOrderEscrowToProvider } = require("../utils/releaseOrderEscrow");
+          const rel = await releaseOrderEscrowToProvider(order);
+          releasedAfterSettlement = !!rel.released;
+        } catch (relErr) {
+          console.error("SETTLEMENT_RELEASE_ESCROW", relErr);
+        }
+      } else if (order.status === "disputed") {
+        order.status = resolveWorkflowStatusAfterDisputeSettlement(order);
+      }
+
+      const labelPl = order.status === "released" ? "wypłacone (released)" : order.status;
+      order.disputeMessages.push({
+        kind: "system",
+        body: releasedAfterSettlement
+          ? `Spór zamknięty ugodą. Zlecenie domknięte (${labelPl}) — możecie wystawić oceny.`
+          : `Spór zamknięty ugodą. Status zlecenia: ${labelPl}. Centrum sprawy pozostaje do wglądu w archiwum.`,
+        createdAt: new Date(),
+      });
     } else {
       order.disputeMessages.push({
         kind: "system",
@@ -2308,6 +2321,14 @@ router.post("/:id/dispute-case/settlement-respond", auth, loadOrderById, async (
       };
     }
     await order.save();
+    const io = req.app.get("io");
+    if (io && accept && order.status === "released") {
+      io.to(`order:${order._id}`).emit("order:status_changed", {
+        orderId: order._id,
+        status: "released",
+        action: "settlement_released",
+      });
+    }
     if (accept && refundSummary) {
       try {
         const cid = order.client._id || order.client;
