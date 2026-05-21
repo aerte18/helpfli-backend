@@ -3,16 +3,17 @@ const router = express.Router();
 const { authMiddleware: auth } = require("../middleware/authMiddleware");
 const Order = require("../models/Order");
 const { checkGuaranteeEligibility } = require("../utils/guarantee");
+const { resolvePaymentFlow } = require("../utils/orderPaymentFlow");
 
 // GET /api/guarantee/:orderId/eligibility
 router.get("/:orderId/eligibility", auth, async (req, res) => {
   try {
     const order = await Order.findById(req.params.orderId)
-      .select("provider paymentMethod status");
+      .select("provider paymentPreference status");
     if (!order) return res.status(404).json({ message: "Zlecenie nie istnieje" });
 
     const result = await checkGuaranteeEligibility({
-      paymentMethod: order.paymentMethod || "system", // fallback
+      paymentMethod: resolvePaymentFlow(order),
       providerId: order.provider,
       orderStatus: order.status,
     });

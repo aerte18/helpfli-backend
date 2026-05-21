@@ -3,11 +3,10 @@ const Payment = require("../models/Payment");
 
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
+const { isExternalOrderPayment } = require("./orderPaymentFlow");
+
 function isExternalPayment(order) {
-  return (
-    order.paymentMethod === "external" ||
-    order.paymentPreference === "external"
-  );
+  return isExternalOrderPayment(order);
 }
 
 /**

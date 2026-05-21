@@ -20,6 +20,11 @@ const NotificationService = require("../services/NotificationService");
 const Payment = require("../models/Payment");
 const Stripe = require("stripe");
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
+const {
+  isExternalOrderPayment,
+  resolvePaymentFlow,
+  allowsPlatformDispute,
+} = require("../utils/orderPaymentFlow");
 
 // Post-Order Agent (lazy load dla optymalizacji)
 let runPostOrderAgent = null;
@@ -2507,7 +2512,7 @@ router.get('/:id', auth, async (req, res) => {
       try {
         const { checkGuaranteeEligibility } = require("../utils/guarantee");
         const result = await checkGuaranteeEligibility({
-          paymentMethod: order.paymentMethod || "system",
+          paymentMethod: resolvePaymentFlow(order),
           providerId: order.provider._id || order.provider,
           orderStatus: order.status,
         });
@@ -2587,9 +2592,7 @@ async function loadOrderById(req, res, next) {
 function requireKycForOrderComplete(req, res, next) {
   const order = req.order;
   if (!order) return res.status(500).json({ message: "Błąd ładowania zlecenia" });
-  const externalLike =
-    order.paymentMethod === "external" || order.paymentPreference === "external";
-  if (externalLike) return next();
+  if (isExternalOrderPayment(order)) return next();
   return requireKycVerified(req, res, next);
 }
 
@@ -2736,9 +2739,7 @@ router.post('/:id/accept-completion', auth, loadOrderById, async (req, res) => {
     if (order.status !== 'completed') {
       return res.status(400).json({ message: 'Zlecenie nie zostało jeszcze zakończone przez wykonawcę' });
     }
-    const isExternalPayment =
-      order.paymentMethod === 'external' || order.paymentPreference === 'external';
-    if (isExternalPayment) {
+    if (isExternalOrderPayment(order)) {
       return res.status(400).json({ message: 'Przy płatności poza systemem nie wymagamy osobnej akceptacji' });
     }
     if (order.clientCompletionStatus === 'accepted') {
@@ -2778,7 +2779,7 @@ router.post('/:id/confirm-receipt', auth, loadOrderById, async (req, res) => {
     if (!['completed', 'funded'].includes(order.status)) {
       return res.status(400).json({ message: 'Potwierdzenie odbioru jest dostępne po zakończeniu zlecenia' });
     }
-    const isExternalPayment = order.paymentMethod === 'external' || order.paymentPreference === 'external';
+    const isExternalPayment = isExternalOrderPayment(order);
     if (!isExternalPayment && order.clientCompletionStatus === 'pending') {
       return res.status(400).json({
         message: 'Najpierw zaakceptuj zakończenie zlecenia (lub zgłoś spór), potem potwierdź odbiór.',
@@ -3040,8 +3041,9 @@ router.post('/:id/complete', auth, loadOrderById, requireKycForOrderComplete, as
     }
     
     const completedAt = new Date();
-    order.status = 'completed';
+    const isExternalPayment = isExternalOrderPayment(order);
     order.completedAt = completedAt;
+    order.status = isExternalPayment ? 'released' : 'completed';
     
     // Zapisz dane zakończenia
     if (completionType) {
@@ -3082,13 +3084,12 @@ router.post('/:id/complete', auth, loadOrderById, requireKycForOrderComplete, as
       order.deliveredOnTime = null;
     }
     
-    const isExternalPayment =
-      order.paymentMethod === 'external' || order.paymentPreference === 'external';
     if (!isExternalPayment) {
       order.clientCompletionStatus = 'pending';
       order.clientCompletionAcceptedAt = null;
     } else {
       order.clientCompletionStatus = null;
+      order.clientCompletionAcceptedAt = null;
     }
 
     await order.save();
@@ -3098,7 +3099,7 @@ router.post('/:id/complete', auth, loadOrderById, requireKycForOrderComplete, as
     if (io) {
       io.to(`order:${order._id}`).emit("order:status_changed", { 
         orderId: order._id, 
-        status: 'completed',
+        status: order.status,
         action: 'completed'
       });
     }
@@ -3870,21 +3871,11 @@ router.post('/:id/dispute', auth, loadOrderById, async (req, res) => {
     if (!order.provider) {
       return res.status(400).json({ message: 'Brak przypisanego wykonawcy — nie można zgłosić sporu' });
     }
-    try {
-      const { checkGuaranteeEligibility } = require("../utils/guarantee");
-      const { eligible } = await checkGuaranteeEligibility({
-        paymentMethod: order.paymentMethod || "system",
-        providerId: order.provider._id || order.provider,
-        orderStatus: order.status,
+    if (!allowsPlatformDispute(order)) {
+      return res.status(403).json({
+        message:
+          "Przy płatności poza systemem Helpfli sporu przez platformę nie złożysz — rozwiązuj sprawę bezpośrednio z wykonawcą.",
       });
-      if (!eligible) {
-        return res.status(403).json({
-          message:
-            "Gwarancja Helpfli nie obejmuje tego zlecenia (np. płatność poza systemem lub brak weryfikacji wykonawcy). Sporu nie zgłosisz przez platformę — skontaktuj się bezpośrednio z drugą stroną.",
-        });
-      }
-    } catch (e) {
-      return res.status(500).json({ message: "Nie udało się zweryfikować uprawnień do sporu" });
     }
     
     if (order.disputeStatus === "resolved" || order.disputeStatus === "closed") {
@@ -3975,7 +3966,7 @@ router.post('/:id/refund-request', auth, loadOrderById, async (req, res) => {
     try {
       const { checkGuaranteeEligibility } = require("../utils/guarantee");
       const { eligible } = await checkGuaranteeEligibility({
-        paymentMethod: order.paymentMethod || "system",
+        paymentMethod: resolvePaymentFlow(order),
         providerId: order.provider._id || order.provider,
         orderStatus: order.status,
       });
