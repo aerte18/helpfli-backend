@@ -2879,8 +2879,17 @@ router.post('/:id/confirm-receipt', auth, loadOrderById, async (req, res) => {
     } catch (error) {
       console.error('Notification error:', error);
     }
+
+    let growthGrants = [];
+    try {
+      const { processOrderGrowthRewards } = require('../utils/growthRewards');
+      const growthResult = await processOrderGrowthRewards(order);
+      growthGrants = growthResult?.grants || [];
+    } catch (growthErr) {
+      console.error('[growth] confirm-receipt rewards:', growthErr?.message);
+    }
     
-    res.json({ message: 'Środki wypłacone wykonawcy', order });
+    res.json({ message: 'Środki wypłacone wykonawcy', order, growthGrants });
   } catch (e) {
     console.error('CONFIRM_RECEIPT_ERROR:', e);
     res.status(500).json({ message: 'Błąd potwierdzania odbioru' });
@@ -3115,6 +3124,15 @@ router.post('/:id/complete', auth, loadOrderById, requireKycForOrderComplete, as
       console.error('Notification error:', error);
     }
     
+    if (isExternalPayment) {
+      try {
+        const { processOrderGrowthRewards } = require('../utils/growthRewards');
+        await processOrderGrowthRewards(order);
+      } catch (growthErr) {
+        console.error('[growth] complete external rewards:', growthErr?.message);
+      }
+    }
+
     // Wywołaj Post-Order Agent dla personalizacji follow-up
     let postOrderResult = null;
     try {

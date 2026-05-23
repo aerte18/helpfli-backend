@@ -466,6 +466,11 @@ async function recommendProviders(serviceCode, lat, lon, limit = 3, urgency = 'n
       );
       const promoBoost = hasActivePromo ? 0.03 : 0;
 
+      const { isFoundingProviderActive, getFoundingRankBoost } = require('./foundingProvider');
+      const foundingBoost = isFoundingProviderActive(p)
+        ? Math.min(0.12, getFoundingRankBoost(p) / 100)
+        : 0;
+
       // Wagi (dostosowane do nowych czynników)
       const baseScore = (
         rate * 0.25 +           // skuteczność (25%)
@@ -477,7 +482,7 @@ async function recommendProviders(serviceCode, lat, lon, limit = 3, urgency = 'n
       
       const qualityGate = rating >= 4.2 || providerRatings.length === 0 || rate >= 0.6;
       const packageBoost = qualityGate ? tierBoost + promoBoost : Math.min(0.03, tierBoost + promoBoost);
-      const finalScore = Math.min(98, (baseScore + packageBoost + verifiedBoost) * 100);
+      const finalScore = Math.min(98, (baseScore + packageBoost + verifiedBoost + foundingBoost) * 100);
 
       return { 
         _id: p._id,

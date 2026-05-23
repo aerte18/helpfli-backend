@@ -44,6 +44,13 @@ async function releaseOrderEscrowToProvider(order) {
     { $set: { status: "paid", releasedAt: new Date() } }
   );
 
+  try {
+    const { processOrderGrowthRewards } = require("./growthRewards");
+    await processOrderGrowthRewards(order);
+  } catch (e) {
+    console.error("releaseOrderEscrow growth rewards:", e?.message || e);
+  }
+
   return { released: true };
 }
 

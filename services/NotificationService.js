@@ -311,7 +311,54 @@ class NotificationService {
             <p>Pozdrawiamy,<br/>Zespół Helpfli</p>
           </div>
         `
-      }
+      },
+
+      founding_provider_expiring: {
+        subject:
+          data.daysLeft === 0
+            ? 'Helpfli: Dziś kończy się 0% prowizji (Founding Provider)'
+            : `Helpfli: 0% prowizji kończy się za ${data.daysLeft} dni`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #D97706;">Program Pierwszy wykonawca</h2>
+            <p>Cześć ${data.providerName || ''},</p>
+            <p>
+              ${
+                data.daysLeft === 0
+                  ? '<strong>Dziś</strong> wygasa Twój status Founding Provider (0% prowizji od zleceń w Helpfli).'
+                  : `Za <strong>${data.daysLeft} dni</strong> kończy się 0% prowizji platformy — program trwa do <strong>${data.expiresAtLabel || ''}</strong>.`
+              }
+            </p>
+            <p>Po tym terminie przy zleceniach obowiązuje standardowa prowizja (zgodnie z cennikiem / pakietem). Subskrypcja PRO — jeśli masz — działa niezależnie.</p>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${(this.frontendUrl || '').replace(/\/+$/, '')}/provider-home"
+                 style="background: #D97706; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                Panel wykonawcy
+              </a>
+            </div>
+            <p>Pozdrawiamy,<br/>Zespół Helpfli</p>
+          </div>
+        `,
+      },
+
+      founding_provider_expired: {
+        subject: 'Helpfli: Zakończył się program Pierwszy wykonawca',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #374151;">Status Founding wygasł</h2>
+            <p>Cześć ${data.providerName || ''},</p>
+            <p>Twój program <strong>Pierwszy wykonawca Helpfli</strong> dobiegł końca. Od teraz przy zleceniach w systemie obowiązuje standardowa prowizja platformy.</p>
+            <p>Niewykorzystane darmowe wyróżnienia z puli Founding nie przenoszą się — nadal możesz korzystać z limitów pakietu PRO / STANDARD.</p>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${(this.frontendUrl || '').replace(/\/+$/, '')}/subscriptions?audience=provider"
+                 style="background: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                Zobacz pakiety
+              </a>
+            </div>
+            <p>Pozdrawiamy,<br/>Zespół Helpfli</p>
+          </div>
+        `,
+      },
     };
 
     return templates[type] || null;
@@ -378,7 +425,20 @@ class NotificationService {
       company_invitation: {
         title: 'Zaproszenie do firmy 🏢',
         message: `Zostałeś zaproszony do firmy "${data.companyName || ''}" przez ${data.inviterName || ''}`
-      }
+      },
+
+      founding_provider_expiring: {
+        title: 'Kończy się 0% prowizji',
+        message:
+          data.daysLeft === 0
+            ? `Dziś wygasa program Pierwszy wykonawca — od jutra standardowa prowizja od zleceń.`
+            : `Za ${data.daysLeft} dni kończy się 0% prowizji (program do ${data.expiresAtLabel || '—'}).`,
+      },
+
+      founding_provider_expired: {
+        title: 'Program Founding zakończony',
+        message: 'Status Pierwszego wykonawcy wygasł — prowizje od zleceń wracają do standardowych stawek.',
+      },
     };
 
     return templates[type] || { title: 'Helpfli', message: 'Nowe powiadomienie' };

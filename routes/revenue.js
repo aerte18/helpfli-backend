@@ -203,7 +203,7 @@ router.get("/user", auth, async (req, res) => {
     if (status) filter.status = status;
 
     const transactions = await Revenue.find(filter)
-      .populate('orderId', 'service description status')
+      .populate('orderId', 'service description status pricing')
       .populate('clientId', 'name email')
       .populate('providerId', 'name email')
       .sort({ createdAt: -1 })
@@ -235,14 +235,57 @@ router.get("/user", auth, async (req, res) => {
       countPending: 0
     };
 
+    let foundingSavingsPln = 0;
+    let foundingOrdersCount = 0;
+    if (req.user.role === 'provider') {
+      const Order = require('../models/Order');
+      const foundingAgg = await Order.aggregate([
+        {
+          $match: {
+            provider: req.user._id,
+            'pricing.foundingDiscountApplied': true,
+            status: { $in: ['funded', 'in_progress', 'completed', 'released', 'rated'] },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            saved: {
+              $sum: {
+                $subtract: [
+                  { $ifNull: ['$pricing.platformFeeBeforeDiscount', 0] },
+                  { $ifNull: ['$pricing.platformFee', 0] },
+                ],
+              },
+            },
+            count: { $sum: 1 },
+          },
+        },
+      ]);
+      foundingSavingsPln = foundingAgg[0]?.saved || 0;
+      foundingOrdersCount = foundingAgg[0]?.count || 0;
+    }
+
+    const enrichedTransactions = transactions.map((t) => {
+      const doc = t.toObject ? t.toObject() : t;
+      const pricing = doc.orderId?.pricing;
+      if (pricing?.foundingDiscountApplied && pricing.platformFeeBeforeDiscount > pricing.platformFee) {
+        doc.foundingDiscountPln = Number(pricing.platformFeeBeforeDiscount) - Number(pricing.platformFee);
+        doc.foundingFeeExplanation = pricing.feeExplanation || 'Ulga Founding Provider';
+      }
+      return doc;
+    });
+
     res.json({
-      transactions,
+      transactions: enrichedTransactions,
       stats: {
         totalPaid: userStats.totalPaid / 100, // konwersja z groszy
         totalPending: userStats.totalPending / 100,
         totalRefunded: userStats.totalRefunded / 100,
         countPaid: userStats.countPaid,
-        countPending: userStats.countPending
+        countPending: userStats.countPending,
+        foundingSavingsPln: Math.round(foundingSavingsPln * 100) / 100,
+        foundingOrdersCount,
       },
       pagination: {
         page: parseInt(page),

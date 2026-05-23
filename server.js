@@ -587,6 +587,8 @@ try {
   safeUse('/api/subscriptions', subscriptionRoutes, 'subscriptions');
   safeUse('/api/boosts', boostsRoutes, 'boosts');
   safeUse('/api/points', pointsRoutes, 'points');
+  safeUse('/api/growth', loadRoute('growth', './routes/growth'), 'growth');
+  safeUse('/api/referrals', loadRoute('referrals', './routes/referrals'), 'referrals');
   safeUse('/api/usage', loadRoute('usageAnalytics', './routes/usageAnalytics'), 'usageAnalytics');
   safeUse('/api/checkout', checkoutRoutes, 'checkout');
   safeUse('/api/admin/promos', adminPromos, 'adminPromos');
@@ -907,6 +909,14 @@ if (process.env.VERCEL !== '1') {
       }
     } catch (e) {
       logger.error('[CRON] Error scheduling expiring promos:', e);
+    }
+
+    try {
+      const { startFoundingProviderGrowthCron } = require('./jobs/foundingProviderGrowth');
+      startFoundingProviderGrowthCron();
+      logger.info('[CRON] Founding provider growth cron scheduled');
+    } catch (e) {
+      logger.error('[CRON] Error scheduling founding provider growth:', e);
     }
 
     // Nowe zlecenia dopasowane do wykonawcy – codziennie o 9:00 (powiadomienie in-app)

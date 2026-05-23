@@ -693,6 +693,27 @@ router.post("/:id/boost", auth, async (req, res) => {
       await subscription.save();
     }
     
+    const providerUser = await User.findById(req.user._id).select('freeBoostsRemaining foundingProvider foundingProviderExpiresAt');
+    const { isFoundingProviderActive } = require('../utils/foundingProvider');
+    if (providerUser && isFoundingProviderActive(providerUser) && (providerUser.freeBoostsRemaining || 0) > 0) {
+      providerUser.freeBoostsRemaining -= 1;
+      await providerUser.save();
+      boostsRemaining = providerUser.freeBoostsRemaining;
+      offer.highlighted = true;
+      offer.highlightedUntil = highlightedUntil;
+      offer.boostedAt = new Date();
+      offer.boostFree = true;
+      await offer.save();
+      return res.json({
+        message: `Oferta wyróżniona (Pierwszy wykonawca — darmowo) • Pozostało ${boostsRemaining} wyróżnień`,
+        offer,
+        highlightedUntil: offer.highlightedUntil,
+        requiresPayment: false,
+        boostsRemaining,
+        source: 'founding_provider',
+      });
+    }
+
     // Sprawdź czy może użyć darmowego wyróżnienia
     if (isPro && subscription?.freeOfferBoostsLeft > 0) {
       // PRO = darmowy boost (max 10/miesiąc)
@@ -884,13 +905,31 @@ router.get("/of-order", auth, async (req, res) => {
             level: { $ifNull: ["$provider.providerLevel", "standard"] },
             ratingAvg: { $round: ["$aggRating.avg", 2] },
             ratingCount: { $ifNull: ["$aggRating.cnt", 0] },
+            foundingProvider: "$provider.foundingProvider",
+            foundingProviderExpiresAt: "$provider.foundingProviderExpiresAt",
+            commissionDiscountPercent: "$provider.commissionDiscountPercent",
           },
         }
       },
       { $sort: { createdAt: -1 } },
     ]);
 
-    res.json({ offers: items });
+    const { isFoundingProviderActive, getFoundingCommissionDiscountPercent } = require('../utils/foundingProvider');
+    const enriched = items.map((o) => {
+      const p = o.provider;
+      const foundingActive = p && isFoundingProviderActive(p);
+      return {
+        ...o,
+        providerMeta: {
+          ...(o.providerMeta || {}),
+          foundingProviderActive: !!foundingActive,
+          foundingCommissionWaived: foundingActive && getFoundingCommissionDiscountPercent(p) >= 100,
+          foundingExpiresAt: foundingActive ? p.foundingProviderExpiresAt : null,
+        },
+      };
+    });
+
+    res.json({ offers: enriched });
   } catch (e) {
     logger.error("GET_ORDER_OFFERS_ERROR:", {
       message: e.message,
@@ -1013,11 +1052,20 @@ router.post("/:id/accept", auth, async (req, res) => {
     });
     
     const clientPlanKey = activeSubscription?.planKey || null;
-    const zeroCommissionPlans = ['CLIENT_PRO']; // Plany z 0% prowizji od tej opłaty
-    const platformFeePercent = zeroCommissionPlans.includes(clientPlanKey) ? 0 : 5;
-    const platformFee = isOffersOnlyOrder
-      ? 0
-      : Math.round(baseAmount * (platformFeePercent / 100));
+    const providerUser = await User.findById(offer.providerId).select(
+      'foundingProvider foundingProviderExpiresAt commissionDiscountPercent foundingProviderActivatedAt'
+    );
+    const { computeOrderPlatformFee } = require('../utils/foundingProvider');
+    const feeCalc = computeOrderPlatformFee({
+      baseAmount,
+      clientPlanKey,
+      providerUser,
+      defaultPercent: 5,
+      offersOnly: isOffersOnlyOrder,
+    });
+    const platformFee = feeCalc.platformFee;
+    const platformFeePercent = feeCalc.platformFeePercent;
+    order.platformFeePercent = platformFeePercent;
     
     const guaranteeFee = (effectivePaymentFlow === 'system' && includeGuarantee)
       ? Math.round(baseAmount * 0.07)
@@ -1072,9 +1120,12 @@ router.post("/:id/accept", auth, async (req, res) => {
       baseAmount,
       guaranteeFee,
       platformFee,
+      platformFeeBeforeDiscount: feeCalc.platformFeeBeforeDiscount || platformFee,
+      foundingDiscountApplied: !!feeCalc.foundingDiscountApplied,
+      feeExplanation: feeCalc.feeExplanation || null,
       total,
       currency: 'PLN',
-      includeGuarantee: includeGuarantee && effectivePaymentFlow === 'system'
+      includeGuarantee: includeGuarantee && effectivePaymentFlow === 'system',
     };
     
     // Ustaw gwarancję
@@ -1300,6 +1351,14 @@ router.post("/:id/accept", auth, async (req, res) => {
       includeGuarantee,
       totalAmount,
       breakdown: order.pricing,
+      feeMeta: {
+        platformFee,
+        platformFeePercent,
+        foundingDiscountApplied: feeCalc.foundingDiscountApplied,
+        platformFeeBeforeDiscount: feeCalc.platformFeeBeforeDiscount,
+        feeExplanation: feeCalc.feeExplanation,
+        foundingExpiresAt: feeCalc.foundingExpiresAt,
+      },
       suggestAddFavorite: isOffersOnlyOrder,
       providerId: offer.providerId,
       requiresContactUnlock,

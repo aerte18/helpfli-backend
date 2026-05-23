@@ -350,6 +350,12 @@ router.post('/register', validate('register'), validateRegistration, async (req,
       },
     };
     
+    if (role === "client") {
+      userData.firstOrderBonusEligible = true;
+      userData.welcomeCreditAmount = 20;
+      userData.welcomeCreditUsed = false;
+    }
+
     // Domyślne wartości dla providerów
     if (role === "provider") {
       userData.verified = false; // Niezweryfikowany na start
@@ -444,7 +450,7 @@ router.post('/register', validate('register'), validateRegistration, async (req,
     if (req.body.referralCode) {
       try {
         const Referral = require('../models/Referral');
-        const PointTransaction = require('../models/PointTransaction');
+        const { grantUserPoints } = require('../utils/userPoints');
         
         // Znajdź referrera po kodzie
         const existingReferral = await Referral.findOne({ referralCode: req.body.referralCode });
@@ -465,39 +471,28 @@ router.post('/register', validate('register'), validateRegistration, async (req,
           const alreadyReferred = await Referral.findOne({ referred: user._id });
           if (!alreadyReferred) {
             // Różne nagrody w zależności od roli zaproszonego użytkownika
-            const referredRole = user.role || 'client';
-            const referrerPoints = referredRole === 'provider' ? 100 : 50; // Więcej punktów za polecenie providera
-            const referredPoints = 50; // Zawsze 50 punktów dla zaproszonego
-            
-            // Utwórz rekord referencji
+            const providerRoles = ['provider', 'company_owner', 'company_manager'];
+            const referredRole = providerRoles.includes(user.role) ? 'provider' : 'client';
+            const referrerPoints = referredRole === 'provider' ? 100 : 50;
+            const referredPoints = 50;
+
+            // Utwórz rekord referencji (unikalny kod rekordu — pole referralCode w modelu jest unique)
             const referral = await Referral.create({
               referrer: referrerId,
               referred: user._id,
-              referredRole: referredRole,
-              referralCode: req.body.referralCode,
-              status: 'completed',
-              completedAt: new Date(),
-              referrerReward: { points: referrerPoints, givenAt: new Date() },
-              referredReward: { points: referredPoints, givenAt: new Date() }
+              referredRole,
+              referralCode: `REF-${user._id}`,
+              status: 'pending',
+              referrerReward: { points: referrerPoints },
+              referredReward: { points: referredPoints },
             });
             
-            // Przyznaj punkty referrerowi
-            const referrerBalance = (await PointTransaction.findOne({ user: referrerId }).sort({ createdAt: -1 }))?.balanceAfter || 0;
-            await PointTransaction.create({
-              user: referrerId,
-              delta: referrerPoints,
-              reason: `referral_signup_${referredRole}`,
-              balanceAfter: referrerBalance + referrerPoints
-            });
-            
-            // Przyznaj punkty zaproszonemu
-            const referredBalance = 0;
-            await PointTransaction.create({
-              user: user._id,
-              delta: referredPoints,
-              reason: 'referral_signup',
-              balanceAfter: referredBalance + referredPoints
-            });
+            await grantUserPoints(
+              referrerId,
+              referrerPoints,
+              referredRole === 'provider' ? 'referral_signup_provider' : 'referral_signup_client'
+            );
+            await grantUserPoints(user._id, referredPoints, 'referral_signup');
             
             logger.info(`Referral code applied for ${referredRole}:`, user._id, `Referrer gets ${referrerPoints} points`);
           }
@@ -630,6 +625,10 @@ router.get('/me', authMiddleware, async (req, res) => {
       };
     }
     
+    const { buildGrowthBenefitsSummary, getFoundingProviderStatus } = require('../utils/foundingProvider');
+    const foundingProgram = await getFoundingProviderStatus();
+    const growthBenefits = buildGrowthBenefitsSummary(req.user, subscriptionInfo, foundingProgram);
+
     // Zwróć dane użytkownika z informacją o subskrypcji
     const doc = req.user.toObject();
     const stripeAcct = doc.stripeAccountId && String(doc.stripeAccountId).trim();
@@ -637,6 +636,7 @@ router.get('/me', authMiddleware, async (req, res) => {
     res.json({
       ...doc,
       subscription: subscriptionInfo,
+      growthBenefits,
       // Jawna flaga dla frontu (portfel / integracje) — „połączone” = utworzono konto Connect na platformie
       isStripeConnected: Boolean(stripeAcct),
       stripeOnboardingCompleted: Boolean(sc.detailsSubmitted),

@@ -620,6 +620,10 @@ router.post('/create-intent', authMiddleware, async (req, res) => {
   const intent = await createPaymentIntentPreferLocalWallets(stripe, intentPayload);
 
     // Zapis w Payment (status wstępny)
+    const nominalFeeGrosze = order.pricing?.platformFeeBeforeDiscount != null
+      ? Math.round(Number(order.pricing.platformFeeBeforeDiscount) * 100)
+      : platformFeeAmount;
+
     const payment = await Payment.create({
       order: order._id,
       provider: providerId || null,
@@ -633,6 +637,8 @@ router.post('/create-intent', authMiddleware, async (req, res) => {
       status: paymentIntentStatusForPaymentModel(intent.status),
       platformFeePercent: order.platformFeePercent || PLATFORM_FEE_PERCENT,
       platformFeeAmount: platformFeeAmount, // PlatformFee obliczane od baseAmount (przed zniżkami z punktów)
+      platformFeeNominalAmount: nominalFeeGrosze,
+      foundingDiscountApplied: !!order.pricing?.foundingDiscountApplied,
       pointsDiscount: pointsDiscount || 0, // Zniżka z punktów pokrywana przez platformę jako koszt marketingowy
       metadata: {
         ...intent.metadata,

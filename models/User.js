@@ -174,6 +174,30 @@ const userSchema = new mongoose.Schema({
     ts: { type: Date, default: Date.now }
   }],
   referralCode: { type: String, unique: true, sparse: true }, // Unikalny kod referencyjny użytkownika
+
+  // Program „Pierwsi wykonawcy” (Founding Provider)
+  foundingProvider: { type: Boolean, default: false },
+  /** Jednorazowa aktywacja programu — blokuje ponowne dołączenie po wygaśnięciu */
+  foundingProviderEverActivated: { type: Boolean, default: false },
+  foundingProviderActivatedAt: { type: Date, default: null },
+  foundingProviderExpiresAt: { type: Date, default: null },
+  freeBoostsRemaining: { type: Number, default: 0 },
+  commissionDiscountPercent: { type: Number, default: 0 },
+  priorityScoreBoost: { type: Number, default: 0 },
+
+  // Bonus powitalny klienta (kredyt po pierwszym zleceniu)
+  welcomeCreditAmount: { type: Number, default: 0 },
+  welcomeCreditUsed: { type: Boolean, default: false },
+  firstOrderBonusEligible: { type: Boolean, default: false },
+
+  /** Przypomnienia o końcu programu Founding (unikaj duplikatów) */
+  foundingProviderReminders: {
+    expiryWarn7SentAt: { type: Date, default: null },
+    expiryWarn3SentAt: { type: Date, default: null },
+    expiryWarn1SentAt: { type: Date, default: null },
+    expiryWarn0SentAt: { type: Date, default: null },
+    expiredNotifiedAt: { type: Date, default: null },
+  },
   // Stripe Connect – konto do automatycznych wypłat dla wykonawców
   stripeAccountId: { type: String, default: "" },
   stripeCustomerId: { type: String, default: null, index: true }, // Stripe Customer ID dla subskrypcji

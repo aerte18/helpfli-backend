@@ -52,6 +52,9 @@ const PaymentSchema = new mongoose.Schema({
 
   platformFeePercent: { type: Number, default: 0.07 },
   platformFeeAmount: { type: Number, default: 0 },
+  /** Nominalna prowizja przed ulgą Founding (grosze) — do rozliczeń providera */
+  platformFeeNominalAmount: { type: Number, default: 0 },
+  foundingDiscountApplied: { type: Boolean, default: false },
   pointsDiscount: { type: Number, default: 0 }, // Zniżka z punktów pokrywana przez platformę (koszt marketingowy)
 
   // Faktura od Helpfli

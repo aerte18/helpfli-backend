@@ -153,7 +153,18 @@ router.put("/me/profile", authMiddleware, async (req, res) => {
 router.put("/me/onboarding", authMiddleware, async (req, res) => {
   try {
     const { onboardingCompleted } = req.body;
-    await User.findByIdAndUpdate(req.user._id, { onboardingCompleted: !!onboardingCompleted });
+    const completed = !!onboardingCompleted;
+    await User.findByIdAndUpdate(req.user._id, { onboardingCompleted: completed });
+
+    if (completed && req.user.role === 'provider') {
+      try {
+        const { tryGrantProviderReferralReward } = require('../utils/growthRewards');
+        await tryGrantProviderReferralReward(req.user._id);
+      } catch (refErr) {
+        console.error('[growth] provider referral on onboarding:', refErr?.message);
+      }
+    }
+
     res.json({ ok: true });
   } catch (err) {
     console.error('UPDATE_ONBOARDING_ERROR:', err);

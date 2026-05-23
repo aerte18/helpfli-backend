@@ -7,6 +7,14 @@ function applySubscriptionFeeDiscount(platformFee, subscription) {
 	return Math.max(0, platformFee - discount);
 }
 
+/** Zniżka prowizji Founding Provider (na opłacie platformy providera). */
+function applyFoundingProviderFeeDiscount(platformFee, foundingDiscountPercent) {
+	if (!platformFee || platformFee <= 0) return platformFee;
+	const pct = Number(foundingDiscountPercent);
+	if (!Number.isFinite(pct) || pct <= 0) return platformFee;
+	return Math.max(0, platformFee * (1 - Math.min(100, pct) / 100));
+}
+
 function calcExtrasCost(baseAmount, extras, subscription) {
 	let cost = 0;
 	if (extras?.express) {
@@ -92,7 +100,7 @@ function calcTotal({ baseAmount, extras, subscription, promo, pointsToUse, userP
 	};
 }
 
-module.exports = { calcTotal };
+module.exports = { calcTotal, applyFoundingProviderFeeDiscount };
 
 
 

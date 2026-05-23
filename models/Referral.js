@@ -36,11 +36,17 @@ const referralSchema = new mongoose.Schema({
   referrerReward: {
     points: { type: Number, default: 0 },
     subscriptionMonths: { type: Number, default: 0 },
+    welcomeCreditPln: { type: Number, default: 0 },
+    welcomeCreditGranted: { type: Boolean, default: false },
+    providerReferralGranted: { type: Boolean, default: false },
+    proDaysAdded: { type: Number, default: 0 },
     givenAt: { type: Date }
   },
   referredReward: {
     points: { type: Number, default: 0 },
     subscriptionMonths: { type: Number, default: 0 },
+    welcomeCreditPln: { type: Number, default: 0 },
+    welcomeCreditGranted: { type: Boolean, default: false },
     givenAt: { type: Date }
   },
   // Dla providerów - dodatkowe warunki

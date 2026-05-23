@@ -7,6 +7,7 @@ const ProviderSchedule = require("../models/ProviderSchedule");
 const UserSubscription = require("../models/UserSubscription");
 const { getPromoBoost } = require("../utils/promo");
 const { computeScore } = require("../utils/rank");
+const { isFoundingProviderActive, getFoundingRankBoost } = require("../utils/foundingProvider");
 const { computeProviderRankScore } = require("../utils/billingUtils");
 const { fetchActiveCampaigns, capForUser, injectSponsored } = require("../utils/sponsor");
 const { validateSearch } = require("../middleware/inputValidator");
@@ -222,7 +223,7 @@ router.get("/", validateSearch, async (req, res) => {
     const searchLimit = Math.min(Math.max(parseInt(limit, 10) || 120, 1), 300);
 
     let providers = await User.find(match)
-      .select("name level location locationCoords price time services provider_status promo badges kyc rankingPoints providerTier isTopProvider hasHelpfliGuarantee b2b company headline bio avatar")
+      .select("name level location locationCoords price time services provider_status promo badges kyc rankingPoints providerTier isTopProvider hasHelpfliGuarantee b2b company headline bio avatar foundingProvider foundingProviderExpiresAt priorityScoreBoost commissionDiscountPercent")
       .limit(searchLimit)
       .lean();
     
@@ -498,7 +499,12 @@ router.get("/", validateSearch, async (req, res) => {
           promo: p.promo || {},
           avgRating: Number(avg.toFixed(2)), // dla computeScore
           qualityScore: p.qualityScore || 0, // dla computeScore
-          badges: p.badges || [], // dodane badges
+          badges: (() => {
+            const list = [...(p.badges || [])];
+            if (isFoundingProviderActive(p) && !list.includes('founding_provider')) list.push('founding_provider');
+            return list;
+          })(),
+          isFoundingProvider: isFoundingProviderActive(p),
           rankingPoints: p.rankingPoints || 0, // punkty rankingowe
           verification: verification ? {
             status: verification.status,
@@ -565,11 +571,19 @@ router.get("/", validateSearch, async (req, res) => {
       // Boost za tier providera
       const tierBoost = p.providerTier === 'pro' ? 50 : 
                        p.providerTier === 'standard' ? 20 : 0;
+      const foundingBoost = isFoundingProviderActive(p) ? getFoundingRankBoost(p) : 0;
 
       const score = 0.5 * quality + 0.1 * availability + 0.1 * responseRate
-                  + 0.1 * distanceScore + 0.1 * recency + promoBoost + tierBoost;
+                  + 0.1 * distanceScore + 0.1 * recency + promoBoost + tierBoost + foundingBoost;
 
-      return { ...p, rankScore: score, promoBoost, tierBoost };
+      return {
+        ...p,
+        rankScore: score,
+        promoBoost,
+        tierBoost,
+        foundingBoost,
+        isFoundingProvider: foundingBoost > 0,
+      };
     });
 
     // MVP: Sortowanie zgodnie z parametrem sort
@@ -966,7 +980,7 @@ router.get("/providers", async (req, res) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
     const providers = await User.find(match)
-      .select("name level location locationCoords price time services provider_status promo badges kyc rankingPoints providerTier isTopProvider hasHelpfliGuarantee b2b instantChat vatInvoice bio headline avatar")
+      .select("name level location locationCoords price time services provider_status promo badges kyc rankingPoints providerTier isTopProvider hasHelpfliGuarantee b2b instantChat vatInvoice bio headline avatar foundingProvider foundingProviderExpiresAt priorityScoreBoost")
       .skip(skip)
       .limit(parseInt(limit));
     
