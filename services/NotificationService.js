@@ -341,6 +341,47 @@ class NotificationService {
         `,
       },
 
+      welcome_credit: {
+        subject: 'Helpfli: Bonus powitalny w portfelu',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #059669;">Bonus powitalny przyznany!</h2>
+            <p>Otrzymałeś <strong>${data.amountPln || 20} zł</strong> w portfelu punktów (${data.points || 200} pkt) za pierwsze ukończone zlecenie w Helpfli.</p>
+            <p>1 pkt = 0,10 zł — możesz wykorzystać punkty przy kolejnych płatnościach.</p>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${(this.frontendUrl || '').replace(/\/+$/, '')}/account/wallet"
+                 style="background: #059669; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                Otwórz portfel
+              </a>
+            </div>
+            <p>Pozdrawiamy,<br/>Zespół Helpfli</p>
+          </div>
+        `,
+      },
+
+      referral_reward: {
+        subject: 'Helpfli: Nagroda z programu poleceń',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #4F46E5;">Nagroda za polecenie</h2>
+            <p>
+              ${
+                data.proDays
+                  ? `Przyznano <strong>+${data.proDays} dni PRO</strong>${data.freeBoosts ? ` oraz <strong>${data.freeBoosts} wyróżnień ofert</strong>` : ''} za aktywację zaproszonego wykonawcy.`
+                  : `Otrzymałeś <strong>${data.amountPln || 20} zł</strong> (${data.points || 200} pkt) w portfelu za program poleceń Helpfli.`
+              }
+            </p>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${(this.frontendUrl || '').replace(/\/+$/, '')}${data.linkPath || '/account?tab=referrals'}"
+                 style="background: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                Zobacz szczegóły
+              </a>
+            </div>
+            <p>Pozdrawiamy,<br/>Zespół Helpfli</p>
+          </div>
+        `,
+      },
+
       founding_provider_expired: {
         subject: 'Helpfli: Zakończył się program Pierwszy wykonawca',
         html: `
@@ -438,6 +479,18 @@ class NotificationService {
       founding_provider_expired: {
         title: 'Program Founding zakończony',
         message: 'Status Pierwszego wykonawcy wygasł — prowizje od zleceń wracają do standardowych stawek.',
+      },
+
+      welcome_credit: {
+        title: 'Bonus powitalny 🎁',
+        message: `+${data.amountPln || 20} zł (${data.points || 200} pkt) w portfelu za pierwsze zlecenie`,
+      },
+
+      referral_reward: {
+        title: 'Nagroda za polecenie',
+        message: data.proDays
+          ? `+${data.proDays} dni PRO${data.freeBoosts ? ` i ${data.freeBoosts} wyróżnień` : ''} za zaproszonego wykonawcę`
+          : `+${data.amountPln || 20} zł w portfelu za program poleceń`,
       },
     };
 

@@ -18,10 +18,11 @@ router.get('/founding-provider-status', async (_req, res) => {
   } catch (e) {
     console.error('[growth] founding-provider-status:', e?.message);
     res.json({
-      limit: 1000,
-      used: 0,
-      remaining: 1000,
-      enabled: true,
+      limit: null,
+      used: null,
+      remaining: null,
+      enabled: false,
+      unavailable: true,
       fallback: true,
     });
   }
@@ -89,6 +90,28 @@ router.get('/me', auth, async (req, res) => {
     });
   } catch (e) {
     res.status(500).json({ message: 'Błąd pobierania danych growth' });
+  }
+});
+
+/**
+ * Webhook crona (Vercel Cron / zewnętrzny scheduler).
+ * Nagłówek: x-cron-secret: <CRON_SECRET> lub Authorization: Bearer <CRON_SECRET>
+ */
+router.post('/cron-webhook', async (req, res) => {
+  const secret = process.env.CRON_SECRET || process.env.GROWTH_CRON_SECRET;
+  const provided =
+    req.headers['x-cron-secret'] ||
+    (req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+  if (!secret || provided !== secret) {
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+  try {
+    const { runOnce } = require('../jobs/foundingProviderGrowth');
+    await runOnce();
+    res.json({ ok: true, message: 'Founding provider cron executed' });
+  } catch (e) {
+    console.error('[growth] cron-webhook:', e);
+    res.status(500).json({ message: e?.message || 'Cron error' });
   }
 });
 

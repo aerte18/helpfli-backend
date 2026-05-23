@@ -452,19 +452,9 @@ router.post('/register', validate('register'), validateRegistration, async (req,
         const Referral = require('../models/Referral');
         const { grantUserPoints } = require('../utils/userPoints');
         
-        // Znajdź referrera po kodzie
-        const existingReferral = await Referral.findOne({ referralCode: req.body.referralCode });
-        let referrerId = null;
-        
-        if (existingReferral) {
-          referrerId = existingReferral.referrer;
-        } else {
-          // Sprawdź czy użytkownik ma taki kod
-          const referrer = await User.findOne({ referralCode: req.body.referralCode });
-          if (referrer) {
-            referrerId = referrer._id;
-          }
-        }
+        const code = String(req.body.referralCode).trim().toUpperCase();
+        const referrer = await User.findOne({ referralCode: code });
+        const referrerId = referrer?._id || null;
         
         if (referrerId && String(referrerId) !== String(user._id)) {
           // Sprawdź czy użytkownik nie został już zaproszony

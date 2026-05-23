@@ -3623,6 +3623,7 @@ router.post('/:id/listing-addons', auth, async (req, res) => {
       },
     });
 
+    const { buildFoundingPaymentFields } = require('../utils/foundingProvider');
     const payment = await Payment.create({
       purpose: 'order',
       order: order._id,
@@ -3632,6 +3633,7 @@ router.post('/:id/listing-addons', auth, async (req, res) => {
       currency: 'pln',
       method: 'unknown',
       status: paymentIntentStatusForPaymentModel(intent.status),
+      ...buildFoundingPaymentFields(order),
       metadata: { type: 'listing_addons', ...quote.breakdown },
     });
 
@@ -3748,6 +3750,7 @@ router.post('/:id/boost', auth, async (req, res) => {
         },
       });
 
+      const { buildFoundingPaymentFields } = require('../utils/foundingProvider');
       const payment = await Payment.create({
         purpose: 'order',
         order: order._id,
@@ -3760,6 +3763,7 @@ router.post('/:id/boost', auth, async (req, res) => {
         currency: 'pln',
         method: 'unknown',
         status: paymentIntentStatusForPaymentModel(paymentIntent.status),
+        ...buildFoundingPaymentFields(order),
         metadata: { type: 'order_boost', orderId: String(orderId) },
       });
       

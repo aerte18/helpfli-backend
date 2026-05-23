@@ -11,7 +11,7 @@ module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cache-Control, Pragma, Expires'
+    'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cache-Control, Pragma, Expires, X-Cron-Secret'
   );
   if (req.method === 'OPTIONS') return res.status(204).end();
   // ultra-light health endpoint, never touches DB

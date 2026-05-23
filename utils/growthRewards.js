@@ -58,6 +58,10 @@ async function tryGrantClientWelcomeCredit(clientId, order = null) {
   user.welcomeCreditUsed = true;
   user.firstOrderBonusEligible = false;
   await user.save();
+
+  const { notifyWelcomeCredit } = require('./growthNotifications');
+  await notifyWelcomeCredit(clientId, amount);
+
   return { type: 'welcome_credit', amountPln: amount, ...granted };
 }
 
@@ -105,6 +109,10 @@ async function tryGrantClientReferralRewards(referredClientId) {
     givenAt: new Date(),
   };
   await referral.save();
+
+  const { notifyReferralCredit } = require('./growthNotifications');
+  await notifyReferralCredit(referral.referrer, REFERRAL_CREDIT_PLN, 'client');
+  await notifyReferralCredit(referredClientId, REFERRAL_CREDIT_PLN, 'client');
 
   return { type: 'referral_client', referrerGrant, referredGrant };
 }
@@ -165,6 +173,10 @@ async function tryGrantProviderReferralReward(referredProviderId) {
   await referrer.save();
 
   logger.info(`[growth] provider referral reward referrer=${referrer._id} referred=${referredProviderId}`);
+
+  const { notifyProviderReferralReward } = require('./growthNotifications');
+  await notifyProviderReferralReward(referrer._id, PROVIDER_REFERRAL_PRO_DAYS, 5);
+
   return { type: 'referral_provider', proDaysAdded: PROVIDER_REFERRAL_PRO_DAYS, freeBoostsAdded: 5 };
 }
 

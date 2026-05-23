@@ -5,7 +5,11 @@
   ],
   "routes": [
     { "src": "/api/(.*)", "dest": "api/index.js" }
+  ],
+  "crons": [
+    {
+      "path": "/api/growth/cron-webhook",
+      "schedule": "10 9 * * *"
+    }
   ]
 }
-
-

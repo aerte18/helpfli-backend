@@ -136,7 +136,7 @@ function buildGrowthBenefitsSummary(user, subscription = null, foundingProgram =
             freeBoostsTotal: FOUNDING_FREE_BOOSTS,
             priorityBoost: getFoundingRankBoost(user),
             stacksWithSubscription:
-              'Program Founding Provider działa obok subskrypcji PRO — PRO daje limity pakietu i miesięczne wyróżnienia, Founding obniża prowizję od zleceń i daje pulę darmowych boostów startowych.',
+              'Program Pierwszy wykonawca działa obok subskrypcji PRO — PRO daje limity pakietu i miesięczne wyróżnienia, Pierwszy wykonawca obniża prowizję od zleceń i daje pulę darmowych boostów startowych.',
           }
         : {
             active: false,
@@ -157,7 +157,7 @@ function buildGrowthBenefitsSummary(user, subscription = null, foundingProgram =
             validUntil: subscription.validUntil,
             validUntilLabel: formatBenefitDate(subscription.validUntil),
             daysRemaining: daysUntil(subscription.validUntil),
-            note: 'Opłata za subskrypcję jest osobna — dotyczy pakietu (limity, widoczność). Nie zastępuje programu Founding.',
+            note: 'Opłata za subskrypcję jest osobna — dotyczy pakietu (limity, widoczność). Nie zastępuje programu Pierwszy wykonawca.',
           }
         : null,
     };
@@ -207,7 +207,7 @@ function computeOrderPlatformFee({
   } else if (foundingActive && beforeFounding > 0 && platformFee === 0) {
     feeExplanation = `Pierwszy wykonawca Helpfli — 0% prowizji do ${formatBenefitDate(providerUser.foundingProviderExpiresAt) || 'końca programu'}.`;
   } else if (foundingActive && beforeFounding > platformFee) {
-    feeExplanation = `Zniżka Founding Provider (${discountPct}%) do ${formatBenefitDate(providerUser.foundingProviderExpiresAt) || 'końca programu'}.`;
+    feeExplanation = `Zniżka programu Pierwszy wykonawca (${discountPct}%) do ${formatBenefitDate(providerUser.foundingProviderExpiresAt) || 'końca programu'}.`;
   }
 
   return {
@@ -239,7 +239,7 @@ async function activateFoundingProvider(userId) {
 
   const status = await getFoundingProviderStatus();
   if (status.remaining <= 0) {
-    return { ok: false, code: 'LIMIT_REACHED', message: 'Wyczerpano limit 1000 miejsc Founding Provider' };
+    return { ok: false, code: 'LIMIT_REACHED', message: 'Wyczerpano limit 1000 miejsc w programie Pierwszy wykonawca' };
   }
 
   const now = new Date();
@@ -307,7 +307,31 @@ async function expireAllFoundingProviders() {
   return { expired: count };
 }
 
+/** Pola Payment dla raportów Founding (grosze nominalnej prowizji). */
+function buildFoundingPaymentFields(order, platformFeeAmountGrosze = null) {
+  if (!order) {
+    return { platformFeeNominalAmount: 0, foundingDiscountApplied: false };
+  }
+  const pricing = order.pricing || {};
+  let nominalPln = 0;
+  if (
+    pricing.platformFeeBeforeDiscount != null &&
+    Number.isFinite(Number(pricing.platformFeeBeforeDiscount))
+  ) {
+    nominalPln = Number(pricing.platformFeeBeforeDiscount);
+  } else if (platformFeeAmountGrosze != null && Number.isFinite(Number(platformFeeAmountGrosze))) {
+    nominalPln = Number(platformFeeAmountGrosze) / 100;
+  } else if (pricing.platformFee != null && Number.isFinite(Number(pricing.platformFee))) {
+    nominalPln = Number(pricing.platformFee);
+  }
+  return {
+    platformFeeNominalAmount: Math.round(Math.max(0, nominalPln) * 100),
+    foundingDiscountApplied: !!pricing.foundingDiscountApplied,
+  };
+}
+
 module.exports = {
+  buildFoundingPaymentFields,
   FOUNDING_PROVIDER_LIMIT,
   FOUNDING_PROVIDER_DAYS,
   FOUNDING_FREE_BOOSTS,
