@@ -6,14 +6,29 @@ const { recommendProviders } = require('../utils/concierge');
 const router = express.Router();
 
 // GET /api/providers - lista wszystkich usługodawców z opcjonalnym wyszukiwaniem
+// Obsługa filtra geograficznego:
+//  - ?bbox=swLat,swLng,neLat,neLng – filtr po prostokącie widocznym na mapie (priorytet)
+//  - ?lat=&lng=&maxDistance=        – fallback po promieniu (km) od punktu (Haversine)
 router.get('/', async (req, res) => {
   try {
-    const { search, q, service, level, rating, available } = req.query;
+    const {
+      search,
+      q,
+      service,
+      level,
+      rating,
+      available,
+      bbox,
+      lat,
+      lng,
+      maxDistance,
+      limit,
+    } = req.query;
     const { resolveServicesForSearchFilter } = require('../utils/resolveServiceSearch');
-    
+
     // Buduj query (bez zamkniętych / zanonimizowanych kont)
     let query = withListableProviders({ role: 'provider' });
-    
+
     const searchTerm = (search && search.trim()) || (q && String(q).trim()) || '';
     if (searchTerm) {
       const searchRegex = new RegExp(searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
@@ -34,23 +49,70 @@ router.get('/', async (req, res) => {
         }
       }
     }
-    
+
     if (level && level !== 'all') {
       query.providerLevel = level;
     }
-    
+
     if (rating && !isNaN(rating)) {
       // TODO: Dodać filtrowanie po ratingu gdy będzie dostępny
     }
-    
+
     if (available === 'true') {
       query['provider_status.isOnline'] = true;
     }
-    
-    const providers = await User.find(query)
+
+    // --- Geo filter: bbox (prostokąt z widoku mapy) ma priorytet nad promieniem ---
+    let bboxParsed = null;
+    if (typeof bbox === 'string' && bbox.length) {
+      const parts = bbox.split(',').map((v) => Number(v.trim()));
+      if (parts.length === 4 && parts.every((n) => Number.isFinite(n))) {
+        const [swLat, swLng, neLat, neLng] = parts;
+        // Bezpieczna walidacja zakresów (PL/EU – brak przejść przez antymerydian)
+        if (
+          swLat >= -90 && neLat <= 90 && swLat <= neLat &&
+          swLng >= -180 && neLng <= 180 && swLng <= neLng
+        ) {
+          bboxParsed = { swLat, swLng, neLat, neLng };
+          query['locationCoords.lat'] = { $gte: swLat, $lte: neLat };
+          query['locationCoords.lng'] = { $gte: swLng, $lte: neLng };
+        }
+      }
+    }
+
+    const hardLimit = Math.min(Math.max(Number(limit) || 300, 1), 500);
+
+    let providers = await User.find(query)
       .select('name email avatar providerLevel provider_status locationCoords services')
+      .limit(bboxParsed ? hardLimit : 0)
       .lean();
-    
+
+    // Fallback: promień od użytkownika (Haversine) – tylko jeśli bbox nie podany
+    if (!bboxParsed && lat && lng && maxDistance) {
+      const userLat = Number(lat);
+      const userLng = Number(lng);
+      const maxDist = Number(maxDistance);
+      if (Number.isFinite(userLat) && Number.isFinite(userLng) && Number.isFinite(maxDist) && maxDist > 0) {
+        const toRad = (d) => (d * Math.PI) / 180;
+        const distanceKm = (aLat, aLng, bLat, bLng) => {
+          const R = 6371;
+          const dLat = toRad(bLat - aLat);
+          const dLng = toRad(bLng - aLng);
+          const s =
+            Math.sin(dLat / 2) ** 2 +
+            Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * Math.sin(dLng / 2) ** 2;
+          return 2 * R * Math.asin(Math.sqrt(s));
+        };
+        providers = providers
+          .filter((p) => {
+            const pLat = p?.locationCoords?.lat;
+            const pLng = p?.locationCoords?.lng;
+            if (!Number.isFinite(pLat) || !Number.isFinite(pLng)) return true; // bez współrzędnych – nie wyklucz
+            return distanceKm(userLat, userLng, pLat, pLng) <= maxDist;
+          });
+      }
+    }
+
     res.json({ items: providers });
   } catch (err) {
     console.error('GET_PROVIDERS_ERROR:', err);

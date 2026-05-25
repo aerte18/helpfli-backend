@@ -796,7 +796,7 @@ router.get('/open', auth, async (req, res) => {
     console.log('✅ GET /api/orders/open - endpoint wywołany');
     console.log('✅ User:', req.user?._id, req.user?.email, req.user?.role);
     
-    const { service, urgency, maxDistance, lat, lng, budgetMin, budgetMax, services, companyId, serviceKind } = req.query;
+    const { service, urgency, maxDistance, lat, lng, budgetMin, budgetMax, services, companyId, serviceKind, bbox } = req.query;
     
     // Debug log
     console.log('🔍 GET_OPEN_ORDERS:', { 
@@ -1143,14 +1143,49 @@ router.get('/open', auth, async (req, res) => {
       return new Date(b.createdAt) - new Date(a.createdAt);
     });
     
-    // Filtrowanie po dystansie (jeśli podano koordynaty)
-    if (lat && lng && maxDistance) {
+    // --- Filtr po bbox (prostokąt z widoku mapy) ma priorytet nad promieniem ---
+    let bboxParsed = null;
+    if (typeof bbox === 'string' && bbox.length) {
+      const parts = bbox.split(',').map((v) => Number(String(v).trim()));
+      if (parts.length === 4 && parts.every((n) => Number.isFinite(n))) {
+        const [swLat, swLng, neLat, neLng] = parts;
+        if (
+          swLat >= -90 && neLat <= 90 && swLat <= neLat &&
+          swLng >= -180 && neLng <= 180 && swLng <= neLng
+        ) {
+          bboxParsed = { swLat, swLng, neLat, neLng };
+        }
+      }
+    }
+
+    if (bboxParsed) {
+      const { swLat, swLng, neLat, neLng } = bboxParsed;
+      const beforeFilter = orders.length;
+      orders = orders.filter(order => {
+        if (!order.locationLat || !order.locationLon) return false; // bez współrzędnych nie ma sensu na mapie
+        return (
+          order.locationLat >= swLat && order.locationLat <= neLat &&
+          order.locationLon >= swLng && order.locationLon <= neLng
+        );
+      });
+      console.log('🔍 GET_OPEN_ORDERS: After bbox filter:', { before: beforeFilter, after: orders.length, bbox: bboxParsed });
+
+      // Dystans liczony od środka bboxa (przybliżenie), jeśli nie ma lat/lng
+      const userLat = Number(lat) || (swLat + neLat) / 2;
+      const userLng = Number(lng) || (swLng + neLng) / 2;
+      orders = orders.map(order => {
+        const orderObj = order.toObject();
+        orderObj.distanceKm = calculateDistance(userLat, userLng, order.locationLat, order.locationLon);
+        return orderObj;
+      });
+    } else if (lat && lng && maxDistance) {
+      // Filtrowanie po dystansie (Haversine od użytkownika)
       const userLat = Number(lat);
       const userLng = Number(lng);
       const maxDist = Number(maxDistance);
-      
+
       console.log('🔍 GET_OPEN_ORDERS: Filtering by distance:', { userLat, userLng, maxDist });
-      
+
       const beforeFilter = orders.length;
       // Filtruj tylko zlecenia z koordynatami - zlecenia bez koordynatów pokaż zawsze
       orders = orders.filter(order => {
@@ -1158,17 +1193,17 @@ router.get('/open', auth, async (req, res) => {
           // Zlecenia bez koordynatów pokaż zawsze (nie filtruj po dystansie)
           return true;
         }
-        
+
         const distance = calculateDistance(
           userLat, userLng,
           order.locationLat, order.locationLon
         );
-        
+
         return distance <= maxDist;
       });
-      
+
       console.log('🔍 GET_OPEN_ORDERS: After distance filter:', { before: beforeFilter, after: orders.length });
-      
+
       // Dodaj informację o dystansie
       orders = orders.map(order => {
         const orderObj = order.toObject();
@@ -1183,7 +1218,7 @@ router.get('/open', auth, async (req, res) => {
         return orderObj;
       });
     } else {
-      // Jeśli nie ma filtrowania po dystansie, dodaj distanceKm = null dla wszystkich
+      // Jeśli nie ma filtrowania po dystansie/bboxie, dodaj distanceKm = null dla wszystkich
       orders = orders.map(order => ({
         ...order.toObject(),
         distanceKm: null

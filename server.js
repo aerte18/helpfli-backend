@@ -722,6 +722,34 @@ try {
   logger.debug('🔵 About to register announcements route (duplicate)...');
   safeUse('/api/announcements', loadRoute('announcements', './routes/announcements'), 'announcements');
 
+  // SEO – Poradniki AI (automatyczne strony /poradnik/:slug + sitemap)
+  logger.debug('🔵 About to register seo (AI articles) route...');
+  const seoRoutes = loadRoute('seo', './routes/seo');
+  safeUse('/api/seo', seoRoutes, 'seo');
+
+  // Publiczne aliasy: /sitemap.xml i /robots.txt — backend jest pod api.helpfli.pl,
+  // a frontend (Vercel) rewrite'uje /sitemap.xml na backend (patrz frontend/vercel.json).
+  try {
+    if (seoRoutes && typeof seoRoutes.sitemapHandler === 'function') {
+      app.get('/sitemap.xml', seoRoutes.sitemapHandler);
+    }
+    if (seoRoutes && typeof seoRoutes.robotsHandler === 'function') {
+      app.get('/robots.txt', seoRoutes.robotsHandler);
+    }
+  } catch (e) {
+    logger.warn?.('[SEO] Nie udało się podpiąć aliasów /sitemap.xml /robots.txt:', e.message);
+  }
+
+  // IndexNow key verification file (https://helpfli.pl/<KEY>.txt)
+  // IndexNow wymaga publicznie dostępnego pliku tekstowego z kluczem,
+  // żeby zweryfikować, że jesteśmy właścicielem domeny.
+  try {
+    const indexNow = require('./services/IndexNowService');
+    app.get('/:key([a-zA-Z0-9-]{8,128}).txt', indexNow.keyFileHandler);
+  } catch (e) {
+    logger.warn?.('[IndexNow] Nie udało się podpiąć key file route:', e.message);
+  }
+
 // wstrzyknięcie io do requestu tylko dla tras czatu (pomijane w Vercel)
 if (process.env.VERCEL !== '1') {
   app.use('/api/chat', (req, _res, next) => { req.io = io; next(); }, chatRoutes);
@@ -925,6 +953,14 @@ if (process.env.VERCEL !== '1') {
       startNewOrdersDigestCron();
     } catch (e) {
       logger.error('[CRON] Error scheduling newOrdersDigestForProviders:', e);
+    }
+
+    // SEO Engine – co noc generuje N nowych poradników (jeśli SEO_AUTO_GENERATE=1)
+    try {
+      const { startSeoArticlesCron } = require('./cron/seoArticlesCron');
+      startSeoArticlesCron();
+    } catch (e) {
+      logger.error('[CRON] Error scheduling SEO articles generation:', e);
     }
   } else {
     logger.info('[CRON] Jobs disabled (ENABLE_JOBS != 1). Skipping cron scheduling.');
