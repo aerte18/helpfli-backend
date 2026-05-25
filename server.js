@@ -670,6 +670,8 @@ try {
   safeUse('/api/companies', loadRoute('companies', './routes/companies'), 'companies');
   logger.debug('🔵 About to register admin_notifications route...');
   safeUse('/api/admin/notifications', loadRoute('admin_notifications', './routes/admin_notifications'), 'admin_notifications');
+  logger.debug('🔵 About to register admin marketing content route...');
+  safeUse('/api/admin/content', loadRoute('admin_marketing_content', './routes/admin/marketingContent'), 'admin_marketing_content');
   logger.debug('🔵 About to register companies_billing route...');
   safeUse('/api/companies', loadRoute('companies_billing', './routes/companies_billing'), 'companies_billing');
   logger.debug('🔵 About to register companies_analytics route...');
