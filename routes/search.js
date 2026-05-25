@@ -43,6 +43,7 @@ router.get("/", validateSearch, async (req, res) => {
     lat,              // MVP: latitude for geo search
     lng,              // MVP: longitude for geo search
     radius = 50,      // MVP: search radius in km
+    bbox,             // "swLat,swLng,neLat,neLng" — filtr po widocznym obszarze mapy
     verifiedOnly, 
     q, 
     availableNow,
@@ -73,9 +74,30 @@ router.get("/", validateSearch, async (req, res) => {
     const latNum = lat ? parseFloat(lat) : null;
     const lngNum = lng ? parseFloat(lng) : null;
     const radiusNum = radius ? parseFloat(radius) : 50;
-    
+
+    // --- Geo filter: bbox (prostokąt z widoku mapy) ma priorytet nad promieniem ---
+    let bboxParsed = null;
+    if (typeof bbox === 'string' && bbox.length) {
+      const parts = bbox.split(',').map((v) => Number(String(v).trim()));
+      if (parts.length === 4 && parts.every((n) => Number.isFinite(n))) {
+        const [swLat, swLng, neLat, neLng] = parts;
+        // Bezpieczna walidacja zakresów (PL/EU – brak przejść przez antymerydian)
+        if (
+          swLat >= -90 && neLat <= 90 && swLat <= neLat &&
+          swLng >= -180 && neLng <= 180 && swLng <= neLng &&
+          neLat - swLat <= 30 && neLng - swLng <= 60
+        ) {
+          bboxParsed = { swLat, swLng, neLat, neLng };
+          match['locationCoords.lat'] = { $gte: swLat, $lte: neLat };
+          match['locationCoords.lng'] = { $gte: swLng, $lte: neLng };
+        }
+      }
+    }
+
     let searchLocation = null;
-    if (latNum && lngNum) {
+    if (bboxParsed) {
+      // Bbox wymusza filtr po prostokącie — pomijamy radius od użytkownika.
+    } else if (latNum && lngNum) {
       // Geo search - użyj ProviderProfile jeśli dostępne
       try {
         const ProviderProfile = require('../models/ProviderProfile');
