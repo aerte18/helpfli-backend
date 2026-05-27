@@ -4,6 +4,8 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { authMiddleware } = require('../middleware/authMiddleware');
+const { authOrGuestMiddleware } = require('../middleware/authOrGuestMiddleware');
+const { getGuestUsage } = require('../utils/guestAiTrial');
 const Service = require('../models/Service');
 const Order = require('../models/Order');
 const OrderDraft = require('../models/orderDraft');
@@ -201,8 +203,15 @@ try {
   console.warn('[ai_concierge] concierge v2 handler unavailable:', loadErr.message);
 }
 if (conciergeHandlerV2) {
-  router.post('/concierge/v2', authMiddleware, conciergeHandlerV2);
+  router.post('/concierge/v2', authOrGuestMiddleware, conciergeHandlerV2);
 }
+
+// GET /api/ai/concierge/guest-usage — stan limitu dla gościa (bez JWT)
+router.get('/concierge/guest-usage', async (req, res) => {
+  const guestId = req.header('X-Guest-Id') || req.header('x-guest-id');
+  const result = await getGuestUsage(guestId);
+  return res.status(result.status || 200).json(result.body || { ok: true });
+});
 
 // POST /api/ai/concierge/analyze
 // body: { description, locationText, lat, lon, urgency, imageUrls, conversationHistory? }
@@ -289,145 +298,56 @@ router.post('/concierge/analyze', authMiddleware, validate('aiAnalyze'), async (
       console.log('LLM Service not available, using fallback:', error.message);
     }
 
-    // Sprawdź limity AI Concierge dla klientów
-    const user = await User.findById(req.user._id).populate('company');
-    if (user.role === 'client') {
-      const UserSubscription = require('../models/UserSubscription');
-      const subscription = await UserSubscription.findOne({ 
-        user: req.user._id,
-        validUntil: { $gt: new Date() }
-      });
-      
-      const packageType = subscription?.planKey || 'CLIENT_FREE';
-      const isFree = packageType === 'CLIENT_FREE';
-      const isBusinessPlan = subscription?.isBusinessPlan || false;
-      const useCompanyPool = subscription?.useCompanyResourcePool || false;
-      
-      // Sprawdź najpierw resource pool firmy (jeśli użytkownik należy do firmy i ma business plan)
-      if (isBusinessPlan && useCompanyPool && user.company) {
-        const { canUseCompanyResource, consumeCompanyResource } = require('../utils/resourcePool');
-        const check = await canUseCompanyResource(req.user._id, 'aiQueries', 1);
-        
-        if (!check.allowed) {
-          return res.status(403).json({ 
-            message: check.reason,
-            requiresPayment: false,
-            upgradeRequired: true,
-            upgradePlan: 'BUSINESS_PRO'
-          });
-        }
-        
-        // Wykorzystaj zasób z puli firmowej
-        await consumeCompanyResource(req.user._id, 'aiQueries', 1);
-        
-        // Zapisz użycie w UsageAnalytics
-        try {
-          const UsageAnalytics = require('../models/UsageAnalytics');
-          const now = new Date();
-          const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-          await UsageAnalytics.incrementUsage(req.user._id, monthKey, 'aiQueries', 1, false);
-        } catch (analyticsError) {
-          console.error('Error saving AI usage analytics:', analyticsError);
-        }
-      } else if (isFree) {
-        // Sprawdź czy nie przekroczył limitu 50 zapytań miesięcznie (dla FREE)
-        const currentMonth = new Date();
-        currentMonth.setDate(1);
-        currentMonth.setHours(0, 0, 0, 0);
-        
-        const aiUsage = await User.findOne({ 
-          _id: req.user._id 
-        }).select('aiConciergeUsage');
-        
-        const monthlyUsage = aiUsage?.aiConciergeUsage?.filter(usage => 
-          new Date(usage.date) >= currentMonth
-        ) || [];
-        
-        // Zapisz użycie w UsageAnalytics
-        try {
-          const UsageAnalytics = require('../models/UsageAnalytics');
-          const now = new Date();
-          const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-          await UsageAnalytics.incrementUsage(req.user._id, monthKey, 'aiQueries', 1, false);
-        } catch (analyticsError) {
-          console.error('Error saving AI usage analytics:', analyticsError);
-        }
-        
-        if (monthlyUsage.length >= 50) { // Limit 50 zapytań miesięcznie dla darmowych użytkowników
-          // Sprawdź czy użytkownik chce zapłacić za dodatkowe zapytania (pay-per-use)
-          const { payPerUse } = req.body || {};
-          
-          if (payPerUse === true) {
-            // Pay-per-use: 0.50 zł za zapytanie (50 groszy)
-            const payPerUsePrice = 50; // grosze
-            
-            // W trybie development - od razu aktywuj
-            if (process.env.NODE_ENV === 'development') {
-              // Zapisujemy użycie jako płatne
-              user.aiConciergeUsage.push({
-                date: new Date(),
-                description: req.body.description || '',
-                service: '',
-                paid: true,
-                payPerUsePrice: payPerUsePrice
-              });
-              await user.save();
-              
-              // Kontynuuj normalnie - zapytanie zostało opłacone
-            } else {
-              // Produkcja - wymagaj płatności przez Stripe
-              const Stripe = require('stripe');
-              const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
-              
-              if (!stripe) {
-                return res.status(500).json({ message: 'Płatności nie są skonfigurowane' });
-              }
-              
-              const intent = await stripe.paymentIntents.create({
-                amount: payPerUsePrice,
-                currency: 'pln',
-                payment_method_types: ['card', 'p24'],
-                description: `Helpfli AI Concierge - dodatkowe zapytanie`,
-                metadata: {
-                  type: 'ai_concierge_pay_per_use',
-                  userId: String(req.user._id),
-                  usageCount: monthlyUsage.length + 1
-                }
-              });
-              
-              return res.status(402).json({
-                requiresPayment: true,
-                message: 'Wymagana płatność za dodatkowe zapytanie AI',
-                paymentIntentId: intent.id,
-                clientSecret: intent.client_secret,
-                amount: payPerUsePrice,
-                pricePLN: (payPerUsePrice / 100).toFixed(2),
-                upsell: {
-                  recommendedPlanKey: 'CLIENT_STD',
-                  title: 'STANDARD – nielimitowane AI Concierge',
-                  description: 'Lub wykup plan STANDARD za 19 zł/mies aby uzyskać nielimitowany dostęp.',
-                }
-              });
-            }
-          } else {
-            // Standardowa odpowiedź z limitem
-            return res.status(403).json({ 
-              message: 'Przekroczono limit 50 zapytań do AI Concierge miesięcznie. Ulepsz pakiet lub zapłać za dodatkowe zapytania.',
-              limit: 50,
-              used: monthlyUsage.length,
-              planKey: packageType,
-              payPerUseAvailable: true,
-              payPerUsePrice: 0.50, // zł
-              upsell: {
-                recommendedPlanKey: 'CLIENT_STD',
-                title: 'STANDARD – nielimitowane AI Concierge',
-                description: 'Kontynuuj rozmowę z AI bez limitów i szybciej znajduj najlepszych wykonawców.',
-              }
-            });
-          }
-        }
-      }
+    const { enforceClientAiAccess } = require('../utils/clientAiAccess');
+    const access = await enforceClientAiAccess(req, { consume: true });
+    if (!access.allowed) {
+      return res.status(access.status || 403).json(access.body || { message: 'Brak dostępu' });
     }
+    if (access.payPerUse && process.env.NODE_ENV !== 'development') {
+      const payPerUsePrice = 50;
+      const Stripe = require('stripe');
+      const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
+      if (!stripe) {
+        return res.status(500).json({ message: 'Płatności nie są skonfigurowane' });
+      }
+      const intent = await stripe.paymentIntents.create({
+        amount: payPerUsePrice,
+        currency: 'pln',
+        payment_method_types: ['card', 'p24'],
+        description: 'Helpfli AI Concierge - dodatkowe zapytanie',
+        metadata: {
+          type: 'ai_concierge_pay_per_use',
+          userId: String(req.user._id),
+        },
+      });
+      return res.status(402).json({
+        requiresPayment: true,
+        message: 'Wymagana płatność za dodatkowe zapytanie AI',
+        paymentIntentId: intent.id,
+        clientSecret: intent.client_secret,
+        amount: payPerUsePrice,
+        pricePLN: (payPerUsePrice / 100).toFixed(2),
+        upsell: {
+          recommendedPlanKey: 'CLIENT_STD',
+          title: 'STANDARD – nielimitowane AI Concierge',
+          description: 'Lub wykup plan STANDARD za 19 zł/mies aby uzyskać nielimitowany dostęp.',
+        },
+      });
+    }
+    if (access.payPerUse && process.env.NODE_ENV === 'development') {
+      const userDev = await User.findById(req.user._id);
+      userDev.aiConciergeUsage.push({
+        date: new Date(),
+        description: req.body.description || '',
+        service: '',
+        paid: true,
+        payPerUsePrice: 50,
+      });
+      await userDev.save();
+    }
+    req.aiAccess = access;
+
+    const user = await User.findById(req.user._id).populate('company');
 
     // 2) Twoja logika kandydatów/widełek/providerów (jak wcześniej)
     const services = await Service.find({}).lean();

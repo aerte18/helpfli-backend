@@ -20,6 +20,7 @@
 
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
 
 const SeoArticle = require('../models/SeoArticle');
 const { authMiddleware } = require('../middleware/authMiddleware');
@@ -33,6 +34,16 @@ let logger;
 try { logger = require('../utils/logger'); } catch { logger = console; }
 
 const ADMIN_ROLES = ['admin', 'superadmin'];
+
+function ensureMongoConnected(res) {
+  // 0 = disconnected, 1 = connected, 2 = connecting, 3 = disconnecting
+  if (mongoose.connection?.readyState === 1) return true;
+  res.status(503).json({
+    ok: false,
+    message: 'Baza danych niedostępna (MongoDB not connected).'
+  });
+  return false;
+}
 
 function getPublicBaseUrl() {
   const env = (process.env.SEO_PUBLIC_BASE_URL || process.env.PUBLIC_APP_URL || '').trim();
@@ -630,6 +641,7 @@ router.delete('/admin/:id', async (req, res) => {
  */
 router.post('/admin/local/rebuild', async (req, res) => {
   try {
+    if (!ensureMongoConnected(res)) return;
     const { service, city, force = false } = req.body || {};
     if (!service || !city) {
       return res.status(400).json({ ok: false, message: 'Wymagane: service, city' });
@@ -661,6 +673,7 @@ router.post('/admin/local/rebuild', async (req, res) => {
  */
 router.post('/admin/local/bulk-build', async (req, res) => {
   try {
+    if (!ensureMongoConnected(res)) return;
     const services = Array.isArray(req.body?.services) ? req.body.services : [];
     const cities = Array.isArray(req.body?.cities) ? req.body.cities : [];
     const force = Boolean(req.body?.force);
@@ -704,6 +717,7 @@ router.post('/admin/local/bulk-build', async (req, res) => {
  */
 router.get('/admin/local', async (req, res) => {
   try {
+    if (!ensureMongoConnected(res)) return;
     const SeoLocalPage = require('../models/SeoLocalPage');
     const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
     const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
@@ -731,6 +745,7 @@ router.get('/admin/local', async (req, res) => {
  */
 router.delete('/admin/local/:id', async (req, res) => {
   try {
+    if (!ensureMongoConnected(res)) return;
     const SeoLocalPage = require('../models/SeoLocalPage');
     const deleted = await SeoLocalPage.findByIdAndDelete(req.params.id).lean();
     if (!deleted) return res.status(404).json({ ok: false, message: 'Nie znaleziono' });

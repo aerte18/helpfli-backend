@@ -50,8 +50,19 @@ async function conciergeHandler(req, res) {
     // Parsuj i waliduj request
     const parsed = validateConciergeRequest(req.body);
 
-    // Pobierz kontekst użytkownika
-    const userId = req.user?.id || req.user?._id;
+    const sessionIdEarly = parsed.sessionId || req.headers['x-session-id'] || null;
+    const { enforceClientAiAccess } = require('../utils/clientAiAccess');
+    const access = await enforceClientAiAccess(req, {
+      consume: true,
+      sessionId: sessionIdEarly,
+    });
+    if (!access.allowed) {
+      return res.status(access.status || 403).json(access.body || { message: 'Brak dostępu do AI' });
+    }
+    req.aiAccess = access;
+
+    // Pobierz kontekst użytkownika (gość — bez trwałej pamięci w DB)
+    const userId = req.isGuest ? null : (req.user?.id || req.user?._id);
     
     // A/B Testing (Faza 3) - przypisz warianty eksperymentów
     const abVariants = {
@@ -81,7 +92,15 @@ async function conciergeHandler(req, res) {
     }
     
     // Pobierz kontekst z pamięci (ostatnie wiadomości + preferencje)
-    const memoryContext = await ConversationMemoryService.getContext(userId, sessionId, 10, 'concierge');
+    const memoryContext = userId
+      ? await ConversationMemoryService.getContext(userId, sessionId, 10, 'concierge')
+      : {
+          summary: null,
+          summaryMessageCount: 0,
+          recentMessages: [],
+          preferences: {},
+          lastInteraction: null,
+        };
     
     // Złącz historię z requestu z historią z pamięci
     const existingMessages = parsed.messages || [];
@@ -159,12 +178,15 @@ async function conciergeHandler(req, res) {
 
     // Pobierz profil użytkownika dla personalizacji (Faza 3)
     let userProfile = null;
-    try {
-      userProfile = await PersonalizationService.getUserProfile(userId);
-    } catch (error) {
-      console.warn('Could not load user profile, using defaults:', error.message);
-      userProfile = PersonalizationService.getDefaultProfile(userId);
+    if (userId) {
+      try {
+        userProfile = await PersonalizationService.getUserProfile(userId);
+      } catch (error) {
+        console.warn('Could not load user profile, using defaults:', error.message);
+        userProfile = PersonalizationService.getDefaultProfile(userId);
+      }
     }
+    req.isGuestSession = req.isGuest || false;
 
     // Analizuj obrazy jeśli są dostępne (Faza 3 - Multi-modal)
     let imageAnalysis = null;
@@ -250,6 +272,7 @@ async function conciergeHandler(req, res) {
         ...userContext,
         userProfile,
         abVariants,
+        isGuest: req.isGuest || false,
         imageUrls: parsed.imageUrls || [],
         extracted: {}
       },
@@ -284,7 +307,7 @@ async function conciergeHandler(req, res) {
       userContext.attachments = mergedDraftContext.extracted.attachments;
     }
     
-    if (lastUserMessage && lastUserMessage.content) {
+    if (userId && lastUserMessage && lastUserMessage.content) {
       ConversationMemoryService.addMessage(
         userId,
         sessionId,
@@ -297,7 +320,7 @@ async function conciergeHandler(req, res) {
     }
     
     // Zapisz odpowiedź AI
-    if (conciergeResult.reply) {
+    if (userId && conciergeResult.reply) {
       ConversationMemoryService.addMessage(
         userId,
         sessionId,
@@ -315,6 +338,9 @@ async function conciergeHandler(req, res) {
     }
     
     // Aktualizuj ostatnią interakcję
+    if (!userId) {
+      // gość — historia tylko w request.messages
+    } else {
     ConversationMemoryService.updateLastInteraction(userId, sessionId, {
       detectedService: conciergeResult.detectedService,
       urgency: conciergeResult.urgency,
@@ -333,6 +359,7 @@ async function conciergeHandler(req, res) {
       }
       ConversationMemoryService.updatePreferences(userId, sessionId, preferences, 'concierge')
         .catch(err => console.error('Error updating preferences:', err));
+    }
     }
 
     // Web Search Integration (Faza 3) - sprawdź czy potrzebne wyszukiwanie
@@ -609,12 +636,14 @@ async function conciergeHandler(req, res) {
     }
 
     // Aktualizuj profil na podstawie interakcji (Faza 3)
-    PersonalizationService.updateProfileFromInteraction(userId, {
-      sessionId,
-      detectedService: conciergeResult.detectedService,
-      location: conciergeResult.extracted?.location || userContext.location?.text,
-      urgency: conciergeResult.urgency
-    }).catch(err => console.error('Error updating profile:', err));
+    if (userId) {
+      PersonalizationService.updateProfileFromInteraction(userId, {
+        sessionId,
+        detectedService: conciergeResult.detectedService,
+        location: conciergeResult.extracted?.location || userContext.location?.text,
+        urgency: conciergeResult.urgency
+      }).catch(err => console.error('Error updating profile:', err));
+    }
 
     // Generuj messageId dla feedbacku
     const messageId = `msg_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -663,9 +692,25 @@ async function conciergeHandler(req, res) {
       delete finalResult.llmMeta;
     }
 
+    if (userId && req.user?.role === 'client') {
+      const lastText = (parsed.messages || []).filter((m) => m.role === 'user').pop()?.content || '';
+      const User = require('../models/User');
+      User.findByIdAndUpdate(userId, {
+        $push: {
+          aiConciergeUsage: {
+            date: new Date(),
+            description: String(lastText).substring(0, 100),
+            service: conciergeResult.detectedService || '',
+          },
+        },
+      }).catch(() => {});
+    }
+
     return res.json({
       ok: true,
       agent: 'concierge',
+      guestUsage: req.isGuest ? req.aiAccess?.usage : undefined,
+      aiUsage: !req.isGuest ? req.aiAccess?.usage : undefined,
       result: finalResult, // Spersonalizowana odpowiedź
       agents: agentPayload, // Wyniki innych agentów
       // Backward compatibility - mapuj na format podobny do obecnego

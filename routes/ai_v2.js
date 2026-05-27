@@ -5,7 +5,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { authMiddleware } = require('../middleware/authMiddleware');
+const { authOrGuestMiddleware } = require('../middleware/authOrGuestMiddleware');
 const { conciergeHandler } = require('../ai');
 
 /**
@@ -27,7 +27,7 @@ const { conciergeHandler } = require('../ai');
  *   lon?: number
  * }
  */
-router.post('/concierge/v2', authMiddleware, conciergeHandler);
+router.post('/concierge/v2', authOrGuestMiddleware, conciergeHandler);
 
 module.exports = router;
 
