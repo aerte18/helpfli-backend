@@ -661,7 +661,11 @@ router.post('/admin/local/rebuild', async (req, res) => {
     res.json({ ok: true, page });
   } catch (err) {
     logger.error?.('[SEO] PSEO rebuild error:', err);
-    res.status(500).json({ ok: false, message: err.message || 'Błąd rebuilda' });
+    const msg = err?.message || 'Błąd rebuilda';
+    if (/Nieznana usługa|Nieznane miasto/i.test(msg)) {
+      return res.status(400).json({ ok: false, message: msg });
+    }
+    res.status(500).json({ ok: false, message: msg });
   }
 });
 

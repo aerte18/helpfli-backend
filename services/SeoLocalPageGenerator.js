@@ -137,11 +137,31 @@ function buildFallback({ serviceName, cityName, stats }) {
   };
 }
 
+async function resolveService(serviceSlugRaw) {
+  const input = String(serviceSlugRaw || '').toLowerCase().trim();
+  if (!input) return null;
+
+  const bySlugOrCode = await Service.findOne({
+    $or: [{ slug: input }, { code: input }]
+  }).lean();
+  if (bySlugOrCode) return bySlugOrCode;
+
+  const escaped = input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const byName = await Service.findOne({
+    $or: [
+      { name_pl: { $regex: `^${escaped}$`, $options: 'i' } },
+      { name: { $regex: `^${escaped}$`, $options: 'i' } },
+      { slug: { $regex: `^${escaped}` } }
+    ]
+  }).lean();
+  return byName;
+}
+
 async function buildOrUpdateLocalPage({ serviceSlug, citySlug, forceRegenerate = false }) {
   const city = TOP_PL_CITIES_BY_SLUG[citySlug?.toLowerCase()];
   if (!city) throw new Error(`Nieznane miasto: ${citySlug}`);
 
-  const service = await Service.findOne({ slug: serviceSlug.toLowerCase() }).lean();
+  const service = await resolveService(serviceSlug);
   if (!service) throw new Error(`Nieznana usługa: ${serviceSlug}`);
 
   const serviceName = service.name_pl || service.slug;
