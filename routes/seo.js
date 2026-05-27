@@ -23,6 +23,8 @@ const router = express.Router();
 const mongoose = require('mongoose');
 
 const SeoArticle = require('../models/SeoArticle');
+const Order = require('../models/Order');
+const Service = require('../models/Service');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const { requireRole } = require('../middleware/roles');
 const { generateAndStoreArticle } = require('../services/SeoArticleGenerator');
@@ -684,6 +686,16 @@ router.post('/admin/local/bulk-build', async (req, res) => {
     if (!services.length || !cities.length) {
       return res.status(400).json({ ok: false, message: 'Wymagane: services[], cities[]' });
     }
+    const pairCount = services.length * cities.length;
+    const maxPairs = Math.min(Math.max(parseInt(process.env.PSEO_BULK_MAX_PAIRS, 10) || 3, 1), 20);
+    if (pairCount > maxPairs) {
+      return res.status(400).json({
+        ok: false,
+        message:
+          `Za dużo par (${pairCount}). Jedno żądanie bulk-build obsługuje max ${maxPairs} — ` +
+          'użyj panelu admina (buduje po kolei) lub zmniejsz macierz.'
+      });
+    }
     const { buildOrUpdateLocalPage } = require('../services/SeoLocalPageGenerator');
     const indexNow = (() => { try { return require('../services/IndexNowService'); } catch { return null; } })();
     const base = getPublicBaseUrl();
@@ -712,6 +724,67 @@ router.post('/admin/local/bulk-build', async (req, res) => {
   } catch (err) {
     logger.error?.('[SEO] PSEO bulk-build error:', err);
     res.status(500).json({ ok: false, message: err.message || 'Błąd bulk-build' });
+  }
+});
+
+/**
+ * GET /api/seo/admin/local/suggest
+ *  Podpowiedź "najlepszej" macierzy PSEO (miasta + usługi) na bazie popytu.
+ *  Ranking usług: liczba zleceń z 90 dni + preferencja dla usług topowych.
+ */
+router.get('/admin/local/suggest', async (req, res) => {
+  try {
+    if (!ensureMongoConnected(res)) return;
+    const serviceLimit = Math.min(20, Math.max(3, parseInt(req.query.serviceLimit, 10) || 8));
+    const cityLimit = Math.min(20, Math.max(3, parseInt(req.query.cityLimit, 10) || 10));
+    const days = Math.min(365, Math.max(30, parseInt(req.query.days, 10) || 90));
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const serviceAgg = await Order.aggregate([
+      { $match: { createdAt: { $gte: since }, service: { $exists: true, $ne: '' } } },
+      { $group: { _id: { $toLower: '$service' }, orders: { $sum: 1 } } },
+      { $sort: { orders: -1 } },
+      { $limit: 150 }
+    ]);
+
+    const candidateServiceSlugs = serviceAgg.map((x) => x._id).filter(Boolean);
+    const catalogServices = await Service.find({ slug: { $in: candidateServiceSlugs } })
+      .select('slug name_pl is_top')
+      .lean();
+    const catalogBySlug = new Map(catalogServices.map((s) => [s.slug, s]));
+
+    const rankedServices = serviceAgg
+      .filter((row) => catalogBySlug.has(row._id))
+      .map((row) => {
+        const svc = catalogBySlug.get(row._id);
+        return {
+          slug: svc.slug,
+          name: svc.name_pl || svc.slug,
+          recentOrders: row.orders,
+          score: row.orders + (Number(svc.is_top) ? 12 : 0),
+          isTop: Boolean(Number(svc.is_top))
+        };
+      })
+      .sort((a, b) => b.score - a.score || b.recentOrders - a.recentOrders)
+      .slice(0, serviceLimit);
+
+    const suggestedServices = rankedServices.map(({ slug, name, recentOrders, isTop }) => ({
+      slug, name, recentOrders, isTop
+    }));
+
+    const suggestedCities = TOP_PL_CITIES
+      .slice(0, cityLimit)
+      .map((c) => ({ slug: c.slug, name: c.name }));
+
+    res.json({
+      ok: true,
+      strategy: `Top usługi z ostatnich ${days} dni + największe miasta`,
+      services: suggestedServices,
+      cities: suggestedCities
+    });
+  } catch (err) {
+    logger.error?.('[SEO] PSEO suggest error:', err);
+    res.status(500).json({ ok: false, message: err.message || 'Błąd propozycji PSEO' });
   }
 });
 

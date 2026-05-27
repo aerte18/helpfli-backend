@@ -229,6 +229,8 @@ const corsOptions = {
   allowedHeaders: [
     'Content-Type',
     'Authorization',
+    'X-Guest-Id',
+    'x-guest-id',
     'X-Requested-With',
     'Accept',
     'Origin',
