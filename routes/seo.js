@@ -25,6 +25,7 @@ const mongoose = require('mongoose');
 const SeoArticle = require('../models/SeoArticle');
 const Order = require('../models/Order');
 const Service = require('../models/Service');
+const Event = require('../models/Event');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const { requireRole } = require('../middleware/roles');
 const { generateAndStoreArticle } = require('../services/SeoArticleGenerator');
@@ -732,6 +733,142 @@ router.post('/admin/local/bulk-build', async (req, res) => {
  *  Podpowiedź "najlepszej" macierzy PSEO (miasta + usługi) na bazie popytu.
  *  Ranking usług: liczba zleceń z 90 dni + preferencja dla usług topowych.
  */
+/**
+ * GET /api/seo/admin/local/traffic?days=30
+ *  Ruch na stronach PSEO i poradnikach (telemetria page_view + licznik views w DB).
+ */
+router.get('/admin/local/traffic', async (req, res) => {
+  try {
+    if (!ensureMongoConnected(res)) return;
+    const days = Math.min(365, Math.max(7, parseInt(req.query.days, 10) || 30));
+    const start = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const end = new Date();
+    const pvMatch = { type: 'page_view', createdAt: { $gte: start, $lte: end } };
+
+    const [
+      totalPageViews,
+      pseoPageViews,
+      poradnikPageViews,
+      distinctSessions,
+      loggedInVisitors,
+      dailyPseo,
+      topPseoPaths,
+      topPoradnikPaths,
+      topDbPseo
+    ] = await Promise.all([
+      Event.countDocuments(pvMatch),
+      Event.countDocuments({ ...pvMatch, 'properties.path': { $regex: '^/wykonawcy/', $options: 'i' } }),
+      Event.countDocuments({ ...pvMatch, 'properties.path': { $regex: '^/poradnik/', $options: 'i' } }),
+      Event.distinct('sessionId', {
+        ...pvMatch,
+        sessionId: { $nin: [null, ''] }
+      }).then((ids) => ids.length),
+      Event.distinct('userId', {
+        ...pvMatch,
+        userId: { $ne: null }
+      }).then((ids) => ids.length),
+      Event.aggregate([
+        {
+          $match: {
+            ...pvMatch,
+            'properties.path': { $regex: '^/wykonawcy/', $options: 'i' }
+          }
+        },
+        {
+          $group: {
+            _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+            views: { $sum: 1 }
+          }
+        },
+        { $sort: { _id: 1 } }
+      ]),
+      Event.aggregate([
+        {
+          $match: {
+            ...pvMatch,
+            'properties.path': { $regex: '^/wykonawcy/', $options: 'i' }
+          }
+        },
+        {
+          $group: {
+            _id: '$properties.path',
+            views: { $sum: 1 },
+            sessions: { $addToSet: '$sessionId' }
+          }
+        },
+        {
+          $project: {
+            path: '$_id',
+            views: 1,
+            sessions: { $size: '$sessions' }
+          }
+        },
+        { $sort: { views: -1 } },
+        { $limit: 25 }
+      ]),
+      Event.aggregate([
+        {
+          $match: {
+            ...pvMatch,
+            'properties.path': { $regex: '^/poradnik/', $options: 'i' }
+          }
+        },
+        {
+          $group: {
+            _id: '$properties.path',
+            views: { $sum: 1 }
+          }
+        },
+        { $sort: { views: -1 } },
+        { $limit: 15 }
+      ]),
+      (async () => {
+        const SeoLocalPage = require('../models/SeoLocalPage');
+        return SeoLocalPage.find({ published: true })
+          .select('serviceSlug citySlug serviceName cityName views slug')
+          .sort({ views: -1 })
+          .limit(20)
+          .lean();
+      })()
+    ]);
+
+    const telemetryByPath = Object.fromEntries(
+      (topPseoPaths || [])
+        .filter((r) => r.path)
+        .map((r) => [String(r.path).split('?')[0], r.views])
+    );
+
+    res.json({
+      ok: true,
+      range: { days, from: start.toISOString(), to: end.toISOString() },
+      summary: {
+        totalPageViews,
+        pseoPageViews,
+        poradnikPageViews,
+        distinctSessions,
+        loggedInVisitors
+      },
+      dailyPseo: dailyPseo.map((r) => ({ date: r._id, views: r.views })),
+      topPseoPaths: topPseoPaths.map((r) => ({
+        path: r.path,
+        views: r.views,
+        sessions: r.sessions
+      })),
+      topPoradnikPaths: topPoradnikPaths.map((r) => ({ path: r._id, views: r.views })),
+      topDbPseo: topDbPseo.map((p) => ({
+        ...p,
+        path: `/wykonawcy/${p.serviceSlug}/${p.citySlug}`,
+        telemetryViews: telemetryByPath[`/wykonawcy/${p.serviceSlug}/${p.citySlug}`] || 0
+      })),
+      note:
+        'Dane z telemetrii wymagają zgody użytkownika na cookies/analitykę. Licznik „views” w DB rośnie przy każdym otwarciu strony PSEO przez API.'
+    });
+  } catch (err) {
+    logger.error?.('[SEO] PSEO traffic error:', err);
+    res.status(500).json({ ok: false, message: err.message || 'Błąd statystyk ruchu' });
+  }
+});
+
 router.get('/admin/local/suggest', async (req, res) => {
   try {
     if (!ensureMongoConnected(res)) return;

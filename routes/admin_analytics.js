@@ -1282,6 +1282,8 @@ router.get('/dashboard', authMiddleware, requireRole('admin'), async (_req, res)
     const days30Start = now.subtract(30, 'day').startOf('day').toDate();
     const nowDate = now.toDate();
 
+    const pv30Match = { type: 'page_view', createdAt: { $gte: days30Start, $lte: nowDate } };
+
     const [
       usersAccepted,
       newUsersMonth,
@@ -1291,7 +1293,10 @@ router.get('/dashboard', authMiddleware, requireRole('admin'), async (_req, res)
       recentOrdersRaw,
       topProblemTagsRaw,
       topProblemDisputesRaw,
-      topCitiesRaw
+      topCitiesRaw,
+      pageViews30d,
+      distinctSessions30d,
+      pseoPageViews30d
     ] = await Promise.all([
       User.countDocuments({ role: { $ne: 'admin' }, emailVerified: true, isActive: true }),
       User.countDocuments({ role: { $ne: 'admin' }, createdAt: { $gte: monthStart, $lte: nowDate } }),
@@ -1334,7 +1339,16 @@ router.get('/dashboard', authMiddleware, requireRole('admin'), async (_req, res)
         { $group: { _id: '$city', count: { $sum: 1 } } },
         { $sort: { count: -1 } },
         { $limit: 5 }
-      ])
+      ]),
+      Event.countDocuments(pv30Match),
+      Event.distinct('sessionId', {
+        ...pv30Match,
+        sessionId: { $nin: [null, ''] }
+      }).then((ids) => ids.length),
+      Event.countDocuments({
+        ...pv30Match,
+        'properties.path': { $regex: '^/wykonawcy/', $options: 'i' }
+      })
     ]);
 
     const mergedProblems = new Map();
@@ -1390,7 +1404,10 @@ router.get('/dashboard', authMiddleware, requireRole('admin'), async (_req, res)
         usersAccepted,
         newUsersMonth,
         gmv30d,
-        avgPrice
+        avgPrice,
+        pageViews30d,
+        distinctSessions30d,
+        pseoPageViews30d
       },
       recentUsers,
       recentOrders,
