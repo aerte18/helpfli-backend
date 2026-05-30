@@ -1526,6 +1526,13 @@ router.post('/', auth, async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
     
+    // Wykonawca nie zakłada firmy wieloosobowej z konta providera — tylko dołącza do zespołu
+    if (user.role === 'provider') {
+      return res.status(403).json({
+        message: 'Wykonawcy nie mogą zakładać firm wieloosobowych. Dołącz do istniejącego zespołu lub załóż osobne konto biznesowe.'
+      });
+    }
+
     // Sprawdź czy użytkownik może utworzyć firmę
     if (user.isInCompany()) {
       return res.status(400).json({ message: 'Już należysz do firmy' });

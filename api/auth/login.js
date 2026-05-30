@@ -54,7 +54,9 @@ module.exports = async function handler(req, res) {
 
     if (!process.env.JWT_SECRET) { res.statusCode = 500; return res.end(JSON.stringify({ message: 'Błąd konfiguracji serwera' })); }
 
-    await User.findByIdAndUpdate(user._id, { 'provider_status.isOnline': true, 'provider_status.lastSeenAt': new Date() });
+    if (user.role === 'provider') {
+      await User.findByIdAndUpdate(user._id, { 'provider_status.isOnline': true, 'provider_status.lastSeenAt': new Date() });
+    }
 
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
     const fresh = await User.findById(user._id).select('name email phone role isB2B onboardingCompleted');

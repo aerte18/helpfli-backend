@@ -38,7 +38,9 @@ function calculateBulkDiscount(quantity) {
 }
 
 router.post('/purchase', auth, async (req, res) => {
-	const { code, codes, requestInvoice = false } = req.body || {}; // codes - array kodów dla bulk purchase
+	const { code, codes, requestInvoice = false } = req.body || {};
+	const { isPlatformInvoicingEnabled } = require('../utils/platformInvoicing');
+	const wantsInvoice = isPlatformInvoicingEnabled() && !!requestInvoice;
 	
 	// Sprawdź subskrypcję użytkownika dla darmowych boostów
 	const UserSubscription = require('../models/UserSubscription');
@@ -77,7 +79,7 @@ router.post('/purchase', auth, async (req, res) => {
 				amount: Math.round(paymentAmount * 100), // w groszach
 				currency: 'pln',
 				status: 'succeeded',
-				requestInvoice: requestInvoice || false,
+				requestInvoice: wantsInvoice,
 				metadata: { boostCode: code, type: 'boost_purchase' }
 			});
 		}
@@ -160,7 +162,7 @@ router.post('/purchase', auth, async (req, res) => {
 				amount: Math.round(totalPriceAfterDiscount * 100), // w groszach
 				currency: 'pln',
 				status: 'succeeded',
-				requestInvoice: requestInvoice || false,
+				requestInvoice: wantsInvoice,
 				metadata: { 
 					boostCodes: codes,
 					bulkPurchase: true,

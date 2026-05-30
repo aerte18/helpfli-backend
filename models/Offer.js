@@ -43,6 +43,9 @@ const OfferSchema = new mongoose.Schema({
   // Gwarancja (opcjonalna)
   hasGuarantee: { type: Boolean, default: false },
   guaranteeDetails: { type: String, default: "" },
+
+  /** Snapshot: czy wykonawca wystawia fakturę VAT (z profilu w momencie składania oferty) */
+  issuesInvoice: { type: Boolean, default: false },
   
   // Status (ujednolicony z planem MVP)
   status: {

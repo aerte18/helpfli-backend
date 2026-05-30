@@ -50,6 +50,8 @@ router.get('/me/status', authMiddleware, async (req, res) => {
 router.post('/create-intent', authMiddleware, requireKycVerified, async (req, res) => {
   try {
     const { planId, couponCode, requestInvoice = false } = req.body || {};
+    const { isPlatformInvoicingEnabled } = require('../utils/platformInvoicing');
+    const wantsInvoice = isPlatformInvoicingEnabled() && !!requestInvoice;
     const provider = await User.findById(req.user._id);
     if (provider.role !== 'provider') return res.status(403).json({ message: 'Tylko wykonawca' });
 
@@ -119,6 +121,7 @@ router.post('/create-intent', authMiddleware, requireKycVerified, async (req, re
       status: paymentIntentStatusForPaymentModel(intent.status),
       platformFeePercent: 0, // brak prowizji platformy przy prostym wariancie
       platformFeeAmount: 0,
+      requestInvoice: wantsInvoice,
       metadata: intent.metadata,
     });
 

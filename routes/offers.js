@@ -521,6 +521,7 @@ router.post("/", auth, async (req, res) => {
       paymentMethod: paymentMethod || null, // Metoda płatności (tylko jeśli klient wybrał "both")
       hasGuarantee: hasGuarantee || false,
       guaranteeDetails: guaranteeDetails || "",
+      issuesInvoice: !!(provider.isB2B || provider.b2b),
       status: 'sent',
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24h domyślnie
       // Legacy fields (kompatybilność wsteczna)
@@ -887,6 +888,7 @@ router.get("/of-order", auth, async (req, res) => {
           contactMethod: 1,
           hasGuarantee: 1,
           guaranteeDetails: 1,
+          issuesInvoice: 1,
           // Legacy fields (kompatybilność wsteczna)
           amount: { $ifNull: ["$amount", "$price"] }, // Fallback do price jeśli brak amount
           message: { $ifNull: ["$message", "$notes"] }, // Fallback do notes jeśli brak message
@@ -918,10 +920,13 @@ router.get("/of-order", auth, async (req, res) => {
     const enriched = items.map((o) => {
       const p = o.provider;
       const foundingActive = p && isFoundingProviderActive(p);
+      const issuesInvoice = !!(o.issuesInvoice || p?.isB2B || p?.b2b);
       return {
         ...o,
+        issuesInvoice,
         providerMeta: {
           ...(o.providerMeta || {}),
+          issuesInvoice,
           foundingProviderActive: !!foundingActive,
           foundingCommissionWaived: foundingActive && getFoundingCommissionDiscountPercent(p) >= 100,
           foundingExpiresAt: foundingActive ? p.foundingProviderExpiresAt : null,

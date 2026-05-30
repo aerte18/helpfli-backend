@@ -409,6 +409,8 @@ router.get('/:id/mini', async (req, res) => {
       onTimeRate,
       responseTimeMin,
       // B2B i subscription data
+      b2b: !!(user.b2b || user.isB2B),
+      issuesInvoice: !!(user.b2b || user.isB2B),
       company: user.company ? {
         _id: user.company._id,
         name: user.company.name,

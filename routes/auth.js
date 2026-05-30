@@ -137,10 +137,11 @@ router.post('/login', async (req, res) => {
 
     // Gamification: aktualizuj login streak i przyznaj punkty za daily login
     const userForStreak = await User.findById(user._id);
-    const updateData = {
-      'provider_status.isOnline': true,
-      'provider_status.lastSeenAt': new Date()
-    };
+    const updateData = {};
+    if (user.role === 'provider') {
+      updateData['provider_status.isOnline'] = true;
+      updateData['provider_status.lastSeenAt'] = new Date();
+    }
     
     if (userForStreak) {
       const lastLogin = userForStreak.gamification?.lastLoginDate;
@@ -665,11 +666,12 @@ router.post('/dev/elevate-admin', authMiddleware, async (req, res) => {
 // Wylogowanie - ustaw status offline
 router.post('/logout', authMiddleware, async (req, res) => {
   try {
-    // Ustaw status offline przy wylogowaniu
-    await User.findByIdAndUpdate(req.user.id, {
-      'provider_status.isOnline': false,
-      'provider_status.lastSeenAt': new Date()
-    });
+    if (req.user.role === 'provider') {
+      await User.findByIdAndUpdate(req.user.id, {
+        'provider_status.isOnline': false,
+        'provider_status.lastSeenAt': new Date()
+      });
+    }
     
     res.json({ message: 'Wylogowano pomyślnie' });
   } catch (err) {

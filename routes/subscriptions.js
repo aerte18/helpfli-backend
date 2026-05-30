@@ -135,6 +135,8 @@ router.get('/plans', async (req, res) => {
 
 router.post('/subscribe', auth, async (req, res) => {
   const { planKey, billingPeriod = 'monthly', referralCode, earlyAdopter = false, requestInvoice = false } = req.body || {};
+  const { isPlatformInvoicingEnabled } = require('../utils/platformInvoicing');
+  const wantsInvoice = isPlatformInvoicingEnabled() && !!requestInvoice;
   const requestedAudience = getPlanAudience(planKey);
   if (requestedAudience === 'unknown') {
     return res.status(400).json({ message: 'Nieprawidłowy typ planu subskrypcji' });
@@ -255,6 +257,7 @@ router.post('/subscribe', auth, async (req, res) => {
       amount,
       currency: CURRENCY,
       status: 'succeeded',
+      requestInvoice: wantsInvoice,
       metadata: {
         type: 'subscription',
         planKey: plan.key,
@@ -609,6 +612,7 @@ router.post('/subscribe', auth, async (req, res) => {
       currency: CURRENCY,
       method: 'unknown',
       status: paymentIntentStatusForPaymentModel(payCtx.paymentIntent?.status),
+      requestInvoice: wantsInvoice,
       stripeSubscriptionId: subscription.id,
       stripeCustomerId: customerId,
       stripeInvoiceId: invoice?.id,

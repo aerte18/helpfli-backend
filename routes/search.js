@@ -3,7 +3,6 @@ const User = require("../models/User");
 const Rating = require("../models/Rating");
 const Service = require("../models/Service");
 const Verification = require("../models/Verification");
-const ProviderSchedule = require("../models/ProviderSchedule");
 const UserSubscription = require("../models/UserSubscription");
 const { getPromoBoost } = require("../utils/promo");
 const { computeScore } = require("../utils/rank");
@@ -152,32 +151,11 @@ router.get("/", validateSearch, async (req, res) => {
     if (verifiedOnlyFilter) {
       match.badges = { $in: ["verified"] };
     }
-    
-    // MVP: Filtr "Dostępny teraz" - użyj ProviderProfile jeśli dostępne
-    if (availableNow === 'true') {
-      // Najpierw spróbuj użyć ProviderProfile
-      try {
-        const ProviderProfile = require('../models/ProviderProfile');
-        // Jeśli ProviderProfile istnieje, użyj go do filtrowania
-        // W przeciwnym razie użyj podstawowego isOnline
-        match["provider_status.isOnline"] = true;
-      } catch (profileError) {
-        // Fallback do podstawowego isOnline
-        match["provider_status.isOnline"] = true;
-      }
-    } else if (available && available !== 'any') {
-      // Filtr dostępności (now/today/tomorrow/offline)
-      if (available === 'now') {
-        match["provider_status.isOnline"] = true;
-      } else if (available === 'offline') {
-        match["provider_status.isOnline"] = false;
-      }
-      // "today" i "tomorrow" - sprawdź harmonogram (będzie zastosowane po pobraniu providerów)
-    }
 
-    // Filtr B2B
+    // Filtr: wystawia fakturę VAT
     if (b2b === 'true' || b2b === true) {
-      match.b2b = true;
+      if (!match.$and) match.$and = [];
+      match.$and.push({ $or: [{ b2b: true }, { isB2B: true }] });
     }
 
     // Filtr metody płatności (klient szuka wykonawców akceptujących dany typ)
@@ -245,7 +223,7 @@ router.get("/", validateSearch, async (req, res) => {
     const searchLimit = Math.min(Math.max(parseInt(limit, 10) || 120, 1), 300);
 
     let providers = await User.find(match)
-      .select("name level location locationCoords price time services provider_status promo badges kyc rankingPoints providerTier isTopProvider hasHelpfliGuarantee b2b company headline bio avatar foundingProvider foundingProviderExpiresAt priorityScoreBoost commissionDiscountPercent")
+      .select("name level location locationCoords price time services provider_status promo badges kyc rankingPoints providerTier isTopProvider hasHelpfliGuarantee b2b isB2B company headline bio avatar foundingProvider foundingProviderExpiresAt priorityScoreBoost commissionDiscountPercent")
       .limit(searchLimit)
       .lean();
     
@@ -369,40 +347,6 @@ router.get("/", validateSearch, async (req, res) => {
       subscriptionMap.set(String(sub.user), sub.planKey);
     });
     
-    // Filtruj po harmonogramie jeśli wybrano "today" lub "tomorrow"
-    if (available && (available === 'today' || available === 'tomorrow')) {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const targetDate = new Date(today);
-      if (available === 'tomorrow') {
-        targetDate.setDate(targetDate.getDate() + 1);
-      }
-      
-      // Pobierz harmonogramy dla wszystkich providerów
-      const providerIds = providers.map(p => p._id);
-      const schedules = await ProviderSchedule.find({ 
-        $or: [
-          { user: { $in: providerIds } },
-          { provider: { $in: providerIds } } // Kompatybilność wsteczna
-        ],
-        useCalendar: true
-      }).lean();
-      
-      // Importuj helper z providerSchedule
-      const { isProviderAvailable } = require('./providerSchedule');
-      
-      // Filtruj providerów używając helpera
-      const filteredProviders = [];
-      for (const p of providers) {
-        const isAvailable = await isProviderAvailable(p._id, targetDate);
-        if (isAvailable) {
-          filteredProviders.push(p);
-        }
-      }
-      
-      providers = filteredProviders;
-    }
-    
     // Nazwy dopasowanych usług (bez CastError przy slugach zamiast ObjectId)
     let namesById = {};
     let matchedServiceNames = [];
@@ -418,31 +362,6 @@ router.get("/", validateSearch, async (req, res) => {
     const allServices = await Service.find({ _id: { $in: allServiceIds } }).lean();
     const allNamesById = Object.fromEntries(allServices.map(s => [String(s._id), s.name_pl || s.name_en]));
 
-    const availabilityMap = new Map();
-    const shouldComputeRealtimeAvailability =
-      String(availableNow || '').toLowerCase() === 'true' || String(available || '') === 'now';
-
-    if (shouldComputeRealtimeAvailability) {
-      // Real-time availability jest kosztowne; licz tylko gdy naprawdę potrzebne.
-      const { isProviderAvailableNow } = require('./providerSchedule');
-      const availabilityPromises = providers.map(async (p) => {
-        try {
-          const nowAvailable = await isProviderAvailableNow(p._id);
-          return { providerId: String(p._id), availableNow: nowAvailable };
-        } catch (error) {
-          console.error(`Error checking availability for provider ${p._id}:`, error);
-          return { providerId: String(p._id), availableNow: p.provider_status?.isOnline || false };
-        }
-      });
-      (await Promise.all(availabilityPromises)).forEach(({ providerId, availableNow: nowAvailable }) => {
-        availabilityMap.set(providerId, nowAvailable);
-      });
-    } else {
-      providers.forEach((p) => {
-        availabilityMap.set(String(p._id), p.provider_status?.isOnline || false);
-      });
-    }
-    
     let results = await Promise.all(
       providers.map(async (p) => {
         try {
@@ -476,8 +395,7 @@ router.get("/", validateSearch, async (req, res) => {
           ]
         }).lean();
         
-        // Pobierz dostępność "teraz" z harmonogramu (lub użyj podstawowego isOnline)
-        const availableNow = availabilityMap.get(String(p._id)) || p.provider_status?.isOnline || false;
+        const isOnline = p.provider_status?.isOnline === true;
         
         // MVP: Calculate ETA based on distance if available
         const providerLevel = p.level || "basic";
@@ -515,8 +433,7 @@ router.get("/", validateSearch, async (req, res) => {
           matchedServices: serviceParam ? resolvedServiceDocs.map((d) => String(d._id)) : [],
           provider_status: {
             ...(p.provider_status || { isOnline: false }),
-            isOnline: availableNow, // Nadpisz isOnline dostępnością z harmonogramu
-            availableNow: availableNow // Dodaj również jako osobne pole dla czytelności
+            isOnline,
           },
           promo: p.promo || {},
           avgRating: Number(avg.toFixed(2)), // dla computeScore
@@ -535,7 +452,7 @@ router.get("/", validateSearch, async (req, res) => {
           kyc: p.kyc || { status: 'not_started' }, // status KYC dla badge'ów
           service: p.service || null, // główna usługa
           verified: p.verified || false, // status weryfikacji
-          b2b: p.b2b || false, // czy B2B
+          b2b: !!(p.b2b || p.isB2B), // wystawia fakturę VAT
           providerTier: p.providerTier || 'basic', // tier providera
           isTopProvider: p.isTopProvider || false, // Top Provider na mapie
           hasHelpfliGuarantee: p.hasHelpfliGuarantee || false, // Gwarancja Helpfli+
@@ -757,21 +674,6 @@ router.get("/top", async (req, res) => {
       parseFloat(proPercentage) || 0.5
     );
 
-    // Pobierz dostępność "teraz" dla wszystkich TOP providerów
-    const { isProviderAvailableNow } = require('./providerSchedule');
-    const availabilityPromisesTop = rankedProviders.map(async (p) => {
-      try {
-        const availableNow = await isProviderAvailableNow(p._id);
-        return { providerId: String(p._id), availableNow };
-      } catch (error) {
-        return { providerId: String(p._id), availableNow: p.provider_status?.isOnline || false };
-      }
-    });
-    const availabilityMapTop = new Map();
-    (await Promise.all(availabilityPromisesTop)).forEach(({ providerId, availableNow }) => {
-      availabilityMapTop.set(providerId, availableNow);
-    });
-
     // Przygotuj dane do zwrócenia (kompatybilność z frontendem)
     const topProviders = await Promise.all(
       rankedProviders.map(async (p) => {
@@ -802,8 +704,7 @@ router.get("/top", async (req, res) => {
           ]
         }).lean();
         
-        // Pobierz dostępność "teraz" z harmonogramu
-        const availableNow = availabilityMapTop.get(String(p._id)) || p.provider_status?.isOnline || false;
+        const isOnline = p.provider_status?.isOnline === true;
         
         return {
           _id: p._id,
@@ -821,8 +722,7 @@ router.get("/top", async (req, res) => {
           ratingCount: ratings.length,
           provider_status: {
             ...(p.provider_status || { isOnline: false }),
-            isOnline: availableNow,
-            availableNow: availableNow
+            isOnline,
           },
           promo: p.promo || {},
           badges: p.badges || [],
@@ -834,7 +734,7 @@ router.get("/top", async (req, res) => {
           kyc: p.kyc || { status: 'not_started' },
           service: p.service || null,
           verified: p.verified || false,
-          b2b: p.b2b || false,
+          b2b: !!(p.b2b || p.isB2B),
           providerTier: p.providerTier || 'basic',
           isTopProvider: p.isTopProvider || false,
           hasHelpfliGuarantee: p.hasHelpfliGuarantee || false,
@@ -941,19 +841,15 @@ router.get("/providers", async (req, res) => {
       match.location = { $regex: new RegExp(city, "i") };
     }
 
-    // Filtr dostępności
-    if (availableNow === 'true') {
-      match["provider_status.isOnline"] = true;
-    }
-
     // Filtr weryfikacji
     if (verified === 'true') {
       match.badges = { $in: ["verified"] };
     }
 
-    // Filtr B2B
+    // Filtr: wystawia fakturę VAT
     if (b2b === 'true') {
-      match.b2b = true;
+      if (!match.$and) match.$and = [];
+      match.$and.push({ $or: [{ b2b: true }, { isB2B: true }] });
     }
 
     // Filtr tier/level (akceptuj oba dla kompatybilności)
@@ -1002,7 +898,7 @@ router.get("/providers", async (req, res) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
     const providers = await User.find(match)
-      .select("name level location locationCoords price time services provider_status promo badges kyc rankingPoints providerTier isTopProvider hasHelpfliGuarantee b2b instantChat vatInvoice bio headline avatar foundingProvider foundingProviderExpiresAt priorityScoreBoost")
+      .select("name level location locationCoords price time services provider_status promo badges kyc rankingPoints providerTier isTopProvider hasHelpfliGuarantee b2b isB2B instantChat vatInvoice bio headline avatar foundingProvider foundingProviderExpiresAt priorityScoreBoost")
       .skip(skip)
       .limit(parseInt(limit));
     
@@ -1013,21 +909,6 @@ router.get("/providers", async (req, res) => {
     const allServices = await Service.find({ _id: { $in: allServiceIds } }).lean();
     const allNamesById = Object.fromEntries(allServices.map(s => [String(s._id), s.name_pl || s.name_en]));
 
-    // Pobierz dostępność "teraz" dla wszystkich providerów
-    const { isProviderAvailableNow } = require('./providerSchedule');
-    const availabilityPromises2 = providers.map(async (p) => {
-      try {
-        const availableNow = await isProviderAvailableNow(p._id);
-        return { providerId: String(p._id), availableNow };
-      } catch (error) {
-        return { providerId: String(p._id), availableNow: p.provider_status?.isOnline || false };
-      }
-    });
-    const availabilityMap2 = new Map();
-    (await Promise.all(availabilityPromises2)).forEach(({ providerId, availableNow }) => {
-      availabilityMap2.set(providerId, availableNow);
-    });
-    
     let results = await Promise.all(
       providers.map(async (p) => {
         const ratings = await Rating.find({ to: p._id });
@@ -1044,8 +925,7 @@ router.get("/providers", async (req, res) => {
         const latOffset = (parseInt(userId.slice(-4), 16) % 100 - 50) / 1000 * offset;
         const lngOffset = (parseInt(userId.slice(-8, -4), 16) % 100 - 50) / 1000 * offset;
         
-        // Pobierz dostępność "teraz" z harmonogramu
-        const availableNow = availabilityMap2.get(String(p._id)) || p.provider_status?.isOnline || false;
+        const isOnline = p.provider_status?.isOnline === true;
         
         const providerData = {
           _id: p._id,
@@ -1064,8 +944,7 @@ router.get("/providers", async (req, res) => {
           ratingCount: ratings.length,
           provider_status: {
             ...(p.provider_status || { isOnline: false }),
-            isOnline: availableNow,
-            availableNow: availableNow
+            isOnline,
           },
           promo: p.promo || {},
           badges: p.badges || [],
@@ -1077,7 +956,7 @@ router.get("/providers", async (req, res) => {
           kyc: p.kyc || { status: 'not_started' },
           service: p.service || null,
           verified: p.verified || false,
-          b2b: p.b2b || false,
+          b2b: !!(p.b2b || p.isB2B),
           providerTier: p.providerTier || 'basic',
           isTopProvider: p.isTopProvider || false,
           hasHelpfliGuarantee: p.hasHelpfliGuarantee || false,

@@ -477,7 +477,8 @@ router.post("/", auth, async (req, res) => {
       aiBrief,
       paymentPreference = "system", // MVP: 'system' | 'external'
       paymentMethod = "system", // Legacy: 'system' | 'external'
-      orderMode = "standard" // 'standard' | 'offers_only'
+      orderMode = "standard", // 'standard' | 'offers_only'
+      requestInvoice = false // Klient prosi o fakturę VAT od wykonawcy
     } = req.body;
 
     // Attachments can arrive as JSON string or objects array.
@@ -631,6 +632,10 @@ router.post("/", auth, async (req, res) => {
       aiTriage: aiTriage || null,
       ...(normalizedAiBrief ? { aiBrief: normalizedAiBrief, source: 'ai' } : {}),
       orderMode: normalizedOrderMode,
+      requestInvoice:
+        normalizedOrderMode === 'offers_only' || normalizedPaymentPreference === 'external'
+          ? false
+          : !!requestInvoice,
       // Payment preferences (paymentPreference = flow: system vs external; paymentMethod = konkretna metoda Stripe, domyślnie unknown)
       paymentPreference: normalizedPaymentPreference, // 'system' | 'external'
       // paymentMethod w schemie Order to enum ['card','p24','blik','unknown'] – nie ustawiać na 'system'/'external'
@@ -3318,8 +3323,27 @@ router.post('/:id/invoice', auth, uploadInvoice.single('invoice'), async (req, r
     }
     
     // Sprawdź czy zlecenie jest zakończone
-    if (order.status !== 'completed' && order.status !== 'rated') {
-      return res.status(400).json({ message: 'Fakturę można wrzucić tylko dla zakończonych zleceń' });
+    if (order.status !== 'completed' && order.status !== 'rated' && order.status !== 'released') {
+      return res.status(400).json({ message: 'Fakturę można wrzucić dopiero po rozliczeniu zlecenia' });
+    }
+
+    // Tylko przy płatności przez Helpfli (nie płatność poza systemem / offers_only)
+    const isExternal =
+      order.paymentPreference === 'external' ||
+      order.paymentMethod === 'external' ||
+      order.orderMode === 'offers_only';
+    if (isExternal) {
+      return res.status(400).json({
+        message: 'Załączanie faktury w platformie dotyczy tylko zleceń opłaconych przez Helpfli. Przy płatności poza systemem ustal fakturę bezpośrednio z klientem.'
+      });
+    }
+
+    const paidViaHelpfli =
+      order.paidInSystem ||
+      order.paymentStatus === 'succeeded' ||
+      ['funded', 'paid', 'released'].includes(order.status);
+    if (!paidViaHelpfli) {
+      return res.status(400).json({ message: 'Fakturę można wrzucić po opłaceniu zlecenia przez Helpfli' });
     }
     
     // Sprawdź czy klient prosił o fakturę

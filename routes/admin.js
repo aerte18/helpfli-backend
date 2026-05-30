@@ -1,4 +1,7 @@
 const express = require('express');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const adminMiddleware = require('../middleware/adminMiddleware');
 const User = require('../models/User');
@@ -12,9 +15,38 @@ const Company = require('../models/Company');
 const Payment = require('../models/Payment');
 const NotificationService = require('../services/NotificationService');
 const { validateNIP } = require('../utils/companyValidation');
+const { isPlatformInvoicingEnabled } = require('../utils/platformInvoicing');
 const { recomputeTopAiBadge } = require("../utils/topAiBadge");
 
 const router = express.Router();
+
+const UPLOAD_DIR_ABS = path.isAbsolute(process.env.UPLOAD_DIR || '')
+  ? (process.env.UPLOAD_DIR || path.join(__dirname, '..', 'uploads'))
+  : path.join(__dirname, '..', process.env.UPLOAD_DIR || 'uploads');
+
+const platformInvoiceStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    const dir = path.join(UPLOAD_DIR_ABS, 'platform', 'invoices');
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (_req, file, cb) => {
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    cb(null, `helpfli-invoice-${uniqueSuffix}${path.extname(file.originalname)}`);
+  },
+});
+
+const uploadPlatformInvoice = multer({
+  storage: platformInvoiceStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok = file.mimetype === 'application/pdf' && /\.pdf$/i.test(file.originalname);
+    if (ok) return cb(null, true);
+    return cb(new Error('Tylko pliki PDF'));
+  },
+});
+
+const toPlatformInvoiceUrl = (filename) => `/uploads/platform/invoices/${filename}`;
 
 // Zabezpieczenie – tylko admin
 router.use(authMiddleware, adminMiddleware);
@@ -593,6 +625,7 @@ router.get('/invoices', async (req, res) => {
         issuedAt: inv.issuedAt,
         dueDate: inv.dueDate,
         paidAt: inv.paidAt,
+        pdfUrl: inv.pdfUrl,
         createdAt: inv.createdAt
       })),
       ...companyInvoices.map(inv => ({
@@ -605,6 +638,7 @@ router.get('/invoices', async (req, res) => {
         issuedAt: inv.issuedAt,
         dueDate: inv.dueDate,
         paidAt: inv.paidAt,
+        pdfUrl: inv.pdfUrl,
         createdAt: inv.createdAt
       }))
     ].sort((a, b) => new Date(b.issuedAt || b.createdAt) - new Date(a.issuedAt || a.createdAt));
@@ -621,6 +655,151 @@ router.get('/invoices', async (req, res) => {
       message: 'Błąd pobierania faktur', 
       error: error.message 
     });
+  }
+});
+
+// POST /api/admin/payments/:paymentId/attach-invoice — admin wrzuca PDF faktury i wysyła do klienta
+router.post('/payments/:paymentId/attach-invoice', uploadPlatformInvoice.single('invoice'), async (req, res) => {
+  try {
+    const { paymentId } = req.params;
+    const { invoiceNumber } = req.body || {};
+
+    const payment = await Payment.findById(paymentId)
+      .populate('subscriptionUser', 'name email billing')
+      .populate('client', 'name email billing')
+      .populate('provider', 'name email billing');
+
+    if (!payment) {
+      return res.status(404).json({ message: 'Płatność nie znaleziona' });
+    }
+    if (!payment.requestInvoice) {
+      return res.status(400).json({ message: 'Klient nie prosił o fakturę przy tej płatności' });
+    }
+    if (payment.status !== 'succeeded') {
+      return res.status(400).json({ message: 'Faktura tylko dla udanych płatności' });
+    }
+    if (payment.invoice) {
+      return res.status(400).json({ message: 'Faktura już wystawiona', invoiceId: payment.invoice });
+    }
+    if (!req.file) {
+      return res.status(400).json({ message: 'Brak pliku PDF faktury' });
+    }
+
+    let owner = payment.subscriptionUser || payment.client || payment.provider;
+    if (!owner) {
+      return res.status(400).json({ message: 'Nie można określić odbiorcy faktury' });
+    }
+
+    const customerType = owner.billing?.customerType || 'individual';
+    const buyerName = customerType === 'company'
+      ? (owner.billing?.companyName || owner.name || owner.email)
+      : (owner.name || owner.email);
+
+    let itemDescription = 'Usługa Helpfli';
+    if (payment.purpose === 'subscription') {
+      itemDescription = `Subskrypcja ${payment.subscriptionPlanKey || ''}`.trim();
+    } else if (payment.purpose === 'promotion') {
+      itemDescription = payment.metadata?.description || 'Promowanie / Boost Helpfli';
+    }
+
+    const grossAmount = payment.amount;
+    const taxRate = 23;
+    const subtotal = Math.round(grossAmount / (1 + taxRate / 100));
+    const taxAmount = grossAmount - subtotal;
+    const pdfUrl = toPlatformInvoiceUrl(req.file.filename);
+    const saleDate = payment.createdAt || new Date();
+    const dueDate = new Date(saleDate);
+    dueDate.setDate(dueDate.getDate() + 14);
+
+    const invoice = await Invoice.create({
+      ownerType: 'user',
+      owner: owner._id,
+      source: payment.purpose === 'subscription' ? 'subscription' : payment.purpose === 'promotion' ? 'promotion' : 'manual',
+      payment: payment._id,
+      invoiceNumber: invoiceNumber || undefined,
+      saleDate,
+      dueDate,
+      buyer: {
+        name: buyerName,
+        email: owner.email,
+        nip: customerType === 'company' ? (owner.billing?.nip || '') : '',
+        address: {
+          street: owner.billing?.street || '',
+          city: owner.billing?.city || '',
+          postalCode: owner.billing?.postalCode || '',
+          country: owner.billing?.country || 'Polska',
+        },
+      },
+      seller: {
+        name: process.env.INVOICE_SELLER_NAME || 'Helpfli',
+        nip: process.env.INVOICE_SELLER_NIP || '',
+        address: {
+          street: process.env.INVOICE_SELLER_STREET || '',
+          city: process.env.INVOICE_SELLER_CITY || '',
+          postalCode: process.env.INVOICE_SELLER_POSTAL || '',
+          country: process.env.INVOICE_SELLER_COUNTRY || 'Polska',
+        },
+      },
+      items: [{
+        description: itemDescription,
+        quantity: 1,
+        unitPrice: subtotal,
+        totalPrice: subtotal,
+      }],
+      summary: {
+        subtotal,
+        taxRate,
+        taxAmount,
+        total: grossAmount,
+        currency: (payment.currency || 'pln').toUpperCase(),
+      },
+      status: 'sent',
+      pdfUrl,
+      pdfGeneratedAt: new Date(),
+      metadata: {
+        attachedByAdmin: req.user._id,
+        attachedAt: new Date(),
+        emailSentAt: null,
+        paymentPurpose: payment.purpose,
+      },
+    });
+
+    payment.invoice = invoice._id;
+    await payment.save();
+
+    const baseUrl = process.env.FRONTEND_URL || process.env.API_URL || '';
+    const fullPdfUrl = `${baseUrl}${pdfUrl}`;
+
+    try {
+      await NotificationService.sendNotification(
+        'client_invoice_issued',
+        [owner._id],
+        {
+          clientName: buyerName,
+          invoiceNumber: invoice.invoiceNumber,
+          amount: (grossAmount / 100).toFixed(2),
+          pdfUrl: fullPdfUrl,
+        }
+      );
+      invoice.metadata = { ...invoice.metadata, emailSentAt: new Date() };
+      await invoice.save();
+    } catch (notifyErr) {
+      console.error('ADMIN_ATTACH_INVOICE_NOTIFY_ERROR:', notifyErr);
+    }
+
+    res.json({
+      success: true,
+      message: 'Faktura załączona i wysłana do klienta',
+      invoice: {
+        _id: invoice._id,
+        invoiceNumber: invoice.invoiceNumber,
+        pdfUrl: invoice.pdfUrl,
+        emailSent: !!invoice.metadata?.emailSentAt,
+      },
+    });
+  } catch (error) {
+    console.error('ADMIN_ATTACH_INVOICE_ERROR:', error);
+    res.status(500).json({ message: 'Błąd załączania faktury', error: error.message });
   }
 });
 

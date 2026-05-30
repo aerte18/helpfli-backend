@@ -24,6 +24,7 @@ const authMiddleware = async (req, res, next) => {
         .select('-password')
         .populate('services', 'name_pl name_en parent_slug slug code icon');
       await User.findByIdAndUpdate(req.user._id, {
+        'provider_status.isOnline': true,
         'provider_status.lastSeenAt': new Date(),
       });
     }
