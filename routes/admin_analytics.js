@@ -1296,7 +1296,8 @@ router.get('/dashboard', authMiddleware, requireRole('admin'), async (_req, res)
       topCitiesRaw,
       pageViews30d,
       distinctSessions30d,
-      pseoPageViews30d
+      pseoPageViews30d,
+      allVisits30d
     ] = await Promise.all([
       User.countDocuments({ role: { $ne: 'admin' }, emailVerified: true, isActive: true }),
       User.countDocuments({ role: { $ne: 'admin' }, createdAt: { $gte: monthStart, $lte: nowDate } }),
@@ -1348,7 +1349,17 @@ router.get('/dashboard', authMiddleware, requireRole('admin'), async (_req, res)
       Event.countDocuments({
         ...pv30Match,
         'properties.path': { $regex: '^/wykonawcy/', $options: 'i' }
-      })
+      }),
+      (async () => {
+        const SiteVisitDaily = require('../models/SiteVisitDaily');
+        const from = dayjs(days30Start).format('YYYY-MM-DD');
+        const to = dayjs(nowDate).format('YYYY-MM-DD');
+        const r = await SiteVisitDaily.aggregate([
+          { $match: { date: { $gte: from, $lte: to }, path: '__total__' } },
+          { $group: { _id: null, total: { $sum: '$count' } } }
+        ]);
+        return r[0]?.total || 0;
+      })()
     ]);
 
     const mergedProblems = new Map();
@@ -1406,6 +1417,7 @@ router.get('/dashboard', authMiddleware, requireRole('admin'), async (_req, res)
         gmv30d,
         avgPrice,
         pageViews30d,
+        allVisits30d,
         distinctSessions30d,
         pseoPageViews30d
       },
@@ -1428,12 +1440,18 @@ router.get('/product-insights', authMiddleware, requireRole('admin'), async (req
     const start = from.startOf('day').toDate();
     const end = to.endOf('day').toDate();
 
+    const SiteVisitDaily = require('../models/SiteVisitDaily');
+    const dateFrom = dateOnly(start);
+    const dateTo = dateOnly(end);
+
     const [
       pageViewsTotal,
       searchEventsTotal,
       distinctSessions,
+      allVisitsTotal,
       topPaths,
       dailyPageViews,
+      dailyAllVisits,
       topSearches,
       zeroResultSearches,
       lowResultSearches,
@@ -1448,6 +1466,10 @@ router.get('/product-insights', authMiddleware, requireRole('admin'), async (req
         createdAt: { $gte: start, $lte: end },
         sessionId: { $nin: [null, ''] }
       }).then((ids) => ids.length),
+      SiteVisitDaily.aggregate([
+        { $match: { date: { $gte: dateFrom, $lte: dateTo }, path: '__total__' } },
+        { $group: { _id: null, total: { $sum: '$count' } } }
+      ]).then((r) => r[0]?.total || 0),
       TelemetryService.getPopularPages(start, end, 30),
       Event.aggregate([
         { $match: { type: 'page_view', createdAt: { $gte: start, $lte: end } } },
@@ -1457,6 +1479,11 @@ router.get('/product-insights', authMiddleware, requireRole('admin'), async (req
             views: { $sum: 1 }
           }
         },
+        { $sort: { _id: 1 } }
+      ]),
+      SiteVisitDaily.aggregate([
+        { $match: { date: { $gte: dateFrom, $lte: dateTo }, path: '__total__' } },
+        { $group: { _id: '$date', views: { $sum: '$count' } } },
         { $sort: { _id: 1 } }
       ]),
       Event.aggregate([
@@ -1663,11 +1690,13 @@ router.get('/product-insights', authMiddleware, requireRole('admin'), async (req
       range: { from: dateOnly(start), to: dateOnly(end) },
       traffic: {
         pageViews: pageViewsTotal,
+        allVisits: allVisitsTotal,
         searchEvents: searchEventsTotal,
         distinctSessionsApprox: distinctSessions
       },
       topPaths,
       dailyPageViews,
+      dailyAllVisits: dailyAllVisits.map((r) => ({ date: r._id, views: r.views })),
       topSearches: topSearches.map((r) => ({
         query: r._id,
         count: r.count,

@@ -745,12 +745,17 @@ router.get('/admin/local/traffic', async (req, res) => {
     const end = new Date();
     const pvMatch = { type: 'page_view', createdAt: { $gte: start, $lte: end } };
 
+    const SiteVisitDaily = require('../models/SiteVisitDaily');
+    const dateFrom = start.toISOString().slice(0, 10);
+    const dateTo = end.toISOString().slice(0, 10);
+
     const [
       totalPageViews,
       pseoPageViews,
       poradnikPageViews,
       distinctSessions,
       loggedInVisitors,
+      allVisitsTotal,
       dailyPseo,
       topPseoPaths,
       topPoradnikPaths,
@@ -767,6 +772,10 @@ router.get('/admin/local/traffic', async (req, res) => {
         ...pvMatch,
         userId: { $ne: null }
       }).then((ids) => ids.length),
+      SiteVisitDaily.aggregate([
+        { $match: { date: { $gte: dateFrom, $lte: dateTo }, path: '__total__' } },
+        { $group: { _id: null, total: { $sum: '$count' } } }
+      ]).then((r) => r[0]?.total || 0),
       Event.aggregate([
         {
           $match: {
@@ -843,6 +852,7 @@ router.get('/admin/local/traffic', async (req, res) => {
       range: { days, from: start.toISOString(), to: end.toISOString() },
       summary: {
         totalPageViews,
+        allVisits: allVisitsTotal,
         pseoPageViews,
         poradnikPageViews,
         distinctSessions,
@@ -861,7 +871,7 @@ router.get('/admin/local/traffic', async (req, res) => {
         telemetryViews: telemetryByPath[`/wykonawcy/${p.serviceSlug}/${p.citySlug}`] || 0
       })),
       note:
-        'Dane z telemetrii wymagają zgody użytkownika na cookies/analitykę. Licznik „views” w DB rośnie przy każdym otwarciu strony PSEO przez API.'
+        '„Wszystkie wejścia” = anonimowy licznik (każda odsłona strony). „Telemetria page_view” = tylko po zgodzie na analitykę. Licznik views w DB = otwarcia landingów PSEO przez API.'
     });
   } catch (err) {
     logger.error?.('[SEO] PSEO traffic error:', err);

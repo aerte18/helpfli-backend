@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
+const dayjs = require('dayjs');
 const TelemetryService = require('../services/TelemetryService');
+const SiteVisitDaily = require('../models/SiteVisitDaily');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const { validateTelemetry } = require('../middleware/inputValidator');
 const Notification = require('../models/Notification');
@@ -76,6 +78,34 @@ function sanitizePublicProperties(eventType, raw) {
   }
   return {};
 }
+
+function sanitizeVisitPath(raw) {
+  if (typeof raw !== 'string') return '/';
+  let p = raw.split('?')[0].trim();
+  if (!p.startsWith('/')) p = `/${p}`;
+  return (p || '/').slice(0, 200);
+}
+
+async function incrementSiteVisit(path) {
+  const date = dayjs().format('YYYY-MM-DD');
+  const safePath = sanitizeVisitPath(path);
+  await Promise.all([
+    SiteVisitDaily.updateOne({ date, path: safePath }, { $inc: { count: 1 } }, { upsert: true }),
+    SiteVisitDaily.updateOne({ date, path: '__total__' }, { $inc: { count: 1 } }, { upsert: true })
+  ]);
+}
+
+// POST /api/telemetry/public/page-hit — anonimowy licznik wejść (bez zgody na cookies analityczne)
+router.post('/public/page-hit', async (req, res) => {
+  try {
+    const path = sanitizeVisitPath(req.body?.path);
+    await incrementSiteVisit(path);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Telemetry page-hit error:', error);
+    res.status(500).json({ ok: false, message: 'Błąd zapisu wejścia' });
+  }
+});
 
 async function maybeCreateFunnelRegressionAlert({ startDate, endDate, roleLabel, funnelData, threshold = 35 }) {
   const worst = getWorstFunnelDrop(funnelData);
