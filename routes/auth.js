@@ -596,13 +596,21 @@ const { authMiddleware } = require('../middleware/authMiddleware');
 // Sprawdzenie danych zalogowanego użytkownika
 router.get('/me', authMiddleware, async (req, res) => {
   try {
-    // Pobierz informacje o subskrypcji użytkownika
     const UserSubscription = require('../models/UserSubscription');
     const SubscriptionPlan = require('../models/SubscriptionPlan');
-    
+    const { buildGrowthBenefitsSummary, getFoundingProviderStatus, ensureFoundingProSubscription } = require('../utils/foundingProvider');
+
+    if (req.user.role === 'provider') {
+      await ensureFoundingProSubscription(req.user);
+      const freshUser = await User.findById(req.user._id);
+      if (freshUser) {
+        req.user = freshUser;
+      }
+    }
+
     const subscription = await UserSubscription.findOne({ 
       user: req.user._id,
-      validUntil: { $gt: new Date() } // Tylko aktywne subskrypcje
+      validUntil: { $gt: new Date() }
     });
     
     let subscriptionInfo = null;
@@ -612,11 +620,11 @@ router.get('/me', authMiddleware, async (req, res) => {
         planKey: subscription.planKey,
         planName: plan?.name || subscription.planKey,
         validUntil: subscription.validUntil,
-        renews: subscription.renews
+        renews: subscription.renews,
+        foundingProGrant: !!subscription.foundingProGrant,
       };
     }
     
-    const { buildGrowthBenefitsSummary, getFoundingProviderStatus } = require('../utils/foundingProvider');
     const foundingProgram = await getFoundingProviderStatus();
     const growthBenefits = buildGrowthBenefitsSummary(req.user, subscriptionInfo, foundingProgram);
 

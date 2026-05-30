@@ -1223,6 +1223,7 @@ async function serializeActiveSubscription(sub) {
     ...sub.toObject(),
     planName: plan?.name || sub.planKey,
     isImplicit: false,
+    foundingProGrant: !!sub.foundingProGrant,
   };
 }
 

@@ -73,7 +73,10 @@ const UserSubscriptionSchema = new mongoose.Schema({
 	scheduledDowngrade: {
 		newPlanKey: { type: String, default: null },
 		effectiveDate: { type: Date, default: null }
-	}
+	},
+	/** PRO z programu Pierwszy wykonawca (60 dni) — po wygaśnięciu cofnięcie na FREE */
+	foundingProGrant: { type: Boolean, default: false },
+	foundingProPreviousPlanKey: { type: String, default: null },
 }, { timestamps: true });
 
 // Indexes for performance

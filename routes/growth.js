@@ -4,6 +4,7 @@ const {
   getFoundingProviderStatus,
   activateFoundingProvider,
   buildGrowthBenefitsSummary,
+  ensureFoundingProSubscription,
 } = require('../utils/foundingProvider');
 const UserSubscription = require('../models/UserSubscription');
 const SubscriptionPlan = require('../models/SubscriptionPlan');
@@ -60,6 +61,7 @@ router.post('/activate-founding-provider', auth, async (req, res) => {
 router.get('/me', auth, async (req, res) => {
   try {
     const u = req.user;
+    await ensureFoundingProSubscription(u);
     const program = await getFoundingProviderStatus();
     const sub = await UserSubscription.findOne({
       user: u._id,
@@ -73,6 +75,7 @@ router.get('/me', auth, async (req, res) => {
         planName: plan?.name || sub.planKey,
         validUntil: sub.validUntil,
         renews: sub.renews,
+        foundingProGrant: !!sub.foundingProGrant,
       };
     }
     const growthBenefits = buildGrowthBenefitsSummary(u, subscriptionInfo, program);

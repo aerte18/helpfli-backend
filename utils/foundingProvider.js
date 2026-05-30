@@ -1,4 +1,9 @@
 const User = require('../models/User');
+const UserSubscription = require('../models/UserSubscription');
+const {
+  grantFoundingProSubscription,
+  revokeFoundingProSubscription,
+} = require('./syncProviderSubscriptionLimits');
 
 const FOUNDING_PROVIDER_LIMIT = 1000;
 const FOUNDING_PROVIDER_DAYS = 60;
@@ -135,8 +140,11 @@ function buildGrowthBenefitsSummary(user, subscription = null, foundingProgram =
             freeBoostsRemaining: Number(user.freeBoostsRemaining) || 0,
             freeBoostsTotal: FOUNDING_FREE_BOOSTS,
             priorityBoost: getFoundingRankBoost(user),
+            includedProPlan: true,
+            proPlanLabel:
+              'Pakiet PRO (usługodawca) — nielimitowane oferty, badge PRO, priorytet w wynikach (w cenie programu).',
             stacksWithSubscription:
-              'Program Pierwszy wykonawca działa obok subskrypcji PRO — PRO daje limity pakietu i miesięczne wyróżnienia, Pierwszy wykonawca obniża prowizję od zleceń i daje pulę darmowych boostów startowych.',
+              'Po zakończeniu 60 dni programu pakiet wraca na FREE, chyba że wykupisz PRO lub inny plan. Prowizja 0% i boosty obowiązują tylko w trakcie promocji.',
           }
         : {
             active: false,
@@ -157,7 +165,10 @@ function buildGrowthBenefitsSummary(user, subscription = null, foundingProgram =
             validUntil: subscription.validUntil,
             validUntilLabel: formatBenefitDate(subscription.validUntil),
             daysRemaining: daysUntil(subscription.validUntil),
-            note: 'Opłata za subskrypcję jest osobna — dotyczy pakietu (limity, widoczność). Nie zastępuje programu Pierwszy wykonawca.',
+            foundingProGrant: !!subscription.foundingProGrant,
+            note: subscription.foundingProGrant
+              ? 'Pakiet PRO w ramach programu Pierwszy wykonawca — bez dodatkowej opłaty do końca promocji.'
+              : 'Opłata za subskrypcję dotyczy pakietu (limity, widoczność). Nie zastępuje programu Pierwszy wykonawca.',
           }
         : null,
     };
@@ -263,6 +274,8 @@ async function activateFoundingProvider(userId) {
 
   await user.save();
 
+  await grantFoundingProSubscription(userId, expiresAt);
+
   return {
     ok: true,
     user: {
@@ -287,7 +300,30 @@ async function expireFoundingProvider(user) {
   user.commissionDiscountPercent = 0;
   user.priorityScoreBoost = 0;
   await user.save();
+  await revokeFoundingProSubscription(user._id);
   return { expired: true };
+}
+
+/**
+ * Upewnij się, że aktywny founding ma przypisany pakiet PRO (np. po wdrożeniu integracji).
+ */
+async function ensureFoundingProSubscription(user) {
+  if (!user?._id || !isFoundingProviderActive(user)) return null;
+
+  const sub = await UserSubscription.findOne({ user: user._id });
+  if (
+    sub?.foundingProGrant &&
+    sub.planKey === 'PROV_PRO' &&
+    sub.validUntil &&
+    new Date(sub.validUntil) >= new Date(user.foundingProviderExpiresAt)
+  ) {
+    return sub;
+  }
+  if (sub?.stripeSubscriptionId && sub.renews && sub.planKey === 'PROV_PRO') {
+    return sub;
+  }
+
+  return grantFoundingProSubscription(user._id, user.foundingProviderExpiresAt);
 }
 
 /** Cron: wszystkich providerów z wygasłym founding. */
@@ -342,6 +378,7 @@ module.exports = {
   applyFoundingCommissionToFee,
   getFoundingProviderStatus,
   activateFoundingProvider,
+  ensureFoundingProSubscription,
   ensureFoundingBadgeOnUser,
   removeFoundingBadgeIfExpired,
   buildGrowthBenefitsSummary,
