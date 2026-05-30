@@ -1211,6 +1211,42 @@ router.post('/start-trial', auth, async (req, res) => {
   }
 });
 
+function defaultFreePlanKeyForUser(user) {
+  if (user?.role === 'provider') return 'PROV_FREE';
+  if (user?.role === 'company_owner' || user?.role === 'company_manager') return 'BUSINESS_FREE';
+  return 'CLIENT_FREE';
+}
+
+async function serializeActiveSubscription(sub) {
+  const plan = await SubscriptionPlan.findOne({ key: sub.planKey }).lean();
+  return {
+    ...sub.toObject(),
+    planName: plan?.name || sub.planKey,
+    isImplicit: false,
+  };
+}
+
+/** Aktywna subskrypcja z bazy lub domyślny pakiet FREE (w cenie konta). */
+async function getEffectiveSubscriptionForUser(user) {
+  const sub = await UserSubscription.findOne({
+    user: user._id,
+    validUntil: { $gt: new Date() },
+  });
+  if (sub) return serializeActiveSubscription(sub);
+
+  const freeKey = defaultFreePlanKeyForUser(user);
+  const plan = await SubscriptionPlan.findOne({ key: freeKey }).lean();
+  return {
+    planKey: freeKey,
+    planName: plan?.name || freeKey,
+    validUntil: null,
+    renews: false,
+    freeExpressLeft: 0,
+    isTrial: false,
+    isImplicit: true,
+  };
+}
+
 router.get('/me', auth, async (req, res) => {
   // Wyłącz cache dla tego endpointu
   res.set({
@@ -1218,12 +1254,9 @@ router.get('/me', auth, async (req, res) => {
     'Pragma': 'no-cache',
     'Expires': '0'
   });
-  
-  const sub = await UserSubscription.findOne({
-    user: req.user._id,
-    validUntil: { $gt: new Date() } // Tylko aktywne subskrypcje
-  });
-  res.json(sub || null);
+
+  const effective = await getEffectiveSubscriptionForUser(req.user);
+  res.json(effective);
 });
 
 // --- Seed plans (optional helper) ---

@@ -137,10 +137,22 @@ router.patch("/me", authMiddleware, async (req, res) => {
 // PUT /api/users/me/profile
 router.put("/me/profile", authMiddleware, async (req, res) => {
   try {
-    const { priceNote, bio, service, headline } = req.body;
+    const { priceNote, bio, service, headline, priceMin, priceMax } = req.body;
     const updateData = { priceNote, bio };
     if (service) updateData.service = service;
     if (headline !== undefined) updateData.headline = headline; // Krótki nagłówek (max 60 znaków)
+
+    if (priceMin !== undefined || priceMax !== undefined) {
+      const { parsePriceInputs } = require('../utils/providerPriceRange');
+      const parsed = parsePriceInputs(priceMin, priceMax);
+      if (parsed.error) {
+        return res.status(400).json({ message: parsed.error });
+      }
+      updateData.priceMin = parsed.priceMin;
+      updateData.priceMax = parsed.priceMax;
+      if (parsed.price != null) updateData.price = parsed.price;
+    }
+
     await User.findByIdAndUpdate(req.user._id, updateData);
     res.json({ ok: true });
   } catch (err) {
@@ -528,7 +540,7 @@ router.get("/:id", async (req, res) => {
     const { id } = req.params;
     
     const user = await User.findById(id)
-      .select("name email role level providerLevel location locationCoords price time services provider_status promo badges kyc rankingPoints verified service bio headline priceNote company createdAt avatar isActive anonymized deletedAt")
+      .select("name email role level providerLevel location locationCoords price priceMin priceMax servicePrices time services provider_status promo badges kyc rankingPoints verified service bio headline priceNote company createdAt avatar isActive anonymized deletedAt")
       .populate('company', 'name logo')
       .populate('services', 'name_pl name_en parent_slug slug code icon')
       .lean();

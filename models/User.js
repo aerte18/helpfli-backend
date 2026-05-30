@@ -22,6 +22,15 @@ const userSchema = new mongoose.Schema({
   // opcjonalnie krótkie pola profilu:
   availability: { type: String, default: "" },
   priceNote: { type: String, default: "" },
+  /** Widełki cenowe (zł) — używane w wyszukiwaniu i na kartach wykonawców */
+  priceMin: { type: Number, default: null },
+  priceMax: { type: Number, default: null },
+  /** Widełki per usługa (service = ObjectId usługi z katalogu) */
+  servicePrices: [{
+    service: { type: mongoose.Schema.Types.ObjectId, ref: 'Service', required: true },
+    min: { type: Number, default: null },
+    max: { type: Number, default: null },
+  }],
   bio: { type: String, default: "" },
   headline: { type: String, default: "", maxlength: 60 }, // Krótki nagłówek (ok. 40-60 znaków) wyświetlany w kartach
   location: { type: String }, // Np. "Warszawa"

@@ -3,6 +3,8 @@ const { auth } = require('../middleware/auth');
 const Service = require('../models/Service');
 const User = require('../models/User');
 const path = require('path');
+const { parseServicePricesPayload, recomputeAggregatedProfilePrices } = require('../utils/providerPriceRange');
+
 const router = express.Router();
 
 let STATIC_CATALOG = [];
@@ -242,11 +244,58 @@ router.delete('/:serviceId', auth, async (req, res) => {
   }
   const sid = String(service._id);
   user.services = (user.services || []).filter((id) => String(id) !== sid);
+  user.servicePrices = (user.servicePrices || []).filter(
+    (row) => String(row.service) !== sid
+  );
+  const agg = recomputeAggregatedProfilePrices(user.servicePrices);
+  if (Object.keys(agg).length) {
+    Object.assign(user, agg);
+  }
   await user.save();
 
   // Pobierz zaktualizowane usługi z populate
   const updatedUser = await User.findById(req.user._id).populate('services');
   res.json({ message: 'Usługa usunięta', services: updatedUser.services });
+});
+
+// GET /api/user-services/prices — widełki cen per usługa
+router.get('/prices', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select('servicePrices').lean();
+    res.json(user?.servicePrices || []);
+  } catch (err) {
+    console.error('Błąd pobierania cen usług:', err);
+    res.status(500).json({ message: 'Błąd serwera' });
+  }
+});
+
+// PUT /api/user-services/prices — zapis widełek per usługa
+router.put('/prices', auth, async (req, res) => {
+  try {
+    const { prices } = req.body;
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ message: 'Użytkownik nie znaleziony' });
+
+    const parsed = parseServicePricesPayload(prices, user.services || []);
+    if (parsed.error) return res.status(400).json({ message: parsed.error });
+
+    user.servicePrices = parsed.servicePrices;
+    const agg = recomputeAggregatedProfilePrices(user.servicePrices);
+    if (Object.keys(agg).length) Object.assign(user, agg);
+    await user.save();
+
+    const updatedUser = await User.findById(req.user._id).populate('services');
+    res.json({
+      message: 'Ceny usług zapisane',
+      servicePrices: user.servicePrices,
+      services: updatedUser.services,
+      priceMin: user.priceMin,
+      priceMax: user.priceMax,
+    });
+  } catch (err) {
+    console.error('Błąd zapisu cen usług:', err);
+    res.status(500).json({ message: 'Błąd serwera' });
+  }
 });
 
 module.exports = router;

@@ -14,6 +14,7 @@ const { calculateDistance, estimateETA } = require("../utils/geo");
 const { resolveServicesForSearchFilter } = require("../utils/resolveServiceSearch");
 const ApiRequestLog = require("../models/ApiRequestLog");
 const { withListableProviders } = require("../utils/listableProviderQuery");
+const { appendSearchPriceFields, providerMatchesBudgetAnyService, providerMatchesBudgetForServices } = require("../utils/providerPriceRange");
 
 const router = express.Router();
 
@@ -178,14 +179,10 @@ router.get("/", validateSearch, async (req, res) => {
       match.providerPaymentPreference = 'both';
     }
 
-    // Filtry budżetu (będą zastosowane po pobraniu providerów, bo cena jest w polu price)
-    const budgetMinNum = budgetMin ? parseFloat(budgetMin) : null;
-    const budgetMaxNum = budgetMax ? parseFloat(budgetMax) : null;
-    if (budgetMinNum || budgetMaxNum) {
-      match.price = {};
-      if (budgetMinNum) match.price.$gte = budgetMinNum;
-      if (budgetMaxNum) match.price.$lte = budgetMaxNum;
-    }
+    // Filtr budżetu — dokładna logika po pobraniu (widełki per usługa)
+    const hasBudgetFilter =
+      (budgetMin != null && budgetMin !== '' && Number(budgetMin) > 0) ||
+      (budgetMax != null && budgetMax !== '' && !Number.isNaN(Number(budgetMax)));
     
     // Obsługa wielu usług: service=… lub category=… (np. kategoria agd-rtv)
     let resolvedServiceDocs = [];
@@ -223,7 +220,7 @@ router.get("/", validateSearch, async (req, res) => {
     const searchLimit = Math.min(Math.max(parseInt(limit, 10) || 120, 1), 300);
 
     let providers = await User.find(match)
-      .select("name level location locationCoords price time services provider_status promo badges kyc rankingPoints providerTier isTopProvider hasHelpfliGuarantee b2b isB2B company headline bio avatar foundingProvider foundingProviderExpiresAt priorityScoreBoost commissionDiscountPercent")
+      .select("name level location locationCoords price priceMin priceMax priceNote servicePrices time services provider_status promo badges kyc rankingPoints providerTier isTopProvider hasHelpfliGuarantee b2b isB2B company headline bio avatar foundingProvider foundingProviderExpiresAt priorityScoreBoost commissionDiscountPercent")
       .limit(searchLimit)
       .lean();
     
@@ -321,6 +318,16 @@ router.get("/", validateSearch, async (req, res) => {
     }
     
     console.log("🔍 SEARCH: Found providers:", providers.length);
+
+    if (hasBudgetFilter && providers.length) {
+      const matchedServiceIds = resolvedServiceDocs.map((d) => String(d._id));
+      providers = providers.filter((p) =>
+        matchedServiceIds.length
+          ? providerMatchesBudgetForServices(p, budgetMin, budgetMax, matchedServiceIds)
+          : providerMatchesBudgetAnyService(p, budgetMin, budgetMax)
+      );
+      console.log(`🔍 SEARCH: After budget filter: ${providers.length} providers`);
+    }
     
     if (!providers || providers.length === 0) {
       console.log("⚠️ SEARCH: No providers found, returning empty array");
@@ -361,6 +368,11 @@ router.get("/", validateSearch, async (req, res) => {
     const allServiceIds = [...new Set(providers.flatMap(p => p.services || []))];
     const allServices = await Service.find({ _id: { $in: allServiceIds } }).lean();
     const allNamesById = Object.fromEntries(allServices.map(s => [String(s._id), s.name_pl || s.name_en]));
+
+    const matchedServiceIdsForPrice =
+      serviceParam && resolvedServiceDocs.length
+        ? resolvedServiceDocs.map((d) => String(d._id))
+        : [];
 
     let results = await Promise.all(
       providers.map(async (p) => {
@@ -422,7 +434,6 @@ router.get("/", validateSearch, async (req, res) => {
             lat: p.locationCoords?.lat || (baseLat + latOffset),
             lng: p.locationCoords?.lng || (baseLng + lngOffset),
           },
-          price: p.price || estimatePrice(providerLevel),
           eta: eta,
           etaRange: etaRange, // MVP: Add ETA range
           distance: p._distance || null, // MVP: Distance in km
@@ -459,6 +470,7 @@ router.get("/", validateSearch, async (req, res) => {
           allServices: (p.services || []).map(id => allNamesById[String(id)]).filter(Boolean), // wszystkie usługi providera
           headline: p.headline || '',
           bio: p.bio || '',
+          priceNote: p.priceNote || '',
           avatar: p.avatar || null,
           // B2B i subscription data
           company: p.company ? {
@@ -473,6 +485,7 @@ router.get("/", validateSearch, async (req, res) => {
             endsAt: b.endsAt
           }))
         };
+        appendSearchPriceFields(providerData, p, estimatePrice(providerLevel), matchedServiceIdsForPrice);
 
           const dynamicScore = await computeProviderRankScore({
             _id: p._id,
@@ -531,7 +544,7 @@ router.get("/", validateSearch, async (req, res) => {
         results.sort((a, b) => b.averageRating - a.averageRating);
         break;
       case 'price':
-        results.sort((a, b) => a.price - b.price);
+        results.sort((a, b) => (a.priceFrom ?? a.price ?? 0) - (b.priceFrom ?? b.price ?? 0));
         break;
       case 'eta':
         results.sort((a, b) => (a.eta || 999) - (b.eta || 999));
@@ -657,7 +670,7 @@ router.get("/top", async (req, res) => {
         { verified: true, providerTier: { $in: ["standard", "basic"] } }
       ]
     }))
-      .select("name level location locationCoords price time services provider_status promo badges kyc rankingPoints verified service providerTier isTopProvider hasHelpfliGuarantee avatar bio headline")
+      .select("name level location locationCoords price priceMin priceMax priceNote servicePrices time services provider_status promo badges kyc rankingPoints verified service providerTier isTopProvider hasHelpfliGuarantee avatar bio headline")
       .limit(parseInt(limit) * 5) // Pobierz więcej kandydatów (nowy system ma ostre filtry)
       .lean();
 
@@ -706,7 +719,7 @@ router.get("/top", async (req, res) => {
         
         const isOnline = p.provider_status?.isOnline === true;
         
-        return {
+        const topData = {
           _id: p._id,
           name: p.name,
           level: p.level || "basic",
@@ -716,7 +729,6 @@ router.get("/top", async (req, res) => {
             lat: p.locationCoords?.lat || (baseLat + latOffset),
             lng: p.locationCoords?.lng || (baseLng + lngOffset),
           },
-          price: p.price || estimatePrice(p.level),
           eta: p.time || estimateTime(p.level),
           averageRating: Number(avg.toFixed(2)),
           ratingCount: ratings.length,
@@ -769,6 +781,8 @@ router.get("/top", async (req, res) => {
           } : null,
           finalScore: p.finalScore
         };
+        appendSearchPriceFields(topData, p, estimatePrice(p.level));
+        return topData;
       })
     );
 
@@ -824,9 +838,11 @@ router.get("/providers", async (req, res) => {
     // Filtr usługi - ta sama logika co GET /api/search
     const catalogServiceParam =
       (service && String(service).trim()) || (categoryCatalog && String(categoryCatalog).trim()) || "";
+    let catalogResolvedServiceDocs = [];
     if (catalogServiceParam) {
-      const { ids: serviceIds, hadServiceTokens } =
+      const { ids: serviceIds, docs, hadServiceTokens } =
         await resolveServicesForSearchFilter(catalogServiceParam);
+      catalogResolvedServiceDocs = docs || [];
       if (hadServiceTokens) {
         if (serviceIds.length > 0) {
           match.services = { $in: serviceIds };
@@ -858,17 +874,13 @@ router.get("/providers", async (req, res) => {
       match.providerTier = tierValue;
     }
 
-    // Filtr ceny - parse to numbers (akceptuj też budgetMin/budgetMax dla kompatybilności)
-    const parsedMinPrice = parseInt(minPrice || budgetMin) || 0;
-    const parsedMaxPrice = parseInt(maxPrice || budgetMax);
-    // Filtruj tylko jeśli maxPrice jest podane i mniejsze niż rozsądna wartość (np. 10000)
-    if (parsedMinPrice > 0 || (parsedMaxPrice && parsedMaxPrice < 10000)) {
-      match.price = {};
-      if (parsedMinPrice > 0) match.price.$gte = parsedMinPrice;
-      if (parsedMaxPrice && parsedMaxPrice < 10000) match.price.$lte = parsedMaxPrice;
-    }
+    const catalogBudgetMin = minPrice || budgetMin;
+    const catalogBudgetMax = maxPrice || budgetMax;
+    const catalogBudgetActive =
+      Number(catalogBudgetMin || 0) > 0 ||
+      (catalogBudgetMax != null && catalogBudgetMax !== '' && Number(catalogBudgetMax) < 10000);
 
-    // Filtr czasu realizacji - parse to number (nie filtruj jeśli maxTime >= 30)
+    // Filtr czasu realizacji
     const parsedMaxTime = parseInt(maxTime);
     if (parsedMaxTime && parsedMaxTime < 30) {
       match.time = { $lte: parsedMaxTime };
@@ -897,12 +909,24 @@ router.get("/providers", async (req, res) => {
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
-    const providers = await User.find(match)
-      .select("name level location locationCoords price time services provider_status promo badges kyc rankingPoints providerTier isTopProvider hasHelpfliGuarantee b2b isB2B instantChat vatInvoice bio headline avatar foundingProvider foundingProviderExpiresAt priorityScoreBoost")
+    let providers = await User.find(match)
+      .select("name level location locationCoords price priceMin priceMax priceNote servicePrices time services provider_status promo badges kyc rankingPoints providerTier isTopProvider hasHelpfliGuarantee b2b isB2B instantChat vatInvoice bio headline avatar foundingProvider foundingProviderExpiresAt priorityScoreBoost")
       .skip(skip)
-      .limit(parseInt(limit));
+      .limit(parseInt(limit))
+      .lean();
+
+    if (catalogBudgetActive && providers.length) {
+      const catalogMatchedIds = catalogResolvedServiceDocs.map((d) => String(d._id));
+      providers = providers.filter((p) =>
+        catalogMatchedIds.length
+          ? providerMatchesBudgetForServices(p, catalogBudgetMin, catalogBudgetMax, catalogMatchedIds)
+          : providerMatchesBudgetAnyService(p, catalogBudgetMin, catalogBudgetMax)
+      );
+    }
     
-    const total = await User.countDocuments(match);
+    const total = catalogBudgetActive ? providers.length : await User.countDocuments(match);
+    
+    const catalogMatchedServiceIds = catalogResolvedServiceDocs.map((d) => String(d._id));
     
     // Pobierz nazwy wszystkich usług
     const allServiceIds = [...new Set(providers.flatMap(p => p.services || []))];
@@ -938,7 +962,6 @@ router.get("/providers", async (req, res) => {
             lat: p.locationCoords?.lat || (baseLat + latOffset),
             lng: p.locationCoords?.lng || (baseLng + lngOffset),
           },
-          price: p.price || estimatePrice(p.level),
           eta: p.time || estimateTime(p.level),
           averageRating: Number(avg.toFixed(2)),
           ratingCount: ratings.length,
@@ -965,6 +988,7 @@ router.get("/providers", async (req, res) => {
           bio: p.bio || '',
           allServices: (p.services || []).map(id => allNamesById[String(id)]).filter(Boolean),
         };
+        appendSearchPriceFields(providerData, p, estimatePrice(p.level), catalogMatchedServiceIds);
 
         const dynamicScore = await computeProviderRankScore({
           _id: p._id,
@@ -987,10 +1011,10 @@ router.get("/providers", async (req, res) => {
         break;
       case 'price':
       case 'price_asc':
-        results.sort((a, b) => a.price - b.price);
+        results.sort((a, b) => (a.priceFrom ?? a.price ?? 0) - (b.priceFrom ?? b.price ?? 0));
         break;
       case 'price_desc':
-        results.sort((a, b) => b.price - a.price);
+        results.sort((a, b) => (b.priceFrom ?? b.price ?? 0) - (a.priceFrom ?? a.price ?? 0));
         break;
       case 'eta':
         // MVP: Sortuj po ETA (Estimated Time of Arrival)
