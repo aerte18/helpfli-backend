@@ -95,7 +95,7 @@ async function incrementSiteVisit(path) {
   ]);
 }
 
-// POST /api/telemetry/public/page-hit — anonimowy licznik wejść (bez zgody na cookies analityczne)
+// POST /api/telemetry/public/page-hit — anonimowy licznik wejść, 1× na sesję (frontend deduplikuje)
 router.post('/public/page-hit', async (req, res) => {
   try {
     const path = sanitizeVisitPath(req.body?.path);

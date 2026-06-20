@@ -1,8 +1,8 @@
 const mongoose = require('mongoose');
 
 /**
- * Dzienne, zagregowane wejścia na strony (bez IP, bez userId).
- * Uzupełnia telemetrię page_view (wymaga zgody na analitykę).
+ * Dzienne, zagregowane wejścia (1× na sesję przeglądarki, bez IP, bez userId).
+ * Uzupełnia telemetrię page_view — odsłony per nawigacja (wymaga zgody na analitykę).
  */
 const siteVisitDailySchema = new mongoose.Schema(
   {

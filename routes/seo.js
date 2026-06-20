@@ -871,7 +871,7 @@ router.get('/admin/local/traffic', async (req, res) => {
         telemetryViews: telemetryByPath[`/wykonawcy/${p.serviceSlug}/${p.citySlug}`] || 0
       })),
       note:
-        '„Wszystkie wejścia” = anonimowy licznik (każda odsłona strony). „Telemetria page_view” = tylko po zgodzie na analitykę. Licznik views w DB = otwarcia landingów PSEO przez API.'
+        '„Wejścia (sesje)” = anonimowy licznik (1× na sesję przeglądarki). „Telemetria page_view” = odsłony per nawigacja, tylko po zgodzie na analitykę. Licznik views w DB = otwarcia landingów PSEO przez API.'
     });
   } catch (err) {
     logger.error?.('[SEO] PSEO traffic error:', err);
