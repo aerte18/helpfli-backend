@@ -7,6 +7,7 @@ const User = require('../models/User');
 const { withListableProviders } = require('../utils/listableProviderQuery');
 const logger = require('../utils/logger');
 const { sendMail } = require('../utils/mailer');
+const { getFrontendUrl } = require('../utils/publicUrl');
 // Lazy-load to avoid serverless cold-start crashes when not needed (e.g., on /login)
 let EmailVerificationService = null;
 function getEmailService() {
@@ -842,12 +843,7 @@ router.post('/forgot-password', async (req, res) => {
     user.passwordResetExpires = expires;
     await user.save();
 
-    const appBase =
-      process.env.FRONTEND_URL ||
-      process.env.APP_URL ||
-      process.env.CORS_ORIGIN?.split(',')?.[0]?.trim() ||
-      'http://localhost:5174';
-    const resetUrl = `${appBase.replace(/\/$/, '')}/reset-password?token=${encodeURIComponent(rawToken)}`;
+    const resetUrl = `${getFrontendUrl()}/reset-password?token=${encodeURIComponent(rawToken)}`;
 
     const html = `
       <h2>Reset hasła - Helpfli</h2>

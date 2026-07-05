@@ -34,7 +34,10 @@ const NotificationSchema = new mongoose.Schema({
       'chat_message',
       'dispute_case_message',
       'dispute_settlement_offer',
-      'dispute_settlement_resolved'
+      'dispute_settlement_resolved',
+      'admin_alert',
+      'dispute_escalated',
+      'dispute_mediation_expired'
     ]
   },
   title: {

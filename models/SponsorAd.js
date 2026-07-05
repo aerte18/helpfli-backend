@@ -166,6 +166,8 @@ const SponsorAdSchema = new mongoose.Schema({
     autoRenew: { type: Boolean, default: false }, // automatyczne przedłużanie kampanii
     renewalPeriod: { type: Number, default: 30 }, // okres przedłużenia w dniach (domyślnie 30)
     renewalCount: { type: Number, default: 0 }, // liczba przedłużeń
+    renewalPendingPaymentIntentId: { type: String, default: null },
+    renewalPaymentOfferSent: { type: Boolean, default: false },
     // Long-term discounts
     subscriptionMonths: { type: Number, default: 1 }, // Liczba miesięcy subskrypcji (1, 3, 6, 12)
     discountApplied: { type: Number, default: 0 }, // Zastosowana zniżka w % (0-25)

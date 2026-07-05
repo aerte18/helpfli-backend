@@ -129,6 +129,7 @@ const userSchema = new mongoose.Schema({
   consents: {
     analytics: { type: Boolean, default: false },
     cookies: { type: Boolean, default: false },
+    preferences: { type: Boolean, default: false },
     updatedAt: { type: Date, default: null }
   },
   anonymized: { type: Boolean, default: false },
@@ -392,5 +393,6 @@ userSchema.index({ verified: 1 }); // Dla filtra verified
 userSchema.index({ b2b: 1 }); // Dla filtra B2B
 userSchema.index({ services: 1 }); // Dla wyszukiwania po usługach
 userSchema.index({ locationCoords: '2dsphere' }); // Dla geospatial queries (jeśli używasz)
+userSchema.index({ company: 1, isActive: 1 });
 
 module.exports = mongoose.models.User || mongoose.model('User', userSchema);

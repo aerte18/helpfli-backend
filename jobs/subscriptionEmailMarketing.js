@@ -2,6 +2,7 @@ const User = require('../models/User');
 const UserSubscription = require('../models/UserSubscription');
 const SubscriptionPlan = require('../models/SubscriptionPlan');
 const { sendMail } = require('../utils/email');
+const { getFrontendUrl } = require('../utils/publicUrl');
 
 /**
  * Email Marketing dla Subskrypcji
@@ -16,7 +17,7 @@ async function sendTrialReminderEmail(user, subscription) {
   try {
     const plan = await SubscriptionPlan.findOne({ key: subscription.planKey });
     const daysLeft = Math.ceil((subscription.trialEndsAt - new Date()) / (1000 * 60 * 60 * 24));
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const frontendUrl = getFrontendUrl();
     
     await sendMail({
       to: user.email,
@@ -66,7 +67,7 @@ async function sendTrialReminderEmail(user, subscription) {
 async function sendTrialConversionEmail(user, subscription) {
   try {
     const plan = await SubscriptionPlan.findOne({ key: subscription.planKey });
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const frontendUrl = getFrontendUrl();
     
     await sendMail({
       to: user.email,
@@ -121,7 +122,7 @@ async function sendTrialConversionEmail(user, subscription) {
 async function sendRetentionEmail(user, subscription) {
   try {
     const plan = await SubscriptionPlan.findOne({ key: subscription.planKey });
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const frontendUrl = getFrontendUrl();
     const daysUntilExpiry = Math.ceil((subscription.validUntil - new Date()) / (1000 * 60 * 60 * 24));
     
     await sendMail({
@@ -177,7 +178,7 @@ async function sendRetentionEmail(user, subscription) {
 // Promocja dla nieaktywnych użytkowników (nie mają subskrypcji)
 async function sendPromoEmailToInactiveUsers(user) {
   try {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const frontendUrl = getFrontendUrl();
     const audience = user.role === 'provider' ? 'provider' : 'client';
     
     await sendMail({

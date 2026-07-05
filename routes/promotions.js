@@ -3,6 +3,7 @@ const stripe = process.env.STRIPE_SECRET_KEY ? require('stripe')(process.env.STR
 const { authMiddleware: auth } = require('../middleware/authMiddleware');
 const Promotion = require('../models/promotion');
 const User = require('../models/User');
+const { getFrontendUrl } = require('../utils/publicUrl');
 
 const PLAN_CFG = {
   PROMO_24H: { priceId: process.env.STRIPE_PRICE_PROMO_24H, days: 1, points: 20 },
@@ -21,8 +22,8 @@ router.post('/checkout', auth, async (req, res) => {
       mode: 'payment',
       payment_method_types: ['card','p24'],
       line_items: [{ price: cfg.priceId, quantity: 1 }],
-      success_url: `${process.env.CLIENT_URL || 'http://localhost:5173'}/promo-success?plan=${plan}&session={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.CLIENT_URL || 'http://localhost:5173'}/promo-cancel?plan=${plan}`,
+      success_url: `${getFrontendUrl()}/promo-success?plan=${plan}&session={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${getFrontendUrl()}/promo-cancel?plan=${plan}`,
       metadata: { userId: String(req.user._id), type: 'promotion', plan },
     });
 

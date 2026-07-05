@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const { authOrGuestMiddleware } = require('../middleware/authOrGuestMiddleware');
+const { aiLimiter } = require('../middleware/rateLimiter');
 const { getGuestUsage } = require('../utils/guestAiTrial');
 const Service = require('../models/Service');
 const Order = require('../models/Order');
@@ -203,7 +204,7 @@ try {
   console.warn('[ai_concierge] concierge v2 handler unavailable:', loadErr.message);
 }
 if (conciergeHandlerV2) {
-  router.post('/concierge/v2', authOrGuestMiddleware, conciergeHandlerV2);
+  router.post('/concierge/v2', authOrGuestMiddleware, aiLimiter, conciergeHandlerV2);
 }
 
 // GET /api/ai/concierge/guest-usage — stan limitu dla gościa (bez JWT)
@@ -215,8 +216,15 @@ router.get('/concierge/guest-usage', async (req, res) => {
 
 // POST /api/ai/concierge/analyze
 // body: { description, locationText, lat, lon, urgency, imageUrls, conversationHistory? }
-router.post('/concierge/analyze', authMiddleware, validate('aiAnalyze'), async (req, res) => {
+router.post('/concierge/analyze', authMiddleware, aiLimiter, validate('aiAnalyze'), async (req, res) => {
   try {
+    const { enforceClientAiAccess } = require('../utils/clientAiAccess');
+    const access = await enforceClientAiAccess(req, { consume: true });
+    if (!access.allowed) {
+      return res.status(access.status || 403).json(access.body || { message: 'Brak dostępu do AI' });
+    }
+    req.aiAccess = access;
+
     const { description, locationText, lat, lon, urgency = 'flex', imageUrls = [], conversationHistory = [] } = req.body || {};
     if (!description || description.length < 5) {
       return res.status(400).json({ message: 'Opisz problem nieco dokładniej.' });

@@ -27,9 +27,16 @@ async function addIndexes() {
     await User.collection.createIndex({ role: 1, 'provider_status.isOnline': 1 });
     console.log('  ✓ role + provider_status.isOnline');
 
-    // Indeks dla lokalizacji (geospatial)
-    await User.collection.createIndex({ locationLat: 1, locationLon: 1 });
-    console.log('  ✓ locationLat + locationLon');
+    // Indeks geospatial — locationCoords (GeoJSON Point)
+    await User.collection.createIndex({ locationCoords: '2dsphere' });
+    console.log('  ✓ locationCoords (2dsphere)');
+
+    // Legacy flat lat/lon (jeśli jeszcze używane w starych rekordach)
+    await User.collection.createIndex({ locationLat: 1, locationLon: 1 }, { sparse: true });
+    console.log('  ✓ locationLat + locationLon (sparse)');
+
+    await User.collection.createIndex({ company: 1, isActive: 1 });
+    console.log('  ✓ company + isActive');
 
     // Indeks dla providerTier (używany w scoringu)
     await User.collection.createIndex({ providerTier: 1 });
@@ -84,7 +91,16 @@ async function addIndexes() {
     await Service.collection.createIndex({ name: 1 });
     console.log('  ✓ name');
 
-    // 5. Indeksy dla Order (dynamiczne ceny - computePriceHints)
+    // 5. Payment, Conversation
+    console.log('\n📊 Dodawanie indeksów dla Payment / Conversation...');
+    const Payment = require('../models/Payment');
+    const Conversation = require('../models/Conversation');
+    await Payment.collection.createIndex({ order: 1 });
+    console.log('  ✓ Payment.order');
+    await Conversation.collection.createIndex({ order: 1 });
+    console.log('  ✓ Conversation.order');
+
+    // 6. Indeksy dla Order (dynamiczne ceny - computePriceHints)
     console.log('\n📊 Dodawanie indeksów dla dynamicznych cen...');
     
     // Indeks dla zapytania: { status: { $in: [...] }, createdAt: { $gte: last24h }, locationLat, locationLon }

@@ -164,20 +164,39 @@ router.put("/me/profile", authMiddleware, async (req, res) => {
 // PUT /api/users/me/onboarding
 router.put("/me/onboarding", authMiddleware, async (req, res) => {
   try {
-    const { onboardingCompleted } = req.body;
-    const completed = !!onboardingCompleted;
-    await User.findByIdAndUpdate(req.user._id, { onboardingCompleted: completed });
+    const user = await User.findById(req.user._id).select('role kyc services emailVerified onboardingCompleted');
+    if (!user) return res.status(404).json({ message: 'Nie znaleziono użytkownika' });
 
-    if (completed && req.user.role === 'provider') {
+    const wantsComplete = !!req.body?.onboardingCompleted;
+    if (wantsComplete) {
+      const providerRoles = ['provider', 'company_owner', 'company_manager'];
+      if (providerRoles.includes(user.role)) {
+        const kycOk = user.kyc?.status === 'verified';
+        const hasServices = Array.isArray(user.services) && user.services.length > 0;
+        const emailOk = user.emailVerified !== false;
+        if (!kycOk || !hasServices || !emailOk) {
+          return res.status(400).json({
+            message: 'Ukończenie onboardingu wymaga: zweryfikowanego KYC, co najmniej jednej usługi i potwierdzonego emaila',
+            requirements: { kycOk, hasServices, emailOk },
+          });
+        }
+      }
+      user.onboardingCompleted = true;
+    } else {
+      user.onboardingCompleted = false;
+    }
+    await user.save();
+
+    if (user.onboardingCompleted && ['provider', 'company_owner', 'company_manager'].includes(user.role)) {
       try {
         const { tryGrantProviderReferralReward } = require('../utils/growthRewards');
-        await tryGrantProviderReferralReward(req.user._id);
+        await tryGrantProviderReferralReward(user._id);
       } catch (refErr) {
         console.error('[growth] provider referral on onboarding:', refErr?.message);
       }
     }
 
-    res.json({ ok: true });
+    res.json({ ok: true, onboardingCompleted: user.onboardingCompleted });
   } catch (err) {
     console.error('UPDATE_ONBOARDING_ERROR:', err);
     res.status(500).json({ message: 'Błąd serwera' });
@@ -540,7 +559,7 @@ router.get("/:id", async (req, res) => {
     const { id } = req.params;
     
     const user = await User.findById(id)
-      .select("name email role level providerLevel location locationCoords price priceMin priceMax servicePrices time services provider_status promo badges kyc rankingPoints verified service bio headline priceNote company createdAt avatar isActive anonymized deletedAt")
+      .select("name role level providerLevel location locationCoords price priceMin priceMax servicePrices time services provider_status promo badges kyc rankingPoints verified service bio headline priceNote company createdAt avatar isActive anonymized deletedAt")
       .populate('company', 'name logo')
       .populate('services', 'name_pl name_en parent_slug slug code icon')
       .lean();

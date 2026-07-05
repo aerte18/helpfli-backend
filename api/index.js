@@ -14,8 +14,13 @@ module.exports = async function handler(req, res) {
     'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cache-Control, Pragma, Expires, X-Cron-Secret'
   );
   if (req.method === 'OPTIONS') return res.status(204).end();
-  // ultra-light health endpoint, never touches DB
-  if (req.url && (req.url === '/api/health' || req.url === '/health' || req.url.includes('health'))) {
+
+  const urlPath = (req.url || '').split('?')[0];
+  const isHealthPath = urlPath === '/api/health' || urlPath === '/health';
+  const wantsDeepHealth =
+    (req.url || '').includes('deep=1') || process.env.HEALTH_CHECK_MONGO === '1';
+
+  if (isHealthPath && !wantsDeepHealth) {
     res.setHeader('Content-Type', 'application/json');
     return res.status(200).end(JSON.stringify({ ok: true, platform: 'vercel', ts: new Date().toISOString() }));
   }

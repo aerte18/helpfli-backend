@@ -49,7 +49,6 @@ router.post('/upload', verifyToken, upload.array('files', 5), async (req, res) =
         Bucket: process.env.AWS_BUCKET_NAME,
         Key: key,
         Body: file.buffer,
-        ACL: 'public-read',
         ContentType: file.mimetype
       }));
 
@@ -69,7 +68,6 @@ router.post('/upload', verifyToken, upload.array('files', 5), async (req, res) =
             Bucket: process.env.AWS_BUCKET_NAME,
             Key: thumbKey,
             Body: thumbBuffer,
-            ACL: 'public-read',
             ContentType: 'image/webp'
           }));
 

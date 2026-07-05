@@ -275,6 +275,7 @@ const orderSchema = new mongoose.Schema({
   disputeReportedAt: { type: Date },
   /** Mediacja przed pełną eskalacją do supportu */
   disputeMediationEndsAt: { type: Date, default: null },
+  disputeMediationExpiredNotified: { type: Boolean, default: false },
   disputeEscalatedAt: { type: Date, default: null },
   disputeMessages: {
     type: [

@@ -5,6 +5,11 @@ const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SEC
 
 const { isExternalOrderPayment } = require("./orderPaymentFlow");
 
+function buildIdempotencyKey(scope, paymentId, amountGrosze, operation) {
+  const raw = `dispute_${scope}_${paymentId}_${operation}_${amountGrosze}`;
+  return raw.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 255);
+}
+
 function isExternalPayment(order) {
   return isExternalOrderPayment(order);
 }
@@ -13,10 +18,12 @@ function isExternalPayment(order) {
  * Zwrot z jednego dokumentu Payment (Stripe PI).
  * @returns {Promise<{ skipped: true } | { ok: false, code: string, message: string } | { ok: true, paymentId: string, amountGrosze: number, method: string, stripeRef: string|null, paymentStatus: string }>}
  */
-async function applyRefundToSinglePayment(payment, capGrosze, orderId) {
+async function applyRefundToSinglePayment(payment, capGrosze, orderId, idempotencyScope) {
   if (!payment?.stripePaymentIntentId || !capGrosze || capGrosze < 1) {
     return { skipped: true };
   }
+
+  const scope = idempotencyScope || String(orderId || payment._id);
 
   const pi = await stripe.paymentIntents.retrieve(payment.stripePaymentIntentId, {
     expand: ["latest_charge"],
@@ -32,7 +39,9 @@ async function applyRefundToSinglePayment(payment, capGrosze, orderId) {
     }
 
     if (use >= authorized - 1) {
-      await stripe.paymentIntents.cancel(payment.stripePaymentIntentId);
+      await stripe.paymentIntents.cancel(payment.stripePaymentIntentId, {
+        idempotencyKey: buildIdempotencyKey(scope, paymentIdStr, use, "cancel"),
+      });
       payment.status = "refunded";
       await payment.save();
       return {
@@ -46,9 +55,11 @@ async function applyRefundToSinglePayment(payment, capGrosze, orderId) {
     }
 
     const toCapture = authorized - use;
-    const captured = await stripe.paymentIntents.capture(payment.stripePaymentIntentId, {
-      amount_to_capture: toCapture,
-    });
+    const captured = await stripe.paymentIntents.capture(
+      payment.stripePaymentIntentId,
+      { amount_to_capture: toCapture },
+      { idempotencyKey: buildIdempotencyKey(scope, paymentIdStr, toCapture, "partial_capture") }
+    );
     if (captured.status !== "succeeded") {
       return {
         ok: false,
@@ -90,14 +101,17 @@ async function applyRefundToSinglePayment(payment, capGrosze, orderId) {
       return { skipped: true };
     }
 
-    const refund = await stripe.refunds.create({
-      charge: charge.id,
-      amount: use,
-      metadata: {
-        reason: "dispute_settlement",
-        ...(orderId ? { orderId: String(orderId) } : {}),
+    const refund = await stripe.refunds.create(
+      {
+        charge: charge.id,
+        amount: use,
+        metadata: {
+          reason: "dispute_settlement",
+          ...(orderId ? { orderId: String(orderId) } : {}),
+        },
       },
-    });
+      { idempotencyKey: buildIdempotencyKey(scope, paymentIdStr, use, "refund") }
+    );
 
     const ch2 = await stripe.charges.retrieve(charge.id);
     const totalRefunded = ch2.amount_refunded || 0;
@@ -133,7 +147,8 @@ async function applyRefundToSinglePayment(payment, capGrosze, orderId) {
  * @param {number} amountPln
  * @returns {Promise<{ ok: true, amountGrosze: number, method: string, stripeRef: string|null, orderPaymentStatus: string, orderPaymentSubStatus: string|null, additionalPaymentStatus: string|null } | { ok: false, code: string, message: string }>}
  */
-async function applyDisputeSettlementRefund(order, amountPln) {
+async function applyDisputeSettlementRefund(order, amountPln, options = {}) {
+  const idempotencyScope = options.idempotencyScope || String(order._id);
   const refundGroszeRequested = Math.round(Number(amountPln) * 100);
   if (!Number.isFinite(refundGroszeRequested) || refundGroszeRequested < 0) {
     return { ok: false, code: "INVALID_AMOUNT", message: "Nieprawidłowa kwota zwrotu." };
@@ -200,7 +215,7 @@ async function applyDisputeSettlementRefund(order, amountPln) {
       };
     }
 
-    const r1 = await applyRefundToSinglePayment(mainPayment, remaining, order._id);
+    const r1 = await applyRefundToSinglePayment(mainPayment, remaining, order._id, idempotencyScope);
     if (r1.ok === false) {
       return r1;
     }
@@ -236,7 +251,7 @@ async function applyDisputeSettlementRefund(order, amountPln) {
         };
       }
 
-      const r2 = await applyRefundToSinglePayment(addPay, remaining, order._id);
+      const r2 = await applyRefundToSinglePayment(addPay, remaining, order._id, idempotencyScope);
       if (r2.ok === false) {
         return r2;
       }

@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const stripe = process.env.STRIPE_SECRET_KEY ? require('stripe')(process.env.STRIPE_SECRET_KEY) : null;
 const { authMiddleware: auth } = require('../middleware/authMiddleware');
+const { getFrontendUrl } = require('../utils/publicUrl');
 const ProSubscription = require('../models/proSubscription');
 
 const TIER_CFG = {
@@ -24,7 +25,7 @@ router.post('/checkout', auth, async (req, res) => {
         });
         
         return res.json({ 
-          url: `${process.env.CLIENT_URL || 'http://localhost:5173'}/pro-success?tier=${tier}&session=mock_session_123`,
+          url: `${getFrontendUrl()}/pro-success?tier=${tier}&session=mock_session_123`,
           mock: true
         });
       } catch (error) {
@@ -37,8 +38,8 @@ router.post('/checkout', auth, async (req, res) => {
       mode: 'subscription',
       payment_method_types: ['card','p24'],
       line_items: [{ price: cfg.priceId, quantity: 1 }],
-      success_url: `${process.env.CLIENT_URL || 'http://localhost:5173'}/pro-success?tier=${tier}&session={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.CLIENT_URL || 'http://localhost:5173'}/pro-cancel?tier=${tier}`,
+      success_url: `${getFrontendUrl()}/pro-success?tier=${tier}&session={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${getFrontendUrl()}/pro-cancel?tier=${tier}`,
       metadata: { userId: String(req.user._id), type: 'pro', tier },
     });
     

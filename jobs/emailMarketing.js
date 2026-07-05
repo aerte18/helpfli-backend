@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const Order = require('../models/Order');
 const { sendMail } = require('../utils/mailer');
+const { getFrontendUrl } = require('../utils/publicUrl');
 
 /**
  * Email Marketing Automation
@@ -10,7 +11,7 @@ const { sendMail } = require('../utils/mailer');
 // Welcome Series - Email 1: Witamy + jak korzystać z platformy
 async function sendWelcomeEmail1(user) {
   try {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const frontendUrl = getFrontendUrl();
     const role = user.role === 'provider' ? 'wykonawcy' : 'klienta';
     
     await sendMail({
@@ -70,7 +71,7 @@ async function sendWelcomeEmail1(user) {
 // Welcome Series - Email 2: Porady jak znaleźć najlepszego wykonawcę / jak zdobyć więcej zleceń
 async function sendWelcomeEmail2(user) {
   try {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const frontendUrl = getFrontendUrl();
     
     await sendMail({
       to: user.email,
@@ -132,7 +133,7 @@ async function sendWelcomeEmail2(user) {
 // Welcome Series - Email 3: Case study - jak inni korzystają z Helpfli
 async function sendWelcomeEmail3(user) {
   try {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const frontendUrl = getFrontendUrl();
     
     await sendMail({
       to: user.email,
@@ -211,7 +212,7 @@ async function sendAbandonedCartEmail(user, orderId) {
     const order = await Order.findById(orderId);
     if (!order) return false;
     
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const frontendUrl = getFrontendUrl();
     
     // Oblicz czas od utworzenia zlecenia
     const hoursSinceCreation = Math.floor((new Date() - order.createdAt) / (1000 * 60 * 60));
@@ -291,7 +292,7 @@ async function sendAbandonedCartSMS(user, orderId) {
     // Na razie wysyłamy tylko jeśli ma numer telefonu
     
     const hoursSinceCreation = Math.floor((new Date() - order.createdAt) / (1000 * 60 * 60));
-    const message = `Helpfli: Dokończ swoje zlecenie "${order.service || 'usługa'}"! ${hoursSinceCreation >= 24 ? 'SPECJALNA ZNIŻKA 5%' : 'Szybsza odpowiedź od wykonawców'}. ${process.env.FRONTEND_URL || 'https://helpfli.pl'}/orders/${orderId}`;
+    const message = `Helpfli: Dokończ swoje zlecenie "${order.service || 'usługa'}"! ${hoursSinceCreation >= 24 ? 'SPECJALNA ZNIŻKA 5%' : 'Szybsza odpowiedź od wykonawców'}. ${getFrontendUrl()}/orders/${orderId}`;
     
     // TODO: Integracja z dostawcą SMS (np. Twilio, SMSAPI)
     // Na razie tylko logujemy
@@ -318,7 +319,7 @@ async function sendAbandonedCartSMS(user, orderId) {
 // Re-engagement - dla nieaktywnych użytkowników
 async function sendReEngagementEmail(user, daysInactive) {
   try {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const frontendUrl = getFrontendUrl();
     
     let subject = '';
     let message = '';

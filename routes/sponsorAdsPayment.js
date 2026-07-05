@@ -73,6 +73,16 @@ router.post('/:id/activate', authMiddleware, async (req, res) => {
       });
     }
 
+    if (String(paymentIntent.metadata?.adId) !== String(ad._id)) {
+      return res.status(403).json({ message: 'PaymentIntent nie dotyczy tej reklamy' });
+    }
+    if (paymentIntent.metadata?.type !== 'sponsor_ad_payment') {
+      return res.status(400).json({ message: 'Nieprawidłowy typ płatności' });
+    }
+    if (paymentIntent.amount < (ad.campaign?.budget || 0)) {
+      return res.status(400).json({ message: 'Kwota płatności jest niższa niż budżet kampanii' });
+    }
+
     // Aktywuj reklamę
     ad.status = 'active';
     ad.campaign.spent = 0; // Reset wydatków (nowa płatność)

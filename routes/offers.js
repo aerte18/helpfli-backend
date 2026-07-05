@@ -854,6 +854,20 @@ router.get("/of-order", auth, async (req, res) => {
     const { orderId } = req.query || {};
     if (!orderId) return res.status(400).json({ message: "Brak orderId" });
 
+    const order = await Order.findById(orderId).select("client provider").lean();
+    if (!order) return res.status(404).json({ message: "Zlecenie nie istnieje" });
+
+    const { getOrderPartyAccess, companyTeamHasOrderProvider } = require("../utils/orderAccess");
+    const access = await getOrderPartyAccess(order, req.user);
+    const isCompanyViewer =
+      req.user.company &&
+      order.provider &&
+      (await companyTeamHasOrderProvider(req.user.company, order.provider));
+
+    if (!access.isClient && access.side !== "admin" && !isCompanyViewer) {
+      return res.status(403).json({ message: "Brak dostępu do ofert tego zlecenia" });
+    }
+
     const { shouldFilterDemoData, getDemoUserIds } = require("../utils/demoAccounts");
     const firstMatch = { orderId: new mongoose.Types.ObjectId(orderId) };
     if (shouldFilterDemoData(req.user)) {
@@ -1212,153 +1226,18 @@ router.post("/:id/accept", auth, async (req, res) => {
     
     await order.save();
 
-    // Automatyczne tworzenie sesji wideo dla usług remote
+    // Sesje Daily.co tylko po opłaceniu — POST /api/video/sessions/create (Stripe PI)
     try {
-      const Service = require('../models/Service');
-      // Sprawdź czy usługa jest typu 'remote'
-      let serviceData = null;
-      if (order.service) {
-        // order.service może być stringiem (kod usługi) lub ObjectId
-        if (typeof order.service === 'string') {
-          serviceData = await Service.findOne({ slug: order.service }).lean();
-        } else {
-          serviceData = await Service.findById(order.service).lean();
-        }
+      const needsPaidVideo =
+        order.consultationType === 'video' ||
+        (order.isTeleconsultation && !['phone', 'email', 'chat'].includes(order.consultationType));
+      if (needsPaidVideo) {
+        logger.info(
+          `[video] Order ${order._id}: klient opłaci sesję wideo przez checkout (brak auto-tworzenia pokoju Daily)`
+        );
       }
-      
-      // Jeśli usługa jest typu 'remote' lub 'hybrid', utwórz sesję wideo
-      if (serviceData && (serviceData.service_kind === 'remote' || serviceData.service_kind === 'hybrid')) {
-        const { createRoom, createToken, isConfigured } = require('../services/dailyService');
-        const VideoSession = require('../models/VideoSession');
-        
-        if (isConfigured) {
-          // Utwórz pokój w Daily.co
-          const scheduledAt = order.scheduledDateTime || new Date(Date.now() + 24 * 60 * 60 * 1000); // Domyślnie za 24h
-          const room = await createRoom({
-            privacy: 'private',
-            properties: {
-              enable_screenshare: true,
-              enable_chat: true,
-              enable_knocking: false,
-              enable_recording: false,
-              exp: Math.floor(new Date(scheduledAt).getTime() / 1000) + (2 * 60 * 60) // 2h po rozpoczęciu
-            }
-          });
-
-          // Pobierz dane klienta i providera
-          const client = await require('../models/User').findById(order.client).lean();
-          const provider = await require('../models/User').findById(offer.providerId).lean();
-
-          // Utwórz tokeny dla uczestników
-          const clientToken = await createToken(room.name, {
-            userId: String(order.client),
-            userName: client?.name || client?.email || 'Klient',
-            isOwner: true
-          });
-
-          const providerToken = await createToken(room.name, {
-            userId: String(offer.providerId),
-            userName: provider?.name || provider?.email || 'Wykonawca',
-            isOwner: false
-          });
-
-          // Zapisz sesję wideo w bazie
-          const videoSession = await VideoSession.create({
-            client: order.client,
-            provider: offer.providerId,
-            order: order._id,
-            dailyRoomId: room.id,
-            dailyRoomName: room.name,
-            dailyRoomUrl: room.url,
-            clientToken,
-            providerToken,
-            scheduledAt: scheduledAt instanceof Date ? scheduledAt : new Date(scheduledAt),
-            price: offer.amount ? Math.round(offer.amount * 100) : 0, // Konwersja na grosze
-            paid: false, // Płatność będzie zrealizowana później (jeśli przez system)
-            status: 'scheduled'
-          });
-
-          // Powiąż sesję wideo ze zleceniem
-          order.videoSession = videoSession._id;
-          await order.save();
-
-          logger.info(`✅ Automatycznie utworzono sesję wideo dla zlecenia ${order._id} (usługa remote)`);
-
-          // Wyślij powiadomienia o utworzeniu sesji wideo
-          try {
-            const { sendPushToUser } = require('../utils/push');
-            const Notification = require('../models/Notification');
-            const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-            const orderLink = `${frontendUrl}/orders/${order._id}`;
-            const scheduledAtFormatted = new Date(scheduledAt).toLocaleString('pl-PL', {
-              day: 'numeric',
-              month: 'long',
-              year: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit'
-            });
-
-            // Powiadomienie dla klienta
-            await Notification.create({
-              user: order.client,
-              type: 'new_order', // Użyj istniejącego typu lub dodaj nowy 'video_session_created'
-              title: 'Sesja wideo została utworzona',
-              message: `Sesja wideo została zaplanowana na ${scheduledAtFormatted}`,
-              link: orderLink,
-              metadata: {
-                orderId: order._id.toString(),
-                videoSessionId: videoSession._id.toString(),
-                scheduledAt: scheduledAt
-              }
-            });
-
-            try {
-              await sendPushToUser(order.client, {
-                title: 'Sesja wideo utworzona',
-                message: `Sesja wideo zaplanowana na ${scheduledAtFormatted}`,
-                url: orderLink
-              });
-            } catch (pushError) {
-              logger.warn('Błąd push notification dla klienta:', pushError.message);
-            }
-
-            // Powiadomienie dla providera
-            await Notification.create({
-              user: offer.providerId,
-              type: 'new_order',
-              title: 'Sesja wideo została utworzona',
-              message: `Sesja wideo została zaplanowana na ${scheduledAtFormatted}`,
-              link: orderLink,
-              metadata: {
-                orderId: order._id.toString(),
-                videoSessionId: videoSession._id.toString(),
-                scheduledAt: scheduledAt
-              }
-            });
-
-            try {
-              await sendPushToUser(offer.providerId, {
-                title: 'Sesja wideo utworzona',
-                message: `Sesja wideo zaplanowana na ${scheduledAtFormatted}`,
-                url: orderLink
-              });
-            } catch (pushError) {
-              logger.warn('Błąd push notification dla providera:', pushError.message);
-            }
-          } catch (notifyError) {
-            logger.warn('Błąd wysyłania powiadomień o sesji wideo:', notifyError.message);
-          }
-        } else {
-          logger.warn(`⚠️ Nie można utworzyć sesji wideo - Daily.co nie jest skonfigurowane`);
-        }
-      }
-    } catch (videoError) {
-      // Nie blokuj akceptacji oferty jeśli tworzenie sesji wideo się nie powiodło
-      logger.error('Błąd automatycznego tworzenia sesji wideo:', {
-        error: videoError.message,
-        stack: videoError.stack,
-        orderId: order._id
-      });
+    } catch (videoHintErr) {
+      logger.warn('[video] offer accept hint:', videoHintErr.message);
     }
 
     // powiadom klientów o akceptacji oferty

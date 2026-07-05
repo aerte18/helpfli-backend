@@ -13,6 +13,8 @@ const crypto = require('crypto');
 /** Zlecenia uznane za zakończone — można zamknąć konto. */
 const ORDER_TERMINAL_STATUSES = ['completed', 'rated', 'cancelled', 'released'];
 
+const OPEN_DISPUTE_STATUSES = ['reported', 'refund_requested', 'mediation', 'escalated', 'open'];
+
 class PrivacyService {
   _anonLabel(userId) {
     const uid = String(userId);
@@ -49,6 +51,25 @@ class PrivacyService {
       blockers.push({
         code: 'ACTIVE_ORDERS',
         message: `Masz ${activeOrders} zleceń w toku lub niezakończonych. Dokończ je lub anuluj przed usunięciem konta.`,
+      });
+    }
+
+    const openDisputes = await Order.countDocuments({
+      $and: [
+        { $or: [{ client: uid }, { provider: uid }] },
+        {
+          $or: [
+            { status: 'disputed' },
+            { disputeStatus: { $in: OPEN_DISPUTE_STATUSES } },
+          ],
+        },
+      ],
+    });
+    if (openDisputes > 0) {
+      blockers.push({
+        code: 'OPEN_DISPUTE',
+        message:
+          'Masz otwarte spory lub wnioski o zwrot. Zamknij je lub skontaktuj się z pomocą techniczną przed usunięciem konta.',
       });
     }
 

@@ -1,12 +1,29 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const router = express.Router();
+const { getMongoHealthStatus } = require('../utils/mongoHealthProbe');
+
+function wantsDeepMongoCheck(req) {
+  return req.query?.deep === '1' || process.env.HEALTH_CHECK_MONGO === '1';
+}
 
 // Health check endpoint
 router.get('/', async (req, res) => {
-  // On Vercel Functions keep health very lightweight to avoid timeouts/crashes
-  if (process.env.VERCEL === '1') {
+  // On Vercel: lightweight by default; optional Mongo probe (?deep=1 or HEALTH_CHECK_MONGO=1)
+  if (process.env.VERCEL === '1' && !wantsDeepMongoCheck(req)) {
     return res.status(200).json({ ok: true, platform: 'vercel', ts: new Date().toISOString() });
+  }
+  if (process.env.VERCEL === '1' && wantsDeepMongoCheck(req)) {
+    const mongo = await getMongoHealthStatus({ timeoutMs: 2500 });
+    const ok = mongo.status === 'ok';
+    return res.status(ok ? 200 : 503).json({
+      ok,
+      platform: 'vercel',
+      ts: new Date().toISOString(),
+      status: ok ? 'ok' : 'degraded',
+      services: { database: mongo.database },
+      ...(mongo.error ? { error: mongo.error } : {}),
+    });
   }
   const isProd = (process.env.NODE_ENV || 'development') === 'production';
   const strictStorageHealth = process.env.HEALTH_STRICT_STORAGE === '1';

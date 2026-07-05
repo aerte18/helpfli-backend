@@ -234,4 +234,116 @@ router.get("/export", async (req, res) => {
   }
 });
 
+/**
+ * GET /api/admin/disputes/:orderId — szczegóły sprawy
+ */
+router.get("/:orderId", async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({ ok: false, message: "Nieprawidłowe ID zlecenia" });
+    }
+    const order = await Order.findById(orderId)
+      .populate("client", "name email")
+      .populate("provider", "name email")
+      .lean();
+    if (!order) return res.status(404).json({ ok: false, message: "Nie znaleziono zlecenia" });
+    res.json({ ok: true, order: mapOrderRow(order), disputeMessages: order.disputeMessages || [] });
+  } catch (e) {
+    console.error("ADMIN_DISPUTES_DETAIL", e);
+    res.status(500).json({ ok: false, message: "Błąd pobierania sprawy" });
+  }
+});
+
+/**
+ * POST /api/admin/disputes/:orderId/close — zamknij spór (bez zwrotu Stripe)
+ */
+router.post("/:orderId/close", async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const note = String(req.body?.note || "Zamknięte przez administratora").slice(0, 2000);
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ ok: false, message: "Nie znaleziono zlecenia" });
+
+    order.disputeStatus = "closed";
+    order.disputeMessages = order.disputeMessages || [];
+    order.disputeMessages.push({
+      kind: "admin",
+      body: note,
+      createdAt: new Date(),
+      authorRole: "admin",
+    });
+    if (order.status === "disputed") {
+      order.status = order.clientCompletionStatus === "accepted" ? "completed" : "released";
+    }
+    await order.save();
+    res.json({ ok: true, message: "Spór zamknięty", order: mapOrderRow(order.toObject()) });
+  } catch (e) {
+    console.error("ADMIN_DISPUTES_CLOSE", e);
+    res.status(500).json({ ok: false, message: "Błąd zamykania sporu" });
+  }
+});
+
+/**
+ * POST /api/admin/disputes/:orderId/force-refund — admin wymusza zwrot (PLN)
+ */
+router.post("/:orderId/force-refund", async (req, res) => {
+  try {
+    const { applyDisputeSettlementRefund } = require("../utils/disputeSettlementRefund");
+    const amountPln = Number(req.body?.amountPln);
+    if (!Number.isFinite(amountPln) || amountPln < 0) {
+      return res.status(400).json({ ok: false, message: "Nieprawidłowa kwota" });
+    }
+
+    const order = await Order.findById(req.params.orderId);
+    if (!order) return res.status(404).json({ ok: false, message: "Nie znaleziono zlecenia" });
+
+    const st = order.disputeSettlement || {};
+    if (st.refundProcessedAt) {
+      return res.status(409).json({ ok: false, message: "Zwrot dla tego zlecenia został już wykonany" });
+    }
+
+    const refundSummary = await applyDisputeSettlementRefund(order, amountPln, {
+      idempotencyScope: `admin_${order._id}`,
+    });
+    if (!refundSummary.ok) {
+      return res.status(400).json({ ok: false, message: refundSummary.message, code: refundSummary.code });
+    }
+
+    order.disputeSettlement = {
+      ...st,
+      status: "accepted",
+      amountPln,
+      refundProcessedAt: new Date(),
+      refundAmountGrosze: refundSummary.amountGrosze,
+      refundStripeRef: refundSummary.stripeRef || null,
+      refundMethod: refundSummary.method,
+      adminForced: true,
+      adminForcedBy: req.user._id,
+    };
+    order.paymentStatus = refundSummary.orderPaymentStatus;
+    if (refundSummary.orderPaymentSubStatus) {
+      order.payment = order.payment || {};
+      order.payment.status = refundSummary.orderPaymentSubStatus;
+    }
+    if (refundSummary.additionalPaymentStatus) {
+      order.additionalPaymentStatus = refundSummary.additionalPaymentStatus;
+    }
+    order.disputeStatus = "resolved";
+    order.disputeMessages = order.disputeMessages || [];
+    order.disputeMessages.push({
+      kind: "admin",
+      body: `Administrator wykonał zwrot ${(refundSummary.amountGrosze / 100).toFixed(2)} PLN (${refundSummary.method}).`,
+      createdAt: new Date(),
+      authorRole: "admin",
+    });
+    await order.save();
+
+    res.json({ ok: true, refund: refundSummary, order: mapOrderRow(order.toObject()) });
+  } catch (e) {
+    console.error("ADMIN_DISPUTES_FORCE_REFUND", e);
+    res.status(500).json({ ok: false, message: "Błąd wymuszonego zwrotu" });
+  }
+});
+
 module.exports = router;

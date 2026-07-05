@@ -3,6 +3,7 @@ const User = require('../models/User');
 const Rating = require('../models/Rating');
 const { sendMail } = require('../utils/mailer');
 const { sendPushToUser } = require('../utils/push');
+const { getFrontendUrl } = require('../utils/publicUrl');
 
 /**
  * Job do wysyłania automatycznych prośb o recenzje
@@ -68,7 +69,7 @@ async function sendReviewReminders() {
                 <p>Pomóż innym użytkownikom i oceń wykonawcę <strong>${order.provider?.name || ''}</strong>.</p>
                 <p><strong>Za każdą recenzję otrzymasz 10 punktów lojalnościowych!</strong></p>
                 <div style="text-align: center; margin: 30px 0;">
-                  <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/orders/${order._id}?review=true" 
+                  <a href="${getFrontendUrl()}/orders/${order._id}?review=true" 
                      style="background: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
                     Oceń wykonawcę
                   </a>
@@ -100,7 +101,7 @@ async function sendReviewReminders() {
           await sendPushToUser(order.client._id, {
             title: 'Oceń wykonawcę',
             message: `Zlecenie "${order.service}" zakończone. Oceń wykonawcę i otrzymaj 10 punktów!`,
-            url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/orders/${order._id}?review=true`
+            url: `${getFrontendUrl()}/orders/${order._id}?review=true`
           });
         } catch (pushError) {
           console.error(`Error sending push to ${order.client._id}:`, pushError);

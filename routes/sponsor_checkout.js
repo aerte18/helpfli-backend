@@ -2,6 +2,7 @@ const router = require("express").Router();
 const { authMiddleware: auth } = require("../middleware/authMiddleware");
 const Stripe = require("stripe");
 const stripe = process.env.STRIPE_SECRET_KEY ? Stripe(process.env.STRIPE_SECRET_KEY) : null;
+const { getFrontendUrl } = require("../utils/publicUrl");
 
 const PRICE_PER_DAY = { 2: 3000, 7: 2000 };
 
@@ -29,7 +30,7 @@ router.post("/sponsor/checkout", auth, async (req, res) => {
 
 		if (!stripe) {
 			// DEV fallback bez Stripe – po sukcesie frontend wejdzie z ?paid=1 i osobny endpoint create może utworzyć kampanię
-			return res.json({ url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/provider/sponsored?paid=1`, amount });
+			return res.json({ url: `${getFrontendUrl()}/provider/sponsored?paid=1`, amount });
 		}
 
 		const session = await stripe.checkout.sessions.create({
@@ -40,8 +41,8 @@ router.post("/sponsor/checkout", auth, async (req, res) => {
 					quantity: 1,
 				},
 			],
-			success_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/provider/sponsored?paid=1`,
-			cancel_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/provider/sponsored?canceled=1`,
+			success_url: `${getFrontendUrl()}/provider/sponsored?paid=1`,
+			cancel_url: `${getFrontendUrl()}/provider/sponsored?canceled=1`,
 			allow_promotion_codes: true,
 			metadata: {
 				kind: "sponsor",

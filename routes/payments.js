@@ -17,6 +17,7 @@ const { requireRole } = require('../middleware/roles');
 const NotificationService = require('../services/NotificationService');
 const { validateNIP } = require('../utils/companyValidation');
 const { paymentIntentStatusForPaymentModel } = require('../utils/paymentIntentStatusForPaymentModel');
+const { getFrontendUrl } = require('../utils/publicUrl');
 
 // Helper do logowania błędów płatności
 async function logPaymentError({
@@ -84,7 +85,7 @@ const CURRENCY = process.env.CURRENCY || 'pln';
 const GUARANTEE_DAYS = parseInt(process.env.PAYMENT_GUARANTEE_DAYS || '30', 10);
 const PLATFORM_FEE_PERCENT = parseFloat(process.env.PLATFORM_FEE_PERCENT || '0.07');
 
-const FRONTEND_URL = process.env.FRONTEND_URL || process.env.APP_URL || 'http://localhost:5173';
+const FRONTEND_URL = getFrontendUrl();
 
 function normalizeUrl(value) {
   if (!value || typeof value !== 'string') return '';
@@ -96,7 +97,7 @@ function resolveFrontendUrl(req) {
   if (envUrl) return envUrl;
 
   const host = req.headers['x-forwarded-host'] || req.headers.host;
-  if (!host) return 'http://localhost:5173';
+  if (!host) return getFrontendUrl();
   const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
   return `${proto}://${host}`;
 }
@@ -1247,6 +1248,16 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
   }
 
   try {
+    const ProcessedStripeEvent = require('../models/ProcessedStripeEvent');
+    try {
+      await ProcessedStripeEvent.create({ eventId: event.id, type: event.type });
+    } catch (dupErr) {
+      if (dupErr?.code === 11000) {
+        return res.json({ received: true, duplicate: true });
+      }
+      throw dupErr;
+    }
+
     // Obsługa Stripe Subscriptions events
     if (event.type === 'customer.subscription.created' || event.type === 'customer.subscription.updated') {
       const subscription = event.data.object;
@@ -1367,7 +1378,7 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
                     </ul>
                     
                     <div style="text-align: center; margin: 30px 0;">
-                      <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/account/subscriptions?updatePayment=true" 
+                      <a href="${getFrontendUrl()}/account/subscriptions?updatePayment=true" 
                          style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold;">
                         Zaktualizuj metodę płatności
                       </a>
@@ -2142,6 +2153,46 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
           }
         } catch (e) {
           console.error('Additional payment payment_failed handling error:', e);
+        }
+        return res.json({ received: true });
+      }
+
+      // Obsługa boostów (profile / wyróżnienia)
+      if (intent.metadata?.type === 'boost_purchase') {
+        try {
+          const { fulfillBoostPaymentFromWebhook } = require('../services/boostPurchaseService');
+          const payment = await Payment.findOne({ stripePaymentIntentId: intent.id });
+          await fulfillBoostPaymentFromWebhook(intent, payment);
+        } catch (e) {
+          console.error('boost_purchase webhook error:', e);
+        }
+        return res.json({ received: true });
+      }
+
+      if (intent.metadata?.type === 'sponsor_ad_payment') {
+        try {
+          const { fulfillSponsorAdPaymentFromWebhook } = require('../services/sponsorAdPaymentService');
+          await fulfillSponsorAdPaymentFromWebhook(intent);
+        } catch (e) {
+          console.error('sponsor_ad_payment webhook error:', e);
+        }
+        return res.json({ received: true });
+      }
+
+      if (intent.metadata?.type === 'sponsor_ad_renewal') {
+        try {
+          const { fulfillSponsorAdRenewalFromWebhook } = require('../services/sponsorAdPaymentService');
+          const renewed = await fulfillSponsorAdRenewalFromWebhook(intent);
+          if (renewed) {
+            const SponsorAd = require('../models/SponsorAd');
+            const { sendAutoRenewalEmail } = require('../cron/sponsorAdsCron');
+            const ad = await SponsorAd.findById(intent.metadata?.adId);
+            if (ad) {
+              await sendAutoRenewalEmail(ad, ad.campaign?.renewalPeriod || 30);
+            }
+          }
+        } catch (e) {
+          console.error('sponsor_ad_renewal webhook error:', e);
         }
         return res.json({ received: true });
       }

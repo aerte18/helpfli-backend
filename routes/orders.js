@@ -25,6 +25,10 @@ const {
   resolvePaymentFlow,
   allowsPlatformDispute,
 } = require("../utils/orderPaymentFlow");
+const {
+  userCanAccessOrderSensitive,
+  getOrderPartySide,
+} = require("../utils/orderAccess");
 
 // Post-Order Agent (lazy load dla optymalizacji)
 let runPostOrderAgent = null;
@@ -697,12 +701,12 @@ router.post("/", auth, async (req, res) => {
           
           // Wyślij powiadomienie do przypisanego providera
           try {
-            const NotificationService = require('../services/NotificationService');
-            await NotificationService.sendNotification(assignmentResult.provider._id, {
-              type: 'order_assigned',
-              title: 'Nowe zlecenie przypisane',
-              message: `Zostałeś automatycznie przypisany do zlecenia: ${order.description?.substring(0, 50) || 'Nowe zlecenie'}`,
-              link: `/orders/${order._id}`
+            const notificationService = require('../services/NotificationService');
+            await notificationService.sendNotification('order_assigned', [assignmentResult.provider._id], {
+              orderId: order._id,
+              linkPath: `/orders/${order._id}`,
+              service: order.service,
+              message: order.description?.substring(0, 50) || 'Nowe zlecenie',
             });
           } catch (notifError) {
             console.error('Error sending assignment notification:', notifError);
@@ -1885,26 +1889,8 @@ router.get('/:orderId/attachments/resolve-file', auth, async (req, res) => {
     if (!order) return res.status(404).json({ message: 'Zlecenie nie znalezione' });
 
     const userId = req.user._id.toString();
-    const isOwner = order.client.toString() === userId;
-    const isProviderUser = req.user.role === 'provider';
-    const isAdmin = req.user.role === 'admin';
-
-    let isCompanyView = false;
-    if (!isOwner && !isProviderUser && !isAdmin && req.user.company) {
-      const Company = require('../models/Company');
-      const company = await Company.findById(req.user.company).lean();
-      if (company) {
-        const providerId = order.provider?.toString();
-        const memberIds = [
-          company.owner?.toString(),
-          ...(company.managers || []).map((m) => m.toString()),
-          ...(company.providers || []).map((p) => p.toString()),
-        ].filter(Boolean);
-        if (providerId && memberIds.includes(providerId)) isCompanyView = true;
-      }
-    }
-
-    if (!isOwner && !isProviderUser && !isAdmin && !isCompanyView) {
+    const allowed = await userCanAccessOrderSensitive(order, req.user);
+    if (!allowed) {
       return res.status(403).json({ message: 'Brak dostępu' });
     }
 
@@ -1942,27 +1928,8 @@ router.get('/:orderId/attachments/:attachmentId/file', auth, async (req, res) =>
     const order = await Order.findById(orderId);
     if (!order) return res.status(404).json({ message: 'Zlecenie nie znalezione' });
 
-    const userId = req.user._id.toString();
-    const isOwner = order.client.toString() === userId;
-    const isProviderUser = req.user.role === 'provider';
-    const isAdmin = req.user.role === 'admin';
-
-    let isCompanyView = false;
-    if (!isOwner && !isProviderUser && !isAdmin && req.user.company) {
-      const Company = require('../models/Company');
-      const company = await Company.findById(req.user.company).lean();
-      if (company) {
-        const providerId = order.provider?.toString();
-        const memberIds = [
-          company.owner?.toString(),
-          ...(company.managers || []).map((m) => m.toString()),
-          ...(company.providers || []).map((p) => p.toString()),
-        ].filter(Boolean);
-        if (providerId && memberIds.includes(providerId)) isCompanyView = true;
-      }
-    }
-
-    if (!isOwner && !isProviderUser && !isAdmin && !isCompanyView) {
+    const allowed = await userCanAccessOrderSensitive(order, req.user);
+    if (!allowed) {
       return res.status(403).json({ message: 'Brak dostępu' });
     }
 
@@ -2260,11 +2227,27 @@ router.post("/:id/dispute-case/settlement-respond", auth, loadOrderById, async (
     if (String(st.offeredBy) === String(req.user._id)) {
       return res.status(400).json({ message: "Nie możesz odpowiedzieć na własną propozycję" });
     }
+    const User = require("../models/User");
+    const offererUser = await User.findById(st.offeredBy).select("company role");
+    const offererSide = offererUser ? await getOrderPartySide(order, offererUser) : null;
+    const responderSide = party.isClient ? "client" : party.isProvider ? "provider" : null;
+    if (offererSide && responderSide && offererSide === responderSide) {
+      return res.status(403).json({ message: "Propozycji ugody musi odpowiedzieć druga strona sporu" });
+    }
     const accept = !!req.body?.accept;
 
     let refundSummary = null;
     if (accept) {
-      refundSummary = await applyDisputeSettlementRefund(order, Number(st.amountPln));
+      if (st.refundProcessedAt) {
+        return res.json({
+          message: "Ugoda została już zrealizowana",
+          settlement: order.disputeSettlement,
+          alreadyProcessed: true,
+        });
+      }
+      refundSummary = await applyDisputeSettlementRefund(order, Number(st.amountPln), {
+        idempotencyScope: String(order._id),
+      });
       if (!refundSummary.ok) {
         return res.status(400).json({ message: refundSummary.message, code: refundSummary.code });
       }
@@ -2443,6 +2426,21 @@ router.post("/:id/dispute-case/escalate", auth, loadOrderById, async (req, res) 
       createdAt: new Date(),
     });
     await order.save();
+
+    try {
+      const { notifyAdmins } = require('../utils/adminNotifier');
+      const { getFrontendUrl } = require('../utils/publicUrl');
+      await notifyAdmins({
+        title: 'Spór eskalowany do Helpfli',
+        body: `Zlecenie ${order.service || order._id} — użytkownik przekazał sprawę operatorowi.`,
+        url: `${getFrontendUrl()}/admin/disputes?tab=escalated`,
+        type: 'dispute_escalated',
+        meta: { orderId: String(order._id) },
+      });
+    } catch (notifyErr) {
+      console.error('DISPUTE_ESCALATE_ADMIN_NOTIFY', notifyErr);
+    }
+
     res.json({ message: "Przekazano do Helpfli", disputeEscalatedAt: order.disputeEscalatedAt });
   } catch (e) {
     console.error("DISPUTE_ESCALATE", e);
@@ -2518,8 +2516,8 @@ router.get('/:id', auth, async (req, res) => {
     
     // Sprawdź uprawnienia
     const isOwner = order.client._id.toString() === req.user._id.toString();
-    const isProvider = req.user.role === 'provider';
     const isAssignedProvider = order.provider && (order.provider._id?.toString() || order.provider.toString()) === req.user._id.toString();
+    const isAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
 
     // Firma (owner/manager) może podejrzeć zlecenie, jeśli wykonawcą jest pracownik tej firmy
     let isCompanyView = false;
@@ -2539,7 +2537,30 @@ router.get('/:id', auth, async (req, res) => {
       }
     }
 
-    if (!isOwner && !isProvider && !isCompanyView) {
+    const OPEN_MARKET_STATUSES = ['open', 'collecting_offers', 'quote', 'pending'];
+    let hasOfferOnOrder = false;
+    if (req.user.role === 'provider' && !isOwner && !isAssignedProvider && !isCompanyView) {
+      hasOfferOnOrder = !!(await Offer.exists({ orderId: order._id, providerId: req.user._id }));
+    }
+
+    const isDirectQuoteForProvider =
+      order.status === 'quote' &&
+      order.provider &&
+      String(order.provider._id || order.provider) === String(req.user._id);
+
+    const isOpenMarketForProvider =
+      req.user.role === 'provider' &&
+      (OPEN_MARKET_STATUSES.includes(order.status) || isDirectQuoteForProvider);
+
+    const canAccess =
+      isOwner ||
+      isAssignedProvider ||
+      isCompanyView ||
+      isAdmin ||
+      hasOfferOnOrder ||
+      isOpenMarketForProvider;
+
+    if (!canAccess) {
       return res.status(403).json({ message: 'Brak dostępu do tego zlecenia' });
     }
 
@@ -2554,7 +2575,7 @@ router.get('/:id', auth, async (req, res) => {
         .populate('providerId', 'name email phone avatar level providerLevel badges')
         .sort({ createdAt: -1 })
         .lean();
-    } else if (isProvider) {
+    } else if (isAssignedProvider || hasOfferOnOrder) {
       // Provider widzi tylko swoje oferty
       offers = await Offer.find({ 
         orderId: order._id, 
@@ -2608,6 +2629,23 @@ router.get('/:id', auth, async (req, res) => {
       : 0;
     if (order.orderMode === 'offers_only' && !isContactUnlocked(order)) {
       applyContactMasking(order, { viewerId: req.user._id, isOwner, isAssignedProvider });
+    } else if (
+      req.user.role === 'provider' &&
+      !isOwner &&
+      !isAssignedProvider &&
+      !isCompanyView &&
+      !isAdmin
+    ) {
+      const { maskEmail, maskPhone } = require('../utils/offersOnlyMonetization');
+      if (order.client && typeof order.client === 'object') {
+        order.client = {
+          ...order.client,
+          phone: maskPhone(order.client.phone),
+          email: maskEmail(order.client.email),
+          phoneLocked: true,
+          emailLocked: true,
+        };
+      }
     }
     
     res.json(order);
@@ -2657,8 +2695,12 @@ function requireKycForOrderComplete(req, res, next) {
   return requireKycVerified(req, res, next);
 }
 
-// Endpoint statusu ochrony — do UI
+// Endpoint statusu ochrony — do UI (tylko strony zlecenia)
 router.get('/:id/protection', auth, loadOrderById, async (req, res) => {
+  const { userCanAccessOrderSensitive } = require('../utils/orderAccess');
+  const allowed = await userCanAccessOrderSensitive(req.order, req.user);
+  if (!allowed) return res.status(403).json({ message: 'Brak dostępu do tego zlecenia' });
+
   const o = req.order;
   res.json({
     paidInSystem: o.paidInSystem,
@@ -3413,7 +3455,8 @@ router.post('/:id/invoice', auth, uploadInvoice.single('invoice'), async (req, r
       const client = await User.findById(order.client);
       
       if (client && client.email) {
-        const baseUrl = process.env.FRONTEND_URL || process.env.API_URL || 'http://localhost:3000';
+        const { getFrontendUrl } = require('../utils/publicUrl');
+        const baseUrl = getFrontendUrl();
         const invoiceUrl = `${baseUrl}${order.invoice.url}`;
         
         await emailService.sendEmail({
@@ -4032,6 +4075,7 @@ router.post('/:id/dispute', auth, loadOrderById, async (req, res) => {
 
     const mediationHours = Number(process.env.DISPUTE_MEDIATION_HOURS || 72);
     order.disputeMediationEndsAt = new Date(Date.now() + mediationHours * 3600000);
+    order.disputeMediationExpiredNotified = false;
     order.disputeEscalatedAt = null;
     const untilStr = order.disputeMediationEndsAt.toISOString().slice(0, 16).replace("T", " ");
     order.disputeMessages = [
@@ -4066,6 +4110,20 @@ router.post('/:id/dispute', auth, loadOrderById, async (req, res) => {
       await NotificationService.notifyOrderDisputed(order._id, reason);
     } catch (error) {
       console.error('Notification error:', error);
+    }
+
+    try {
+      const { notifyAdmins } = require('../utils/adminNotifier');
+      const { getFrontendUrl } = require('../utils/publicUrl');
+      await notifyAdmins({
+        title: 'Nowy spór zlecenia',
+        body: `Zgłoszono spór: ${order.service || order._id}. Mediacja do ${untilStr}.`,
+        url: `${getFrontendUrl()}/admin/disputes?tab=open`,
+        type: 'admin_alert',
+        meta: { orderId: String(order._id) },
+      });
+    } catch (notifyErr) {
+      console.error('DISPUTE_REPORT_ADMIN_NOTIFY', notifyErr);
     }
 
     try {
@@ -4123,7 +4181,36 @@ router.post('/:id/refund-request', auth, loadOrderById, async (req, res) => {
     order.refundRequestedAt = new Date();
     order.disputeStatus = 'refund_requested';
     order.status = 'disputed';
+    if (!order.disputeReportedAt) {
+      order.disputeReportedAt = new Date();
+    }
+    const mediationHours = Number(process.env.DISPUTE_MEDIATION_HOURS || 72);
+    if (!order.disputeMediationEndsAt) {
+      order.disputeMediationEndsAt = new Date(Date.now() + mediationHours * 3600000);
+    }
+    order.disputeMessages = order.disputeMessages || [];
+    if (!order.disputeMessages.length) {
+      order.disputeMessages.push({
+        kind: 'system',
+        body: `Klient złożył wniosek o zwrot. Etap mediacji (${mediationHours} h) — możecie ustalić ugodę lub przekazać sprawę do Helpfli.`,
+        createdAt: new Date(),
+      });
+    }
     await order.save();
+
+    try {
+      const { notifyAdmins } = require('../utils/adminNotifier');
+      const { getFrontendUrl } = require('../utils/publicUrl');
+      await notifyAdmins({
+        title: 'Wniosek o zwrot',
+        body: `Klient poprosił o zwrot dla zlecenia ${order.service || order._id}.`,
+        url: `${getFrontendUrl()}/admin/disputes?tab=open`,
+        type: 'admin_alert',
+        meta: { orderId: String(order._id) },
+      });
+    } catch (notifyErr) {
+      console.error('REFUND_REQUEST_ADMIN_NOTIFY', notifyErr);
+    }
 
     try {
       const TelemetryService = require('../services/TelemetryService');
@@ -4225,9 +4312,12 @@ router.post('/manage-expiration', async (req, res) => {
   try {
     // Sprawdź secret token (dla cron jobów) lub autoryzację admin
     const secretToken = req.headers['x-cron-secret'] || req.query.secret;
-    const expectedSecret = process.env.CRON_SECRET || 'change-me-in-production';
-    
-    // Jeśli nie ma secret token, sprawdź czy użytkownik jest zalogowany jako admin
+    const expectedSecret = process.env.CRON_SECRET;
+
+    if (!expectedSecret) {
+      return res.status(503).json({ message: 'CRON_SECRET nie jest skonfigurowany' });
+    }
+
     if (!secretToken || secretToken !== expectedSecret) {
       // Sprawdź autoryzację przez req.user (ustawione przez auth middleware jeśli jest)
       if (!req.user || (req.user.role !== 'admin' && req.user.role !== 'superadmin')) {

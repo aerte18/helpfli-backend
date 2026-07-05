@@ -536,6 +536,9 @@ router.get('/:companyId/wallet/transactions', auth, requireCompanyAccess, async 
 // POST /api/companies/:companyId/wallet/deposit
 router.post('/:companyId/wallet/deposit', auth, requireCompanyAccess, async (req, res) => {
   try {
+    if (!req.companyAccess?.canManage) {
+      return res.status(403).json({ success: false, message: 'Tylko manager firmy może wpłacać środki' });
+    }
     const { amount, description } = req.body;
     const CompanyWallet = require('../models/CompanyWallet');
     
@@ -563,6 +566,9 @@ router.post('/:companyId/wallet/deposit', auth, requireCompanyAccess, async (req
 // POST /api/companies/:companyId/wallet/withdraw
 router.post('/:companyId/wallet/withdraw', auth, requireCompanyAccess, async (req, res) => {
   try {
+    if (!req.companyAccess?.canManage) {
+      return res.status(403).json({ success: false, message: 'Tylko manager firmy może wypłacać środki' });
+    }
     const { amount, description } = req.body;
     const CompanyWallet = require('../models/CompanyWallet');
     

@@ -367,6 +367,7 @@ const UPLOAD_DIR = process.env.UPLOAD_DIR || 'uploads';
 const UPLOAD_DIR_ABS = path.isAbsolute(UPLOAD_DIR)
   ? UPLOAD_DIR
   : path.join(__dirname, UPLOAD_DIR);
+const { secureUploads } = require('./middleware/secureUploads');
 if (!fs.existsSync(UPLOAD_DIR_ABS)) fs.mkdirSync(UPLOAD_DIR_ABS, { recursive: true });
 for (const sub of ['kyc', 'drafts', 'orders', 'orders/invoices', 'chat']) {
   const p = path.join(UPLOAD_DIR_ABS, sub);
@@ -382,7 +383,7 @@ app.use("/uploads", (req, res, next) => {
     res.setHeader('Vary', 'Origin');
   }
   next();
-}, express.static(UPLOAD_DIR_ABS));
+}, secureUploads, express.static(UPLOAD_DIR_ABS));
 
 // ---------- Socket.IO (musi być PRZED trasą /api/chat) ----------
 let io = null;
@@ -558,7 +559,16 @@ try {
   logger.debug('Registering kb...');
   safeUse('/api', kbRoutes, 'kb');
   logger.debug('🔵 About to register legacy /health endpoint...');
-  app.get('/health', (_req, res) => res.json({ ok: true })); // Legacy endpoint
+  app.get('/health', async (_req, res) => {
+    const { getMongoHealthStatus } = require('./utils/mongoHealthProbe');
+    const mongo = await getMongoHealthStatus({ timeoutMs: 1500 });
+    const ok = mongo.status === 'ok';
+    res.status(ok ? 200 : 503).json({
+      ok,
+      ts: new Date().toISOString(),
+      services: { database: mongo.database },
+    });
+  });
   logger.debug('🔵 Legacy /health endpoint registered');
 
   logger.debug('Registering auth...');
@@ -930,6 +940,14 @@ if (process.env.VERCEL !== '1') {
       logger.info('[CRON] Order expiration management cron scheduled');
     } catch (e) {
       logger.error('[CRON] Error scheduling order expiration cron:', e);
+    }
+
+    try {
+      const { scheduleDisputeMediationCron } = require('./cron/disputeMediationCron');
+      scheduleDisputeMediationCron(cron);
+      logger.info('[CRON] Dispute mediation expiry cron scheduled');
+    } catch (e) {
+      logger.error('[CRON] Error scheduling dispute mediation cron:', e);
     }
 
     // Auto follow-up Firma PRO (SLA-based)

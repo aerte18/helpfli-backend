@@ -98,7 +98,7 @@ router.post('/sessions/create-payment-intent', authMiddleware, async (req, res) 
 
     // Zapisz Payment (pending)
     const payment = await Payment.create({
-      purpose: 'promotion',
+      purpose: 'video',
       provider: providerId,
       client: clientId,
       providerName: provider.name || provider.email,
@@ -154,6 +154,39 @@ router.post('/sessions/create', authMiddleware, async (req, res) => {
       }
     }
 
+    // Weryfikacja płatności Stripe przed utworzeniem pokoju
+    let payment = null;
+    const priceGrosze = price ? Math.round(Number(price) * 100) : 0;
+    if (priceGrosze > 0) {
+      if (!paymentIntentId) {
+        return res.status(402).json({ message: 'Wymagana opłacona płatność (paymentIntentId)' });
+      }
+      if (!stripe) {
+        return res.status(503).json({ message: 'Płatności Stripe nie są skonfigurowane' });
+      }
+      const intent = await stripe.paymentIntents.retrieve(String(paymentIntentId));
+      if (intent.status !== 'succeeded') {
+        return res.status(402).json({ message: 'Płatność nie została zakończona' });
+      }
+      if (intent.metadata?.type !== 'video' || String(intent.metadata?.clientId) !== String(clientId)) {
+        return res.status(403).json({ message: 'Nieprawidłowy PaymentIntent' });
+      }
+      if (String(intent.metadata?.providerId) !== String(providerId)) {
+        return res.status(403).json({ message: 'PaymentIntent nie dotyczy tego wykonawcy' });
+      }
+      if (intent.amount !== priceGrosze) {
+        return res.status(400).json({ message: 'Kwota płatności nie zgadza się z ceną sesji' });
+      }
+      payment = await Payment.findOne({ stripePaymentIntentId: intent.id });
+      if (!payment || payment.status !== 'succeeded') {
+        return res.status(402).json({ message: 'Brak potwierdzonej płatności w systemie' });
+      }
+      const existingPaid = await VideoSession.findOne({ paymentId: payment._id });
+      if (existingPaid) {
+        return res.status(409).json({ message: 'Ta płatność została już wykorzystana', sessionId: existingPaid._id });
+      }
+    }
+
     // Utwórz pokój w Daily.co
     const room = await createRoom({
       privacy: 'private',
@@ -192,8 +225,8 @@ router.post('/sessions/create', authMiddleware, async (req, res) => {
       clientToken,
       providerToken,
       scheduledAt: scheduledAt ? new Date(scheduledAt) : new Date(),
-      price: price ? Math.round(price * 100) : 0, // Konwersja na grosze
-      paid: !!payment,
+      price: priceGrosze,
+      paid: priceGrosze === 0 || !!payment,
       paymentId: payment ? payment._id : null,
       status: 'scheduled'
     });
@@ -361,24 +394,23 @@ router.get('/sessions/by-order/:orderId', authMiddleware, async (req, res) => {
       return res.json({ session: null });
     }
 
-    // Zwróć token dla obecnego użytkownika
+    // Zwróć metadane sesji — token tylko przez GET /sessions/:id/token
     const isSessionClient = String(session.client._id || session.client) === String(userId);
-    const token = isSessionClient ? session.clientToken : session.providerToken;
 
     res.json({
       session: {
         _id: session._id,
         dailyRoomName: session.dailyRoomName,
         dailyRoomUrl: session.dailyRoomUrl,
-        token,
+        isClient: isSessionClient,
         client: session.client,
         provider: session.provider,
         scheduledAt: session.scheduledAt,
         startedAt: session.startedAt,
         endedAt: session.endedAt,
         status: session.status,
-        price: session.price / 100 // Konwersja z groszy
-      }
+        price: session.price / 100,
+      },
     });
   } catch (error) {
     console.error('GET_VIDEO_SESSION_BY_ORDER_ERROR:', error);

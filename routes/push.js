@@ -5,6 +5,7 @@ const PushSubscription = require('../models/pushSubscription');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const { requireRole } = require('../middleware/roles');
 const { validate } = require('../middleware/validation');
+const { getFrontendUrl } = require('../utils/publicUrl');
 
 // Configure VAPID keys for web-push
 try {
@@ -53,7 +54,7 @@ router.post('/test', authMiddleware, async (req, res) => {
   const payload = JSON.stringify({
     title: 'Helpfli • Powiadomienia działają',
     body: 'To jest test web-push ✅',
-    url: process.env.APP_URL || 'http://localhost:5173'
+    url: getFrontendUrl()
   });
   const results = [];
   for (const s of subs) {
@@ -75,7 +76,7 @@ router.post('/test', authMiddleware, async (req, res) => {
 router.post('/admin/broadcast', authMiddleware, requireRole('admin'), async (req, res) => {
   const { title='Helpfli', body='Powiadomienie', url } = req.body || {};
   const subs = await PushSubscription.find({});
-  const payload = JSON.stringify({ title, body, url: url || (process.env.APP_URL || 'http://localhost:5173') });
+  const payload = JSON.stringify({ title, body, url: url || getFrontendUrl() });
   let ok = 0;
 
   await Promise.all(subs.map(async s => {

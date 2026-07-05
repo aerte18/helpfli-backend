@@ -125,6 +125,8 @@ async function tryGrantProviderReferralReward(referredProviderId) {
   if (!referred?.onboardingCompleted) return null;
   const providerRoles = ['provider', 'company_owner', 'company_manager'];
   if (!providerRoles.includes(referred.role)) return null;
+  if (referred.kyc?.status !== 'verified') return null;
+  if (!Array.isArray(referred.services) || referred.services.length === 0) return null;
 
   const referral = await Referral.findOne({
     referred: referredProviderId,

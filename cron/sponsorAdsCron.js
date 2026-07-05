@@ -8,6 +8,9 @@
 
 const SponsorAd = require('../models/SponsorAd');
 const { sendMail } = require('../utils/mailer');
+const { getFrontendUrl } = require('../utils/publicUrl');
+const { createSponsorAdRenewalPaymentIntent } = require('../services/sponsorAdPaymentService');
+const FRONTEND = getFrontendUrl();
 
 /**
  * Sprawdź i zaktualizuj status reklam
@@ -22,8 +25,8 @@ async function checkSponsorAdsStatus() {
       status: 'active',
       $or: [
         { 'campaign.endDate': { $lt: now } },
-        { 'campaign.spent': { $gte: '$campaign.budget' } }
-      ]
+        { $expr: { $gte: ['$campaign.spent', '$campaign.budget'] } },
+      ],
     });
 
     for (const ad of expiredAds) {
@@ -68,8 +71,8 @@ async function checkSponsorAdsStatus() {
       'freeTrial.isFreeTrial': true,
       'freeTrial.convertedToPackage': false,
       $or: [
-        { 'freeTrial.trialEndDate': { $lte: new Date(now.getTime() + 24 * 60 * 60 * 1000) } }, // 24h przed końcem
-        { 'freeTrial.trialImpressionsUsed': { $gte: '$freeTrial.trialImpressionsLimit' } } // Limit wyczerpany
+        { 'freeTrial.trialEndDate': { $lte: new Date(now.getTime() + 24 * 60 * 60 * 1000) } },
+        { $expr: { $gte: ['$freeTrial.trialImpressionsUsed', '$freeTrial.trialImpressionsLimit'] } },
       ],
       'freeTrial.conversionOfferSent': false
     });
@@ -108,38 +111,36 @@ async function checkSponsorAdsStatus() {
       'freeTrial.isFreeTrial': { $ne: true } // Tylko płatne kampanie
     });
 
-    let renewedCount = 0;
+    let renewalOffersSent = 0;
     for (const ad of autoRenewAds) {
       try {
-        // Sprawdź czy są środki na przedłużenie
-        const renewalCost = ad.campaign.budget; // Koszt przedłużenia = budżet kampanii
-        
-        // Sprawdź czy firma ma wystarczające środki (dla pakietów - sprawdź czy płatność jest opłacona)
-        if (ad.payment?.status === 'succeeded' || ad.package === 'package') {
-          // Przedłuż kampanię
-          const renewalPeriod = ad.campaign.renewalPeriod || 30; // Domyślnie 30 dni
-          const newEndDate = new Date(ad.campaign.endDate.getTime() + renewalPeriod * 24 * 60 * 60 * 1000);
-          
-          ad.campaign.endDate = newEndDate;
-          ad.campaign.renewalCount = (ad.campaign.renewalCount || 0) + 1;
-          ad.campaign.notificationSent = false; // Resetuj powiadomienie
-          await ad.save();
-          
-          // Wyślij email o przedłużeniu
-          await sendAutoRenewalEmail(ad, renewalPeriod);
-          renewedCount++;
-          
-          console.log(`[Cron] Automatycznie przedłużono kampanię ${ad.title} (ID: ${ad._id})`);
-        } else {
-          // Brak środków - wyślij powiadomienie
-          await sendAutoRenewalFailedEmail(ad);
+        if (ad.campaign.renewalPaymentOfferSent && ad.campaign.renewalPendingPaymentIntentId) {
+          continue;
         }
+
+        const renewalCost = ad.campaign.budget;
+        const intent = await createSponsorAdRenewalPaymentIntent(ad);
+        const checkoutUrl = `${FRONTEND}/checkout?pi=${encodeURIComponent(intent.id)}&cs=${encodeURIComponent(intent.client_secret)}&type=sponsor_ad_renewal&adId=${encodeURIComponent(String(ad._id))}`;
+
+        ad.campaign.renewalPendingPaymentIntentId = intent.id;
+        ad.campaign.renewalPaymentOfferSent = true;
+        await ad.save();
+
+        await sendAutoRenewalPaymentRequiredEmail(ad, checkoutUrl, renewalCost);
+        renewalOffersSent++;
+
+        console.log(`[Cron] Wysłano link płatności za przedłużenie kampanii ${ad.title} (ID: ${ad._id})`);
       } catch (error) {
-        console.error(`[Cron] Błąd przedłużania kampanii ${ad._id}:`, error);
+        console.error(`[Cron] Błąd przygotowania płatności za przedłużenie ${ad._id}:`, error);
+        try {
+          await sendAutoRenewalFailedEmail(ad);
+        } catch (mailErr) {
+          console.error('[Cron] Błąd emaila o nieudanym renew:', mailErr);
+        }
       }
     }
 
-    console.log(`[Cron] Sprawdzono reklamy: ${expiredAds.length} wygasło, ${soonToExpire.length} wkrótce się kończy, ${expiringTrials.length} prób do konwersji, ${expiredTrials.length} prób wygasło, ${renewedCount} przedłużono automatycznie`);
+    console.log(`[Cron] Sprawdzono reklamy: ${expiredAds.length} wygasło, ${soonToExpire.length} wkrótce się kończy, ${expiringTrials.length} prób do konwersji, ${expiredTrials.length} prób wygasło, ${renewalOffersSent} ofert płatności za auto-renew`);
   } catch (error) {
     console.error('[Cron] Błąd sprawdzania reklam:', error);
   }
@@ -170,7 +171,7 @@ async function sendExpirationEmail(ad, reason) {
           <li>Wydane: ${(ad.campaign.spent / 100).toFixed(2)} zł</li>
         </ul>
         <p>Możesz utworzyć nową reklamę w panelu zarządzania.</p>
-        <p><a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/sponsor-ads">Zarządzaj reklamami</a></p>
+        <p><a href="${FRONTEND}/sponsor-ads">Zarządzaj reklamami</a></p>
       `
     });
   } catch (error) {
@@ -195,7 +196,7 @@ async function sendExpirationWarningEmail(ad) {
         <p><strong>Data końca:</strong> ${ad.campaign.endDate.toLocaleDateString('pl-PL')}</p>
         <p><strong>Pozostały budżet:</strong> ${((ad.campaign.budget - ad.campaign.spent) / 100).toFixed(2)} zł</p>
         <p>Jeśli chcesz przedłużyć kampanię, możesz to zrobić w panelu zarządzania.</p>
-        <p><a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/sponsor-ads">Zarządzaj reklamami</a></p>
+        <p><a href="${FRONTEND}/sponsor-ads">Zarządzaj reklamami</a></p>
       `
     });
   } catch (error) {
@@ -234,7 +235,7 @@ async function sendFreeTrialConversionOffer(ad) {
             <li><strong>Enterprise:</strong> 1999 zł/mies. → <span style="color: #0ea5e9;">1599 zł/mies.</span> (zniżka 20%)</li>
           </ul>
         </div>
-        <p><a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/sponsor-ads?offer=20percent" style="display: inline-block; background: #0ea5e9; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">Wykup pakiet z 20% zniżką →</a></p>
+        <p><a href="${FRONTEND}/sponsor-ads?offer=20percent" style="display: inline-block; background: #0ea5e9; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">Wykup pakiet z 20% zniżką →</a></p>
         <p style="color: #666; font-size: 12px; margin-top: 20px;">Oferta ważna przez 7 dni od zakończenia próby.</p>
       `
     });
@@ -262,7 +263,7 @@ async function sendFreeTrialExpiredEmail(ad) {
           <li>CTR: ${ad.stats.ctr.toFixed(2)}%</li>
         </ul>
         <p>Dziękujemy za wypróbowanie Helpfli! Jeśli chcesz kontynuować reklamę, możesz wykupić jeden z naszych pakietów.</p>
-        <p><a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/sponsor-ads">Zobacz dostępne pakiety →</a></p>
+        <p><a href="${FRONTEND}/sponsor-ads">Zobacz dostępne pakiety →</a></p>
       `
     });
   } catch (error) {
@@ -271,7 +272,32 @@ async function sendFreeTrialExpiredEmail(ad) {
 }
 
 /**
- * Wyślij email o automatycznym przedłużeniu kampanii
+ * Wyślij email z linkiem do opłacenia przedłużenia kampanii
+ */
+async function sendAutoRenewalPaymentRequiredEmail(ad, checkoutUrl, renewalCostGrosze) {
+  try {
+    const renewalPeriod = ad.campaign.renewalPeriod || 30;
+    await sendMail({
+      to: ad.advertiser.email,
+      subject: `Opłać przedłużenie kampanii "${ad.title}"`,
+      html: `
+        <h2>Automatyczne przedłużenie kampanii</h2>
+        <p>Witaj ${ad.advertiser.companyName},</p>
+        <p>Twoja kampania "<strong>${ad.title}</strong>" kończy się za kilka dni. Włączone jest automatyczne przedłużanie — opłać kolejny okres, aby kampania działała bez przerwy.</p>
+        <p><strong>Kwota:</strong> ${(renewalCostGrosze / 100).toFixed(2)} zł</p>
+        <p><strong>Okres przedłużenia:</strong> ${renewalPeriod} dni</p>
+        <p><strong>Obecna data końca:</strong> ${ad.campaign.endDate.toLocaleDateString('pl-PL')}</p>
+        <p><a href="${checkoutUrl}" style="display: inline-block; background: #0ea5e9; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">Opłać przedłużenie →</a></p>
+        <p style="color: #666; font-size: 12px;">Bez opłaty kampania wygaśnie po bieżącej dacie końca.</p>
+      `
+    });
+  } catch (error) {
+    console.error('[Cron] Błąd wysyłania emaila o płatności za renew:', error);
+  }
+}
+
+/**
+ * Wyślij email o automatycznym przedłużeniu kampanii (po opłaceniu)
  */
 async function sendAutoRenewalEmail(ad, renewalPeriod) {
   try {
@@ -292,7 +318,7 @@ async function sendAutoRenewalEmail(ad, renewalPeriod) {
           <li>Wydane: ${(ad.campaign.spent / 100).toFixed(2)} zł</li>
         </ul>
         <p>Kampania będzie kontynuowana automatycznie, dopóki nie wyłączysz opcji "Automatyczne przedłużanie" w panelu zarządzania.</p>
-        <p><a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/sponsor-ads">Zarządzaj reklamami</a></p>
+        <p><a href="${FRONTEND}/sponsor-ads">Zarządzaj reklamami</a></p>
       `
     });
   } catch (error) {
@@ -315,7 +341,7 @@ async function sendAutoRenewalFailedEmail(ad) {
         <p><strong>Powód:</strong> Brak wystarczających środków na przedłużenie kampanii.</p>
         <p><strong>Data końca:</strong> ${ad.campaign.endDate.toLocaleDateString('pl-PL')}</p>
         <p>Jeśli chcesz przedłużyć kampanię ręcznie, możesz to zrobić w panelu zarządzania.</p>
-        <p><a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/sponsor-ads">Zarządzaj reklamami</a></p>
+        <p><a href="${FRONTEND}/sponsor-ads">Zarządzaj reklamami</a></p>
       `
     });
   } catch (error) {
@@ -329,6 +355,7 @@ module.exports = {
   sendExpirationWarningEmail,
   sendFreeTrialConversionOffer,
   sendFreeTrialExpiredEmail,
+  sendAutoRenewalPaymentRequiredEmail,
   sendAutoRenewalEmail,
   sendAutoRenewalFailedEmail
 };

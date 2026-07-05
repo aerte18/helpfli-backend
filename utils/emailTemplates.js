@@ -1,8 +1,8 @@
 const mjmlPkg = require("mjml");
-// mjml bywa eksportowane jako default albo jako obiekt z `mjml2html` — wspieramy oba przypadki
 const mjml2html = mjmlPkg.mjml2html || mjmlPkg;
+const { getFrontendUrl } = require("./publicUrl");
 
-const APP_URL = process.env.APP_URL || "http://localhost:5174";
+const APP_URL = getFrontendUrl();
 
 function render(mjml) {
   const { html } = mjml2html(mjml, { keepComments: false, beautify: false, minify: true });

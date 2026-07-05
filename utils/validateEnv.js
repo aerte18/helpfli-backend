@@ -14,7 +14,9 @@ const requiredVars = {
     'FRONTEND_URL',
     'SERVER_URL',
     'STRIPE_SECRET_KEY',
-    'STRIPE_PUBLISHABLE_KEY'
+    'STRIPE_PUBLISHABLE_KEY',
+    'STRIPE_WEBHOOK_SECRET',
+    'CRON_SECRET'
   ]
 };
 
@@ -59,6 +61,9 @@ function validateEnv() {
 
   if (!process.env.STRIPE_WEBHOOK_SECRET && process.env.STRIPE_SECRET_KEY) {
     warnings.push('💡 ZALECANE: STRIPE_WEBHOOK_SECRET nie jest ustawione — webhooki Stripe mogą nie działać (płatności, subskrypcje)');
+  }
+  if (isProduction && process.env.CRON_SECRET === 'change-me-in-production') {
+    errors.push('❌ CRON_SECRET ma domyślną wartość — ustaw silny losowy string');
   }
 
   if (isProduction) {

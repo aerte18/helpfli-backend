@@ -3,10 +3,11 @@ const Order = require('../models/Order');
 const Notification = require('../models/Notification');
 const { sendMail } = require('../utils/mailer');
 const { sendPushToUser } = require('../utils/push');
+const { getFrontendUrl } = require('../utils/publicUrl');
 
 class NotificationService {
   constructor() {
-    this.frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    this.frontendUrl = getFrontendUrl();
   }
 
   // Helper do generowania linków
@@ -173,6 +174,24 @@ class NotificationService {
               <a href="${this.getOrderLink(data.orderId)}" 
                  style="background: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
                 Zobacz wycenę
+              </a>
+            </div>
+            <p>Pozdrawiamy,<br/>Zespół Helpfli</p>
+          </div>
+        `
+      },
+
+      order_assigned: {
+        subject: 'Helpfli: Nowe zlecenie przypisane',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #4F46E5;">Nowe zlecenie przypisane</h2>
+            <p>Zostałeś automatycznie przypisany do zlecenia <strong>"${data.service || ''}"</strong>.</p>
+            <p>${data.message || ''}</p>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${this.getOrderLink(data.orderId)}"
+                 style="background: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                Otwórz zlecenie
               </a>
             </div>
             <p>Pozdrawiamy,<br/>Zespół Helpfli</p>
@@ -451,6 +470,11 @@ class NotificationService {
       payment_received: {
         title: 'Płatność otrzymana',
         message: `Otrzymałeś ${data.amount || ''} zł za zlecenie "${data.service || ''}"`
+      },
+
+      order_assigned: {
+        title: 'Nowe zlecenie przypisane',
+        message: data.message || `Przypisano Ci zlecenie "${data.service || ''}"`
       },
 
       company_created: {

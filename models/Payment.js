@@ -8,7 +8,8 @@ const PaymentSchema = new mongoose.Schema({
   // - 'order'        – klasyczna płatność za zlecenie
   // - 'promotion'    – płatność za promowanie / sponsor / boost
   // - 'subscription' – płatność za subskrypcję (CLIENT_* / PROV_*)
-  purpose: { type: String, enum: ['order', 'promotion', 'subscription'], default: 'order' },
+  // - 'video'        – płatność za wideo-wizytę (Daily.co)
+  purpose: { type: String, enum: ['order', 'promotion', 'subscription', 'video'], default: 'order' },
 
   // Pola powiązane z promocjami
   promotionPlan: { type: mongoose.Schema.Types.ObjectId, ref: 'PromotionPlan', default: null },
@@ -62,7 +63,13 @@ const PaymentSchema = new mongoose.Schema({
   invoice: { type: mongoose.Schema.Types.ObjectId, ref: 'Invoice', default: null }, // Faktura wystawiona przez Helpfli (admin)
 
   metadata: { type: Object, default: {} },
+  videoSession: { type: mongoose.Schema.Types.ObjectId, ref: 'VideoSession', default: null },
 }, { timestamps: true });
+
+PaymentSchema.index({ order: 1 });
+PaymentSchema.index({ client: 1, createdAt: -1 });
+PaymentSchema.index({ provider: 1, createdAt: -1 });
+PaymentSchema.index({ purpose: 1, status: 1 });
 
 module.exports = mongoose.model('Payment', PaymentSchema);
 

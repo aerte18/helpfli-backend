@@ -186,6 +186,24 @@ const telemetryLimiter = DISABLE_LIMITERS ? passThrough : rateLimit({
   legacyHeaders: false
 });
 
+// Rate limiter dla kosztownych endpointów AI (LLM)
+const aiLimiter = DISABLE_LIMITERS ? passThrough : rateLimit({
+  windowMs: 60 * 1000,
+  max: parseInt(process.env.AI_RATE_LIMIT_PER_MIN || '20', 10),
+  message: {
+    error: 'Zbyt wiele zapytań do AI. Poczekaj chwilę.',
+    retryAfter: 60
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const userId = req.user?._id || req.user?.id;
+    if (userId) return `ai:user:${userId}`;
+    if (req.guest?.id) return `ai:guest:${req.guest.id}`;
+    return `ai:ip:${req.ip}`;
+  }
+});
+
 // Rate limiter dla uploadu plików
 const uploadLimiter = DISABLE_LIMITERS ? passThrough : rateLimit({
   windowMs: 60 * 60 * 1000, // 1 godzina
@@ -207,5 +225,6 @@ module.exports = {
   chatLimiter,
   speedLimiter,
   telemetryLimiter,
-  uploadLimiter
+  uploadLimiter,
+  aiLimiter
 };

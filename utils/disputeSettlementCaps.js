@@ -1,6 +1,14 @@
 const Offer = require("../models/Offer");
 const Payment = require("../models/Payment");
 
+const REFUNDABLE_PAYMENT_STATUSES = [
+  "succeeded",
+  "processing",
+  "partial_refund",
+  "requires_capture",
+  "authorized",
+];
+
 /**
  * Maksymalna kwota zwrotu w ugodzie (PLN) — min(wartość oferty, suma opłacona w systemie).
  */
@@ -18,7 +26,9 @@ async function getSettlementRefundCaps(order) {
     let totalGrosze = 0;
     if (order.paymentId) {
       const pm = await Payment.findById(order.paymentId).select("amount status").lean();
-      if (pm && ["succeeded", "processing", "partial_refund"].includes(pm.status)) {
+      if (pm && REFUNDABLE_PAYMENT_STATUSES.includes(pm.status)) {
+        totalGrosze += Number(pm.amount) || 0;
+      } else if (pm && order.paymentStatus === "funded") {
         totalGrosze += Number(pm.amount) || 0;
       }
     }

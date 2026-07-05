@@ -4,6 +4,7 @@ const { authMiddleware } = require("../middleware/authMiddleware");
 const Stripe = require("stripe");
 const stripe = process.env.STRIPE_SECRET_KEY ? Stripe(process.env.STRIPE_SECRET_KEY) : null;
 const Coupon = require("../models/Coupon");
+const { getFrontendUrl } = require("../utils/publicUrl");
 
 // One-time kwoty (grosze)
 const PRICE_TABLE = {
@@ -42,15 +43,15 @@ router.post("/checkout", authMiddleware, async (req, res) => {
             "promo.subscriptionProductKey": productKey
           }
         });
-        return res.json({ url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/provider/promote?paid=1` });
+        return res.json({ url: `${getFrontendUrl()}/provider/promote?paid=1` });
       }
       const priceId = SUB_PRICE[productKey];
       if (!priceId) return res.status(500).json({ message: "Brak ID ceny subskrypcyjnej dla pakietu." });
       session = await stripe.checkout.sessions.create({
         mode: "subscription",
         line_items: [{ price: priceId, quantity: 1 }],
-        success_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/provider/promote?paid=1`,
-        cancel_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/provider/promote?canceled=1`,
+        success_url: `${getFrontendUrl()}/provider/promote?paid=1`,
+        cancel_url: `${getFrontendUrl()}/provider/promote?canceled=1`,
         allow_promotion_codes: true, // wbudowane pole do wpisania kodu
         metadata: { userId: req.user._id.toString(), productKey, autoRenew: "true" },
       });
@@ -59,7 +60,7 @@ router.post("/checkout", authMiddleware, async (req, res) => {
       if (!stripe) {
         // DEV FALLBACK dla jednorazówki – aktywuj pakiet bez płatności
         await require("./promo").activatePromo(req.user._id, productKey);
-        return res.json({ url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/provider/promote?paid=1` });
+        return res.json({ url: `${getFrontendUrl()}/provider/promote?paid=1` });
       }
       let amount = p.amount;
       let appliedCouponId = null;
@@ -85,8 +86,8 @@ router.post("/checkout", authMiddleware, async (req, res) => {
           },
           quantity: 1,
         }],
-        success_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/provider/promote?paid=1`,
-        cancel_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/provider/promote?canceled=1`,
+        success_url: `${getFrontendUrl()}/provider/promote?paid=1`,
+        cancel_url: `${getFrontendUrl()}/provider/promote?canceled=1`,
         allow_promotion_codes: true,
         metadata: { userId: req.user._id.toString(), productKey, autoRenew: "false", appliedCouponId: appliedCouponId || "" },
       };

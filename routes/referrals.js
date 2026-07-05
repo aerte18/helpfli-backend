@@ -4,17 +4,16 @@ const { authMiddleware: auth } = require('../middleware/authMiddleware');
 const ReferralCode = require('../models/ReferralCode');
 const Referral = require('../models/Referral');
 const UserSubscription = require('../models/UserSubscription');
-const SubscriptionPlan = require('../models/SubscriptionPlan');
 const User = require('../models/User');
 const {
   REFERRAL_REWARD_RULES,
   REFERRAL_CREDIT_PLN,
   plnToLoyaltyPoints,
 } = require('../utils/growthRewards');
+const { getFrontendUrl } = require('../utils/publicUrl');
 
 function getShareUrl(code) {
-  const base = process.env.FRONTEND_URL || 'http://localhost:5174';
-  return `${base.replace(/\/$/, '')}/register?ref=${encodeURIComponent(code)}`;
+  return `${getFrontendUrl()}/register?ref=${encodeURIComponent(code)}`;
 }
 
 function mapReferralForHistory(ref) {
@@ -103,121 +102,15 @@ router.get('/my-code', auth, async (req, res) => {
   }
 });
 
-// POST /api/referrals/use — @deprecated Zniżka na subskrypcję (stary ReferralCode). Rejestracja: ?ref= + POST /api/auth/register.
+// POST /api/referrals/use — @deprecated Wyłączone — użyj rejestracji ?ref= + program growth.
 router.post('/use', auth, async (req, res) => {
   res.set('Deprecation', 'true');
-  try {
-    const { code, planKey } = req.body || {};
-
-    if (!code || !planKey) {
-      return res.status(400).json({ message: 'Kod i plan są wymagane' });
-    }
-
-    const referralCode = await ReferralCode.findOne({
-      code: code.toUpperCase(),
-      active: true,
-    });
-
-    if (!referralCode) {
-      return res.status(404).json({ message: 'Nieprawidłowy kod polecający' });
-    }
-
-    if (referralCode.expiresAt && referralCode.expiresAt < new Date()) {
-      return res.status(400).json({ message: 'Kod polecający wygasł' });
-    }
-
-    if (referralCode.maxUses && referralCode.totalUses >= referralCode.maxUses) {
-      return res.status(400).json({ message: 'Kod polecający został wyczerpany' });
-    }
-
-    const alreadyUsed = referralCode.usedBy.some(
-      (u) => u.user.toString() === req.user._id.toString()
-    );
-
-    if (alreadyUsed) {
-      return res.status(400).json({ message: 'Ten kod został już użyty' });
-    }
-
-    if (referralCode.referrer.toString() === req.user._id.toString()) {
-      return res.status(400).json({ message: 'Nie możesz użyć własnego kodu polecającego' });
-    }
-
-    const plan = await SubscriptionPlan.findOne({ key: planKey, active: true });
-    if (!plan) {
-      return res.status(404).json({ message: 'Plan nie istnieje' });
-    }
-
-    let discountPercent = 0;
-    if (referralCode.rewards.refereeReward === '20_percent_discount') {
-      discountPercent = 20;
-    } else if (referralCode.rewards.refereeReward === 'first_month_free') {
-      discountPercent = 100;
-    }
-
-    const basePrice = plan.priceMonthly || 0;
-    const discountAmount = Math.round((basePrice * discountPercent) / 100) * 100;
-    const finalPrice = Math.max(0, Math.round(basePrice * 100) - discountAmount);
-
-    referralCode.usedBy.push({
-      user: req.user._id,
-      usedAt: new Date(),
-      rewardGranted: false,
-    });
-    referralCode.totalUses += 1;
-    await referralCode.save();
-
-    const referrer = await User.findById(referralCode.referrer);
-    if (referrer) {
-      const rewardPlanKey =
-        referralCode.rewards.referrerReward === '1_month_pro'
-          ? referrer.role === 'provider'
-            ? 'PROV_PRO'
-            : 'CLIENT_PRO'
-          : referrer.role === 'provider'
-            ? 'PROV_STD'
-            : 'CLIENT_STD';
-
-      const rewardPlan = await SubscriptionPlan.findOne({ key: rewardPlanKey, active: true });
-      if (rewardPlan) {
-        let referrerSub = await UserSubscription.findOne({ user: referrer._id });
-
-        if (referrerSub) {
-          const newValidUntil = new Date(referrerSub.validUntil);
-          newValidUntil.setMonth(newValidUntil.getMonth() + 1);
-          referrerSub.validUntil = newValidUntil;
-          await referrerSub.save();
-        } else {
-          const now = new Date();
-          const validUntil = new Date(now);
-          validUntil.setMonth(validUntil.getMonth() + 1);
-
-          referrerSub = await UserSubscription.create({
-            user: referrer._id,
-            planKey: rewardPlanKey,
-            startedAt: now,
-            validUntil,
-            renews: false,
-            freeExpressLeft: rewardPlan.freeExpressPerMonth || 0,
-          });
-        }
-
-        const usedEntry = referralCode.usedBy[referralCode.usedBy.length - 1];
-        usedEntry.rewardGranted = true;
-        await referralCode.save();
-      }
-    }
-
-    res.json({
-      success: true,
-      discountPercent,
-      discountAmount: discountAmount / 100,
-      finalPrice: finalPrice / 100,
-      message: `Otrzymujesz ${discountPercent}% zniżki na pierwszy miesiąc!`,
-    });
-  } catch (error) {
-    console.error('Error using referral code:', error);
-    res.status(500).json({ message: 'Błąd używania kodu polecającego' });
-  }
+  return res.status(410).json({
+    message:
+      'Ten endpoint jest wyłączony. Użyj kodu przy rejestracji (?ref=) — nagrody przyznawane są po spełnieniu warunków (pierwsze zlecenie / ukończony onboarding wykonawcy).',
+    code: 'REFERRAL_USE_DEPRECATED',
+    successor: '/api/referrals/me',
+  });
 });
 
 router.get('/stats', auth, async (req, res) => {

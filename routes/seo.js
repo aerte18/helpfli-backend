@@ -66,7 +66,6 @@ function buildStaticSitemapUrls(base) {
     { loc: `${base}/`, changefreq: 'daily', priority: '1.0' },
     { loc: `${base}/poradniki`, changefreq: 'daily', priority: '0.9' },
     { loc: `${base}/wykonawcy`, changefreq: 'weekly', priority: '0.85' },
-    { loc: `${base}/home`, changefreq: 'daily', priority: '0.9' },
     { loc: `${base}/providers`, changefreq: 'daily', priority: '0.8' },
     { loc: `${base}/services`, changefreq: 'weekly', priority: '0.6' },
     { loc: `${base}/about`, changefreq: 'monthly', priority: '0.4' },

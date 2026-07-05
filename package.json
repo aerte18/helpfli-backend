@@ -15,8 +15,8 @@
     "seed:pack2": "node scripts/seed_pack2_demo.js",
     "stripe:listen": "stripe listen --events checkout.session.completed,charge.refunded,customer.subscription.deleted --forward-to localhost:5000/api/payments/webhook",
     "stripe:register": "stripe trigger checkout.session.completed",
-    "backup": "node scripts/simple_backup.js",
-    "backup:restore": "node scripts/simple_backup.js restore",
+    "backup": "node scripts/backup.js",
+    "backup:restore": "node scripts/backup.js restore",
     "push:test": "node scripts/test_push.js",
     "test:api": "node scripts/test_api.js",
     "seed:test-users": "node scripts/create_all_test_users.js",
@@ -34,7 +34,8 @@
     "test:load": "node scripts/load_test.js",
     "test:load:match-top": "cross-env ENDPOINT=/api/providers/match-top?serviceCode=hydraulik&lat=52.2297&lng=21.0122 node scripts/load_test.js",
     "test:load:search": "cross-env ENDPOINT=/api/search?service=hydraulik node scripts/load_test.js",
-    "seed:orders": "node scripts/seed_sample_orders.js"
+    "seed:orders": "node scripts/seed_sample_orders.js",
+    "optimize:images": "node scripts/optimize_public_images.js"
   },
   "keywords": [],
   "author": "",

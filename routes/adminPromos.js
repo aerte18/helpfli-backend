@@ -4,7 +4,7 @@ const PromoCode = require('../models/PromoCode');
 const { authMiddleware: auth } = require('../middleware/authMiddleware');
 
 function isAdmin(user){
-  return user && (user.role === 'admin' || user.role === 'superadmin' || (user.email && user.email.endsWith('@helpfli.dev')));
+  return user && (user.role === 'admin' || user.role === 'superadmin');
 }
 
 router.post('/', auth, async (req, res) => {

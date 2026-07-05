@@ -3,6 +3,7 @@ const router = express.Router();
 const { authMiddleware } = require('../middleware/authMiddleware');
 const SponsorAd = require('../models/SponsorAd');
 const { recordClick } = require('../utils/sponsorAds');
+const { metricsLimiter, sponsorMetricsGuard } = require('../middleware/sponsorMetrics');
 const multer = require('multer');
 const path = require('path');
 
@@ -49,8 +50,8 @@ const requireAdmin = async (req, res, next) => {
   next();
 };
 
-// POST /api/sponsor-ads - Utwórz nową reklamę (firma zewnętrzna)
-router.post('/', upload.fields([{ name: 'image', maxCount: 1 }, { name: 'logo', maxCount: 1 }]), async (req, res) => {
+// POST /api/sponsor-ads - Utwórz nową reklamę (wymaga konta)
+router.post('/', authMiddleware, upload.fields([{ name: 'image', maxCount: 1 }, { name: 'logo', maxCount: 1 }]), async (req, res) => {
   try {
     const {
       advertiser,
@@ -73,7 +74,7 @@ router.post('/', upload.fields([{ name: 'image', maxCount: 1 }, { name: 'logo', 
     const detailsData = typeof details === 'string' ? JSON.parse(details) : details;
     const displayLocationsData = typeof req.body.displayLocations === 'string' ? JSON.parse(req.body.displayLocations) : (req.body.displayLocations || []);
     const geotargetingData = typeof req.body.geotargeting === 'string' ? JSON.parse(req.body.geotargeting) : (req.body.geotargeting || { enabled: false });
-    const packageType = req.body.package || 'custom';
+    let packageType = req.body.package || 'custom';
     const priority = parseInt(req.body.priority) || 0;
     
     // Affiliate system - sprawdź kod referencyjny
@@ -427,7 +428,7 @@ router.put('/:id', authMiddleware, upload.fields([{ name: 'image', maxCount: 1 }
 });
 
 // POST /api/sponsor-ads/:id/impression - Zarejestruj wyświetlenie reklamy
-router.post('/:id/impression', async (req, res) => {
+router.post('/:id/impression', metricsLimiter, sponsorMetricsGuard, async (req, res) => {
   try {
     const { recordImpression } = require('../utils/sponsorAds');
     const { page, position, context } = req.body;
@@ -450,9 +451,10 @@ router.post('/:id/impression', async (req, res) => {
 });
 
 // POST /api/sponsor-ads/:id/click - Zarejestruj kliknięcie w reklamę
-router.post('/:id/click', async (req, res) => {
+router.post('/:id/click', metricsLimiter, sponsorMetricsGuard, async (req, res) => {
   try {
-    const { userId, context } = req.body;
+    const { context } = req.body;
+    const userId = req.user?._id || null;
     await recordClick(req.params.id, userId, context);
     res.json({ success: true });
   } catch (error) {

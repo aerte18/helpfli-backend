@@ -1,4 +1,5 @@
 const Verification = require("../models/Verification");
+const User = require("../models/User");
 
 /**
  * Zwraca { eligible: boolean, reasons: string[] }
@@ -16,17 +17,23 @@ exports.checkGuaranteeEligibility = async ({ paymentMethod, providerId, orderSta
     reasons.push("Płatność poza systemem Helpfli");
   }
 
-  const v = await Verification.findOne({ user: providerId }).select("status");
-  if (!v || v.status !== "verified") {
+  const [v, userDoc] = await Promise.all([
+    Verification.findOne({ user: providerId }).select("status").lean(),
+    User.findById(providerId).select("kyc").lean(),
+  ]);
+
+  const kycVerified = userDoc?.kyc?.status === "verified";
+  const legacyVerified = v?.status === "verified";
+
+  if (!kycVerified && !legacyVerified) {
     eligible = false;
     reasons.push("Wykonawca nie jest zweryfikowany");
   }
-  if (v && v.status === "suspended") {
+  if (v?.status === "suspended") {
     eligible = false;
     reasons.push("Konto wykonawcy jest zawieszone");
   }
 
-  // Statusy, w których nadal ma sens ochrona / narzędzia sporu–zwrot (cykl życia zlecenia)
   const allowed = new Set([
     "open",
     "collecting_offers",
@@ -49,6 +56,3 @@ exports.checkGuaranteeEligibility = async ({ paymentMethod, providerId, orderSta
 
   return { eligible, reasons };
 };
-
-
-

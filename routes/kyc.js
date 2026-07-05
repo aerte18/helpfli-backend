@@ -3,7 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const { requireRole } = require('../middleware/roles');
 const User = require('../models/User');
@@ -67,14 +67,42 @@ async function persistKycFile(file, userId, fieldName) {
         Key: key,
         Body: file.buffer,
         ContentType: file.mimetype,
-        ACL: 'public-read',
       })
     );
-    const region = process.env.AWS_REGION || 'eu-central-1';
-    return `https://${BUCKET}.s3.${region}.amazonaws.com/${key}`;
+    return { storage: 's3', key, bucket: BUCKET };
   }
-  if (file.filename) return toPublicUrl(file.filename);
+  if (file.filename) return { storage: 'local', url: toPublicUrl(file.filename) };
   throw new Error('Nie udało się zapisać pliku');
+}
+
+function docRefFromPersistResult(result) {
+  if (!result) return null;
+  if (typeof result === 'string') return result;
+  if (result.storage === 'local') return result.url;
+  if (result.storage === 's3') return `s3://${result.bucket}/${result.key}`;
+  return null;
+}
+
+async function streamKycDoc(stored, res) {
+  if (stored.startsWith('s3://')) {
+    const without = stored.slice('s3://'.length);
+    const slash = without.indexOf('/');
+    const bucket = without.slice(0, slash);
+    const key = without.slice(slash + 1);
+    const obj = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+    res.setHeader('Content-Type', obj.ContentType || 'application/octet-stream');
+    res.setHeader('Cache-Control', 'private, max-age=60');
+    obj.Body.pipe(res);
+    return true;
+  }
+  if (stored.startsWith('/uploads/')) {
+    const fs = require('fs');
+    const filePath = path.join(__dirname, '..', stored.replace(/^\//, ''));
+    if (!fs.existsSync(filePath)) return false;
+    res.sendFile(path.resolve(filePath));
+    return true;
+  }
+  return false;
 }
 
 function getMissingDocs(kyc) {
@@ -155,16 +183,16 @@ router.post(
       const uid = String(user._id);
 
       if (req.files?.idFront?.[0]) {
-        user.kyc.docs.idFrontUrl = await persistKycFile(req.files.idFront[0], uid, 'idFront');
+        user.kyc.docs.idFrontUrl = docRefFromPersistResult(await persistKycFile(req.files.idFront[0], uid, 'idFront'));
       }
       if (req.files?.idBack?.[0]) {
-        user.kyc.docs.idBackUrl = await persistKycFile(req.files.idBack[0], uid, 'idBack');
+        user.kyc.docs.idBackUrl = docRefFromPersistResult(await persistKycFile(req.files.idBack[0], uid, 'idBack'));
       }
       if (req.files?.selfie?.[0]) {
-        user.kyc.docs.selfieUrl = await persistKycFile(req.files.selfie[0], uid, 'selfie');
+        user.kyc.docs.selfieUrl = docRefFromPersistResult(await persistKycFile(req.files.selfie[0], uid, 'selfie'));
       }
       if (req.files?.companyDoc?.[0]) {
-        user.kyc.docs.companyDocUrl = await persistKycFile(req.files.companyDoc[0], uid, 'companyDoc');
+        user.kyc.docs.companyDocUrl = docRefFromPersistResult(await persistKycFile(req.files.companyDoc[0], uid, 'companyDoc'));
       }
 
       if (user.kyc.status === 'not_started') user.kyc.status = 'in_progress';
@@ -229,6 +257,37 @@ router.post('/admin/:userId/reject', authMiddleware, requireRole('admin'), async
   await u.save();
 
   res.json({ message: 'KYC odrzucone', kyc: u.kyc });
+});
+
+const DOC_FIELD_MAP = {
+  idFront: 'idFrontUrl',
+  idBack: 'idBackUrl',
+  selfie: 'selfieUrl',
+  companyDoc: 'companyDocUrl',
+};
+
+router.get('/document/:field', authMiddleware, async (req, res) => {
+  try {
+    const docKey = DOC_FIELD_MAP[req.params.field];
+    if (!docKey) return res.status(400).json({ message: 'Nieprawidłowe pole dokumentu' });
+
+    const targetUserId = req.query.userId || req.user._id;
+    const target = await User.findById(targetUserId).select('kyc role');
+    if (!target) return res.status(404).json({ message: 'Nie znaleziono użytkownika' });
+
+    const stored = target.kyc?.docs?.[docKey];
+    const isAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
+    if (String(req.user._id) !== String(targetUserId) && !isAdmin) {
+      return res.status(403).json({ message: 'Brak dostępu do dokumentu' });
+    }
+    if (!stored) return res.status(404).json({ message: 'Brak dokumentu' });
+
+    const ok = await streamKycDoc(stored, res);
+    if (!ok) return res.status(404).json({ message: 'Plik niedostępny' });
+  } catch (e) {
+    console.error('[kyc/document]', e);
+    res.status(500).json({ message: 'Błąd pobierania dokumentu' });
+  }
 });
 
 module.exports = router;

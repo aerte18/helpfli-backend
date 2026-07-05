@@ -185,6 +185,7 @@ router.get('/consent-status', authMiddleware, async (req, res) => {
       marketing: user?.marketingConsent || false,
       analytics: user?.consents?.analytics || false,
       cookies: user?.consents?.cookies || false,
+      preferences: user?.consents?.preferences || false,
       updatedAt: user?.consents?.updatedAt || null
     };
 
@@ -201,7 +202,7 @@ router.get('/consent-status', authMiddleware, async (req, res) => {
 // POST /api/privacy/consent - zarządzanie zgodami
 router.post('/consent', authMiddleware, async (req, res) => {
   try {
-    const { marketing, analytics, cookies } = req.body;
+    const { marketing, analytics, cookies, preferences } = req.body;
     const userId = req.user._id;
 
     const updateData = {
@@ -209,6 +210,7 @@ router.post('/consent', authMiddleware, async (req, res) => {
       consents: {
         analytics: analytics || false,
         cookies: cookies || false,
+        preferences: preferences || false,
         updatedAt: new Date()
       }
     };

@@ -4,6 +4,10 @@ const {
   grantFoundingProSubscription,
   revokeFoundingProSubscription,
 } = require('./syncProviderSubscriptionLimits');
+const {
+  reserveFoundingProviderSlot,
+  releaseFoundingProviderSlot,
+} = require('./foundingProviderSlots');
 
 const FOUNDING_PROVIDER_LIMIT = 1000;
 const FOUNDING_PROVIDER_DAYS = 60;
@@ -253,26 +257,53 @@ async function activateFoundingProvider(userId) {
     return { ok: false, code: 'LIMIT_REACHED', message: 'Wyczerpano limit 1000 miejsc w programie Pierwszy wykonawca' };
   }
 
+  const slotReserved = await reserveFoundingProviderSlot(FOUNDING_PROVIDER_LIMIT);
+  if (!slotReserved) {
+    return { ok: false, code: 'LIMIT_REACHED', message: 'Wyczerpano limit 1000 miejsc w programie Pierwszy wykonawca' };
+  }
+
   const now = new Date();
   const expiresAt = new Date(now.getTime() + FOUNDING_PROVIDER_DAYS * 24 * 60 * 60 * 1000);
 
-  user.foundingProvider = true;
-  user.foundingProviderEverActivated = true;
-  user.foundingProviderActivatedAt = now;
-  user.foundingProviderExpiresAt = expiresAt;
-  user.freeBoostsRemaining = FOUNDING_FREE_BOOSTS;
-  user.commissionDiscountPercent = FOUNDING_COMMISSION_DISCOUNT_PERCENT;
-  user.priorityScoreBoost = FOUNDING_PRIORITY_SCORE_BOOST;
-  user.foundingProviderReminders = {
-    expiryWarn7SentAt: null,
-    expiryWarn3SentAt: null,
-    expiryWarn1SentAt: null,
-    expiryWarn0SentAt: null,
-    expiredNotifiedAt: null,
-  };
-  ensureFoundingBadgeOnUser(user);
+  const activated = await User.findOneAndUpdate(
+    {
+      _id: userId,
+      role: 'provider',
+      foundingProviderEverActivated: { $ne: true },
+      foundingProvider: { $ne: true },
+    },
+    {
+      $set: {
+        foundingProvider: true,
+        foundingProviderEverActivated: true,
+        foundingProviderActivatedAt: now,
+        foundingProviderExpiresAt: expiresAt,
+        freeBoostsRemaining: FOUNDING_FREE_BOOSTS,
+        commissionDiscountPercent: FOUNDING_COMMISSION_DISCOUNT_PERCENT,
+        priorityScoreBoost: FOUNDING_PRIORITY_SCORE_BOOST,
+        foundingProviderReminders: {
+          expiryWarn7SentAt: null,
+          expiryWarn3SentAt: null,
+          expiryWarn1SentAt: null,
+          expiryWarn0SentAt: null,
+          expiredNotifiedAt: null,
+        },
+      },
+    },
+    { new: true }
+  );
 
-  await user.save();
+  if (!activated) {
+    await releaseFoundingProviderSlot();
+    return {
+      ok: false,
+      code: 'ALREADY_USED',
+      message: 'Program Pierwszego wykonawcy można aktywować tylko raz na konto',
+    };
+  }
+
+  ensureFoundingBadgeOnUser(activated);
+  await activated.save();
 
   await grantFoundingProSubscription(userId, expiresAt);
 
@@ -280,11 +311,11 @@ async function activateFoundingProvider(userId) {
     ok: true,
     user: {
       foundingProvider: true,
-      foundingProviderActivatedAt: user.foundingProviderActivatedAt,
-      foundingProviderExpiresAt: user.foundingProviderExpiresAt,
-      freeBoostsRemaining: user.freeBoostsRemaining,
-      commissionDiscountPercent: user.commissionDiscountPercent,
-      priorityScoreBoost: user.priorityScoreBoost,
+      foundingProviderActivatedAt: activated.foundingProviderActivatedAt,
+      foundingProviderExpiresAt: activated.foundingProviderExpiresAt,
+      freeBoostsRemaining: activated.freeBoostsRemaining,
+      commissionDiscountPercent: activated.commissionDiscountPercent,
+      priorityScoreBoost: activated.priorityScoreBoost,
     },
     status: await getFoundingProviderStatus(),
   };

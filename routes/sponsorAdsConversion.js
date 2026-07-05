@@ -2,23 +2,37 @@ const express = require('express');
 const router = express.Router();
 const SponsorAd = require('../models/SponsorAd');
 const SponsorImpression = require('../models/SponsorImpression');
+const { authMiddleware } = require('../middleware/authMiddleware');
+
+function optionalAuth(req, res, next) {
+  if (!req.headers.authorization) return next();
+  return authMiddleware(req, res, next);
+}
+
+function conversionAuthorized(req, ad) {
+  const isOwner =
+    req.user &&
+    (req.user.role === 'admin' || ad.advertiser.email === req.user.email);
+  if (isOwner) return true;
+
+  const secret =
+    process.env.SPONSOR_CONVERSION_SECRET || process.env.CRON_SECRET;
+  const header = req.headers['x-sponsor-conversion-secret'];
+  return Boolean(secret && header && header === secret);
+}
 
 /**
  * POST /api/sponsor-ads/:id/conversion
- * Zarejestruj konwersję (np. zakup, zapytanie)
- * Może być wywołane przez:
- * 1. Pixel tracking na stronie firmy
- * 2. API webhook z systemu firmy
- * 3. Ręcznie przez firmę w panelu
+ * Pixel / webhook z zewnętrznego systemu wymaga nagłówka X-Sponsor-Conversion-Secret.
  */
-router.post('/:id/conversion', async (req, res) => {
+router.post('/:id/conversion', optionalAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    const { 
-      type = 'other', // purchase, inquiry, signup, download, other
-      value = 0, // Wartość konwersji w groszach
+    const {
+      type = 'other',
+      value = 0,
       currency = 'pln',
-      metadata = {} // Dodatkowe dane (np. orderId, productId)
+      metadata = {},
     } = req.body;
 
     const ad = await SponsorAd.findById(id);
@@ -26,36 +40,36 @@ router.post('/:id/conversion', async (req, res) => {
       return res.status(404).json({ message: 'Reklama nie znaleziona' });
     }
 
-    // Sprawdź czy reklama jest aktywna
+    if (!conversionAuthorized(req, ad)) {
+      return res.status(401).json({ message: 'Brak autoryzacji konwersji' });
+    }
+
     if (!ad.isActive()) {
       return res.status(400).json({ message: 'Reklama nie jest aktywna' });
     }
 
-    // Zarejestruj konwersję
     const impression = await SponsorImpression.create({
       ad: id,
-      user: req.user?._id || null, // Opcjonalnie - użytkownik z sesji
+      user: req.user?._id || null,
       type: 'conversion',
       date: new Date().toISOString().split('T')[0],
       context: {
         keywords: [],
         serviceCategory: null,
         orderType: null,
-        location: null
+        location: null,
       },
       conversion: {
-        type: type,
-        value: value,
-        currency: currency,
-        metadata: metadata
-      }
+        type,
+        value,
+        currency,
+        metadata,
+      },
     });
 
-    // Zaktualizuj statystyki reklamy
     ad.stats.conversions += 1;
-    ad.stats.conversionRate = ad.stats.clicks > 0 
-      ? (ad.stats.conversions / ad.stats.clicks) * 100 
-      : 0;
+    ad.stats.conversionRate =
+      ad.stats.clicks > 0 ? (ad.stats.conversions / ad.stats.clicks) * 100 : 0;
     await ad.save();
 
     res.json({
@@ -63,8 +77,8 @@ router.post('/:id/conversion', async (req, res) => {
       conversion: impression,
       stats: {
         totalConversions: ad.stats.conversions,
-        conversionRate: ad.stats.conversionRate
-      }
+        conversionRate: ad.stats.conversionRate,
+      },
     });
   } catch (error) {
     console.error('Error recording conversion:', error);
@@ -72,11 +86,7 @@ router.post('/:id/conversion', async (req, res) => {
   }
 });
 
-/**
- * GET /api/sponsor-ads/:id/conversions
- * Pobierz listę konwersji dla reklamy
- */
-router.get('/:id/conversions', async (req, res) => {
+router.get('/:id/conversions', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
     const { limit = 50, offset = 0 } = req.query;
@@ -86,30 +96,29 @@ router.get('/:id/conversions', async (req, res) => {
       return res.status(404).json({ message: 'Reklama nie znaleziona' });
     }
 
-    // Sprawdź uprawnienia (tylko właściciel reklamy lub admin)
-    if (req.user && req.user.role !== 'admin' && ad.advertiser.email !== req.user.email) {
+    if (req.user.role !== 'admin' && ad.advertiser.email !== req.user.email) {
       return res.status(403).json({ message: 'Brak uprawnień' });
     }
 
     const conversions = await SponsorImpression.find({
       ad: id,
-      type: 'conversion'
+      type: 'conversion',
     })
       .sort({ createdAt: -1 })
-      .limit(parseInt(limit))
-      .skip(parseInt(offset))
+      .limit(parseInt(limit, 10))
+      .skip(parseInt(offset, 10))
       .lean();
 
     const total = await SponsorImpression.countDocuments({
       ad: id,
-      type: 'conversion'
+      type: 'conversion',
     });
 
     res.json({
       conversions,
       total,
-      limit: parseInt(limit),
-      offset: parseInt(offset)
+      limit: parseInt(limit, 10),
+      offset: parseInt(offset, 10),
     });
   } catch (error) {
     console.error('Error fetching conversions:', error);
@@ -118,9 +127,3 @@ router.get('/:id/conversions', async (req, res) => {
 });
 
 module.exports = router;
-
-
-
-
-
-

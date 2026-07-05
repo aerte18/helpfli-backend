@@ -5,12 +5,9 @@ const Notification = require("../models/Notification");
 const { sendMail } = require("./mailer");
 const { sendPushToUser } = require("./webpush");
 const { tplOfferNew, tplOfferAccepted } = require("./emailTemplates");
+const { getFrontendUrl } = require("./publicUrl");
 
-const FRONTEND_BASE = (
-  process.env.FRONTEND_URL ||
-  process.env.APP_URL ||
-  "http://localhost:5173"
-).replace(/\/$/, "");
+const FRONTEND_BASE = getFrontendUrl();
 
 /** Ścieżka w SPA (zapis w Notification.link) */
 function orderInAppPath(orderId) {

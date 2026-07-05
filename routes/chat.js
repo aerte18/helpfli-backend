@@ -8,10 +8,19 @@ const Conversation = require("../models/Conversation");
 const Message = require("../models/Message");
 const { authMiddleware: auth } = require("../middleware/authMiddleware");
 const { getUserFromToken } = require("../middleware/authMiddleware");
+const { chatLimiter, uploadLimiter } = require("../middleware/rateLimiter");
 
 // Multer storage
 const uploadDir = path.join(__dirname, "..", "uploads", "chat");
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+
+const ALLOWED_CHAT_UPLOAD_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/jpg",
+  "image/webp",
+  "application/pdf",
+];
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),
@@ -21,7 +30,17 @@ const storage = multer.diskStorage({
   },
 });
 
-const upload = multer({ storage });
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (ALLOWED_CHAT_UPLOAD_TYPES.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Niedozwolony typ pliku. Dozwolone: PNG, JPG, WEBP, PDF"), false);
+    }
+  },
+});
 
 // Helper – auth user id
 const requireUser = (req, res, next) => {
@@ -103,7 +122,7 @@ router.post("/:conversationId/mark-read", requireUser, async (req, res) => {
 });
 
 // POST: upload załączników (zwraca metadane do socket `message:send`)
-router.post("/upload", requireUser, upload.array("files", 10), async (req, res) => {
+router.post("/upload", requireUser, chatLimiter, uploadLimiter, upload.array("files", 10), async (req, res) => {
   const files = (req.files || []).map((f) => ({
     url: `/uploads/chat/${f.filename}`,
     name: f.originalname,
