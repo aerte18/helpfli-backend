@@ -109,6 +109,11 @@ OfferSchema.index({ orderId: 1, status: 1 });
 OfferSchema.index({ providerId: 1, status: 1 });
 OfferSchema.index({ status: 1, createdAt: -1 });
 OfferSchema.index({ expiresAt: 1 }); // Dla cleanup expired offers
+// Jedna aktywna oferta (status sent) per wykonawca per zlecenie
+OfferSchema.index(
+  { orderId: 1, providerId: 1 },
+  { unique: true, partialFilterExpression: { status: 'sent' } }
+);
 
 // Walidacja: tylko jedna accepted offer per order
 OfferSchema.pre('save', async function(next) {

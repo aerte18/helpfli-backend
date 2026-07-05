@@ -1605,7 +1605,10 @@ router.get('/product-insights', authMiddleware, requireRole('admin'), async (req
       searchQualityBuckets,
       utmCampaigns,
       retentionAgg,
-      clientApiErrors
+      clientApiErrors,
+      aiNudgeByType,
+      aiNudgeByKind,
+      aiNudgeClickSource
     ] = await Promise.all([
       Event.aggregate([
         {
@@ -1678,6 +1681,37 @@ router.get('/product-insights', authMiddleware, requireRole('admin'), async (req
         { $group: { _id: '$properties.endpoint', count: { $sum: 1 } } },
         { $sort: { count: -1 } },
         { $limit: 15 }
+      ]),
+      Event.aggregate([
+        {
+          $match: {
+            type: { $in: ['ai_nudge_shown', 'ai_nudge_clicked', 'ai_nudge_dismissed'] },
+            createdAt: { $gte: start, $lte: end }
+          }
+        },
+        { $group: { _id: '$type', count: { $sum: 1 } } }
+      ]),
+      Event.aggregate([
+        { $match: { type: 'ai_nudge_shown', createdAt: { $gte: start, $lte: end } } },
+        {
+          $group: {
+            _id: { kind: { $ifNull: ['$properties.kind', '(brak)'] } },
+            count: { $sum: 1 }
+          }
+        },
+        { $sort: { count: -1 } },
+        { $limit: 12 }
+      ]),
+      Event.aggregate([
+        { $match: { type: 'ai_nudge_clicked', createdAt: { $gte: start, $lte: end } } },
+        {
+          $group: {
+            _id: { source: { $ifNull: ['$properties.source', '(brak)'] } },
+            count: { $sum: 1 }
+          }
+        },
+        { $sort: { count: -1 } },
+        { $limit: 12 }
       ])
     ]);
 
@@ -1685,6 +1719,10 @@ router.get('/product-insights', authMiddleware, requireRole('admin'), async (req
     const ret = retentionAgg[0] || {};
     const usersWithPv = ret.usersWithPv || 0;
     const returningUsers = ret.returningUsers || 0;
+    const nudgeMap = Object.fromEntries((aiNudgeByType || []).map((r) => [r._id, r.count]));
+    const nudgeShown = nudgeMap.ai_nudge_shown || 0;
+    const nudgeClicked = nudgeMap.ai_nudge_clicked || 0;
+    const nudgeDismissed = nudgeMap.ai_nudge_dismissed || 0;
 
     res.json({
       range: { from: dateOnly(start), to: dateOnly(end) },
@@ -1723,7 +1761,15 @@ router.get('/product-insights', authMiddleware, requireRole('admin'), async (req
         returningUsers,
         returningRate: usersWithPv ? Number((returningUsers / usersWithPv).toFixed(4)) : null
       },
-      clientApiErrors: clientApiErrors.map((r) => ({ endpoint: r._id || '—', count: r.count }))
+      clientApiErrors: clientApiErrors.map((r) => ({ endpoint: r._id || '—', count: r.count })),
+      aiNudge: {
+        shown: nudgeShown,
+        clicked: nudgeClicked,
+        dismissed: nudgeDismissed,
+        clickRate: nudgeShown ? Number((nudgeClicked / nudgeShown).toFixed(4)) : null,
+        byKind: (aiNudgeByKind || []).map((r) => ({ kind: r._id?.kind, count: r.count })),
+        clickBySource: (aiNudgeClickSource || []).map((r) => ({ source: r._id?.source, count: r.count }))
+      }
     });
   } catch (error) {
     console.error('Product insights error:', error);

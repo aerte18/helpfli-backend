@@ -13,8 +13,12 @@ const FUNNEL_SEQUENCE = [
   'search',
   'provider_view',
   'provider_contact',
+  'quote_request',
   'order_form_start',
   'order_form_success',
+  'offer_form_start',
+  'offer_form_submit',
+  'order_accepted',
   'payment_succeeded'
 ];
 
@@ -35,8 +39,34 @@ function getWorstFunnelDrop(items = []) {
   return worst;
 }
 
-const PUBLIC_BATCH_TYPES = new Set(['page_view', 'search', 'client_api_error']);
+const PUBLIC_BATCH_TYPES = new Set([
+  'page_view',
+  'search',
+  'client_api_error',
+  'ai_nudge_shown',
+  'ai_nudge_clicked',
+  'ai_nudge_dismissed',
+  'provider_view',
+  'provider_contact',
+  'provider_compare',
+  'quote_request',
+  'order_view',
+  'filter_applied',
+  'category_selected',
+  'order_form_start',
+  'order_form_success',
+  'offer_form_start',
+  'offer_form_submit',
+  'payment_succeeded',
+  'payment_failed'
+]);
 const MAX_PUBLIC_BATCH = 25;
+
+function sanitizeId(raw) {
+  const s = String(raw || '').trim().slice(0, 64);
+  if (/^[a-f0-9]{24}$/i.test(s)) return s;
+  return s.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 32) || undefined;
+}
 
 function sanitizePublicProperties(eventType, raw) {
   const p = raw && typeof raw === 'object' ? raw : {};
@@ -75,6 +105,72 @@ function sanitizePublicProperties(eventType, raw) {
     else statusCode = Math.round(Math.max(0, Math.min(599, statusCode)));
     const detail = typeof p.detail === 'string' ? p.detail.slice(0, 200) : undefined;
     return { endpoint, statusCode, detail };
+  }
+  if (eventType === 'ai_nudge_shown' || eventType === 'ai_nudge_clicked' || eventType === 'ai_nudge_dismissed') {
+    const kind = typeof p.kind === 'string' ? p.kind.slice(0, 32) : undefined;
+    const role = typeof p.role === 'string' ? p.role.slice(0, 24) : undefined;
+    const pathname = typeof p.pathname === 'string' ? p.pathname.slice(0, 200) : undefined;
+    const source = typeof p.source === 'string' ? p.source.slice(0, 32) : undefined;
+    const reason = typeof p.reason === 'string' ? p.reason.slice(0, 32) : undefined;
+    const hintText = typeof p.hintText === 'string' ? p.hintText.slice(0, 120) : undefined;
+    return { kind, role, pathname, source, reason, hintText };
+  }
+  if (eventType === 'provider_view' || eventType === 'provider_contact') {
+    return {
+      providerId: sanitizeId(p.providerId),
+      viewType: typeof p.viewType === 'string' ? p.viewType.slice(0, 32) : undefined,
+      contactType: typeof p.contactType === 'string' ? p.contactType.slice(0, 32) : undefined,
+      source: typeof p.source === 'string' ? p.source.slice(0, 32) : undefined
+    };
+  }
+  if (eventType === 'provider_compare') {
+    const ids = Array.isArray(p.providerIds)
+      ? p.providerIds.map(sanitizeId).filter(Boolean).slice(0, 4)
+      : [];
+    return { providerIds: ids, compareCount: ids.length };
+  }
+  if (eventType === 'quote_request') {
+    return {
+      providerId: sanitizeId(p.providerId),
+      serviceId: sanitizeId(p.serviceId),
+      source: typeof p.source === 'string' ? p.source.slice(0, 32) : undefined
+    };
+  }
+  if (eventType === 'order_view') {
+    return {
+      orderId: sanitizeId(p.orderId),
+      status: typeof p.status === 'string' ? p.status.slice(0, 32) : undefined
+    };
+  }
+  if (eventType === 'filter_applied') {
+    return {
+      filterType: typeof p.filterType === 'string' ? p.filterType.slice(0, 32) : undefined,
+      filterValue: typeof p.filterValue === 'string' ? p.filterValue.slice(0, 80) : p.filterValue
+    };
+  }
+  if (eventType === 'category_selected') {
+    return {
+      categoryId: sanitizeId(p.categoryId) || (typeof p.categoryId === 'string' ? p.categoryId.slice(0, 64) : undefined),
+      categoryName: typeof p.categoryName === 'string' ? p.categoryName.slice(0, 120) : undefined
+    };
+  }
+  if (
+    eventType === 'order_form_start' ||
+    eventType === 'order_form_success' ||
+    eventType === 'offer_form_start' ||
+    eventType === 'offer_form_submit'
+  ) {
+    return {
+      orderId: sanitizeId(p.orderId),
+      orderType: typeof p.orderType === 'string' ? p.orderType.slice(0, 32) : undefined,
+      source: typeof p.source === 'string' ? p.source.slice(0, 32) : undefined
+    };
+  }
+  if (eventType === 'payment_succeeded' || eventType === 'payment_failed') {
+    return {
+      orderId: sanitizeId(p.orderId),
+      status: typeof p.status === 'string' ? p.status.slice(0, 24) : undefined
+    };
   }
   return {};
 }
@@ -144,6 +240,21 @@ async function maybeCreateFunnelRegressionAlert({ startDate, endDate, roleLabel,
       }
     }))
   );
+}
+
+/** Codzienna ewaluacja alertów regresji lejka (cron, nie GET analytics). */
+async function evaluateFunnelRegressionAlerts() {
+  const endDate = new Date();
+  const startDate = new Date(endDate);
+  startDate.setDate(startDate.getDate() - 7);
+
+  const funnel = await TelemetryService.getConversionFunnelDetailed(startDate, endDate);
+  await Promise.all([
+    maybeCreateFunnelRegressionAlert({ startDate, endDate, roleLabel: 'overall', funnelData: funnel.overall }),
+    maybeCreateFunnelRegressionAlert({ startDate, endDate, roleLabel: 'client', funnelData: funnel.client }),
+    maybeCreateFunnelRegressionAlert({ startDate, endDate, roleLabel: 'provider', funnelData: funnel.provider })
+  ]);
+  return { ok: true, startDate, endDate };
 }
 
 // POST /api/telemetry/public/batch — bez logowania (page_view, search, client_api_error), np. goście po zgodzie na cookies
@@ -337,14 +448,6 @@ router.get('/funnel', authMiddleware, async (req, res) => {
       new Date(endDate)
     );
 
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    await Promise.all([
-      maybeCreateFunnelRegressionAlert({ startDate: start, endDate: end, roleLabel: 'overall', funnelData: funnel.overall }),
-      maybeCreateFunnelRegressionAlert({ startDate: start, endDate: end, roleLabel: 'client', funnelData: funnel.client }),
-      maybeCreateFunnelRegressionAlert({ startDate: start, endDate: end, roleLabel: 'provider', funnelData: funnel.provider })
-    ]);
-
     res.json(funnel);
   } catch (error) {
     console.error('Telemetry funnel error:', error);
@@ -353,3 +456,4 @@ router.get('/funnel', authMiddleware, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.evaluateFunnelRegressionAlerts = evaluateFunnelRegressionAlerts;

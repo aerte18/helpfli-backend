@@ -249,7 +249,8 @@ const validateTelemetry = [
            'company_ai_shortlist_generated', 'company_ai_followup_sent', 'company_ai_auto_followup_sent', 'company_ai_auto_followup_cron_run', 'company_ai_sla_breach_detected',
            'payment_intent_created', 'payment_succeeded', 'payment_failed',
            'login', 'register', 'onboarding_completed', 'dispute_reported', 'refund_requested',
-           'client_api_error'])
+           'client_api_error',
+           'ai_nudge_shown', 'ai_nudge_clicked', 'ai_nudge_dismissed'])
     .withMessage('Nieprawidłowy typ eventu'),
   
   body('properties')

@@ -63,7 +63,12 @@ class TelemetryService {
       REFUND_REQUESTED: 'refund_requested',
 
       // Frontend / reliability
-      CLIENT_API_ERROR: 'client_api_error'
+      CLIENT_API_ERROR: 'client_api_error',
+
+      // AI Concierge nudge (floating widget hints)
+      AI_NUDGE_SHOWN: 'ai_nudge_shown',
+      AI_NUDGE_CLICKED: 'ai_nudge_clicked',
+      AI_NUDGE_DISMISSED: 'ai_nudge_dismissed'
     };
   }
 

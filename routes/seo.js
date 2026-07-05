@@ -8,6 +8,7 @@
  *    GET  /api/seo/topics              – lista seedów dla admina (pomocnicze)
  *    GET  /api/seo/sitemap.xml         – dynamiczna sitemap (cache 1h)
  *    GET  /api/seo/robots.txt          – dynamiczny robots.txt
+ *    GET  /api/seo/prerender           – HTML dla crawlerów (publiczny)
  *
  *  Admin (Bearer + rola admin/superadmin):
  *    POST   /api/seo/generate          { topic, hints?, publish? }   → wygeneruj artykuł
@@ -32,6 +33,8 @@ const { generateAndStoreArticle } = require('../services/SeoArticleGenerator');
 const { SEO_SEED_TOPICS, SEO_SEED_BY_CATEGORY } = require('../utils/seoTopics');
 const { TOP_PL_CITIES, TOP_PL_CITIES_BY_SLUG, detectCitySlug } = require('../utils/polishCities');
 const MarketplaceStats = require('../services/MarketplaceStatsService');
+const { getPublicBaseUrl } = require('../utils/publicUrl');
+const SeoLocalPage = require('../models/SeoLocalPage');
 
 let logger;
 try { logger = require('../utils/logger'); } catch { logger = console; }
@@ -48,10 +51,89 @@ function ensureMongoConnected(res) {
   return false;
 }
 
-function getPublicBaseUrl() {
-  const env = (process.env.SEO_PUBLIC_BASE_URL || process.env.PUBLIC_APP_URL || '').trim();
-  if (env) return env.replace(/\/$/, '');
-  return 'https://helpfli.pl';
+function safeIsoDate(value) {
+  if (!value) return new Date().toISOString();
+  try {
+    const d = value instanceof Date ? value : new Date(value);
+    return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+  } catch {
+    return new Date().toISOString();
+  }
+}
+
+function buildStaticSitemapUrls(base) {
+  return [
+    { loc: `${base}/`, changefreq: 'daily', priority: '1.0' },
+    { loc: `${base}/poradniki`, changefreq: 'daily', priority: '0.9' },
+    { loc: `${base}/wykonawcy`, changefreq: 'weekly', priority: '0.85' },
+    { loc: `${base}/home`, changefreq: 'daily', priority: '0.9' },
+    { loc: `${base}/providers`, changefreq: 'daily', priority: '0.8' },
+    { loc: `${base}/services`, changefreq: 'weekly', priority: '0.6' },
+    { loc: `${base}/about`, changefreq: 'monthly', priority: '0.4' },
+    { loc: `${base}/help`, changefreq: 'monthly', priority: '0.4' }
+  ];
+}
+
+function renderSitemapXml(base, articles = [], localPages = [], providers = [], services = []) {
+  const staticUrls = buildStaticSitemapUrls(base);
+  const xml = [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    ...staticUrls.map(
+      (u) =>
+        `<url><loc>${escapeXml(u.loc)}</loc><changefreq>${u.changefreq}</changefreq><priority>${u.priority}</priority></url>`
+    ),
+    ...articles.map((a) => {
+      const lastmod = safeIsoDate(a.updatedAt || a.publishedAt);
+      return `<url><loc>${escapeXml(`${base}/poradnik/${a.slug}`)}</loc><lastmod>${lastmod}</lastmod><changefreq>weekly</changefreq><priority>0.7</priority></url>`;
+    }),
+    ...localPages.map((p) => {
+      const lastmod = safeIsoDate(p.lastBuiltAt || p.updatedAt);
+      return `<url><loc>${escapeXml(`${base}/wykonawcy/${p.serviceSlug}/${p.citySlug}`)}</loc><lastmod>${lastmod}</lastmod><changefreq>weekly</changefreq><priority>0.75</priority></url>`;
+    }),
+    ...services.map((s) => {
+      const lastmod = safeIsoDate(s.updatedAt);
+      return `<url><loc>${escapeXml(`${base}/service/${s.slug}`)}</loc><lastmod>${lastmod}</lastmod><changefreq>monthly</changefreq><priority>0.55</priority></url>`;
+    }),
+    ...providers.map((p) => {
+      const lastmod = safeIsoDate(p.updatedAt);
+      return `<url><loc>${escapeXml(`${base}/provider/${p._id}`)}</loc><lastmod>${lastmod}</lastmod><changefreq>weekly</changefreq><priority>0.5</priority></url>`;
+    }),
+    '</urlset>'
+  ].join('\n');
+  return xml;
+}
+
+async function fetchSitemapEntityUrls() {
+  const User = require('../models/User');
+  const maxProviders = Math.min(
+    2000,
+    Math.max(50, parseInt(process.env.SITEMAP_MAX_PROVIDERS, 10) || 500)
+  );
+  const maxServices = Math.min(
+    2000,
+    Math.max(50, parseInt(process.env.SITEMAP_MAX_SERVICES, 10) || 500)
+  );
+
+  const [providers, services] = await Promise.all([
+    User.find({
+      role: { $in: ['provider', 'company_owner', 'company_manager'] },
+      isActive: true,
+      anonymized: { $ne: true },
+      deletedAt: null
+    })
+      .select('_id updatedAt')
+      .sort({ updatedAt: -1 })
+      .limit(maxProviders)
+      .lean(),
+    Service.find({ slug: { $exists: true, $nin: [null, ''] } })
+      .select('slug updatedAt')
+      .sort({ is_top: -1, updatedAt: -1 })
+      .limit(maxServices)
+      .lean()
+  ]);
+
+  return { providers, services };
 }
 
 function escapeXml(unsafe) {
@@ -190,55 +272,43 @@ router.get('/topics', authMiddleware, requireRole(ADMIN_ROLES), async (_req, res
  * Sitemap handler – eksportowany, by można było podpiąć go także pod `/sitemap.xml`.
  */
 async function sitemapHandler(_req, res) {
+  const base = getPublicBaseUrl();
+  let articles = [];
+  let localPages = [];
+  let providers = [];
+  let services = [];
+
   try {
-    const base = getPublicBaseUrl();
-    const SeoLocalPage = require('../models/SeoLocalPage');
-    const [articles, localPages] = await Promise.all([
-      SeoArticle.find({ published: true })
-        .select('slug updatedAt publishedAt')
-        .sort({ publishedAt: -1 })
-        .limit(50000)
-        .lean(),
-      SeoLocalPage.find({ published: true })
-        .select('serviceSlug citySlug updatedAt lastBuiltAt')
-        .sort({ lastBuiltAt: -1 })
-        .limit(50000)
-        .lean()
-    ]);
+    if (mongoose.connection?.readyState === 1) {
+      const entityUrls = await fetchSitemapEntityUrls();
+      providers = entityUrls.providers;
+      services = entityUrls.services;
+      [articles, localPages] = await Promise.all([
+        SeoArticle.find({ published: true })
+          .select('slug updatedAt publishedAt')
+          .sort({ publishedAt: -1 })
+          .limit(50000)
+          .lean(),
+        SeoLocalPage.find({ published: true })
+          .select('serviceSlug citySlug updatedAt lastBuiltAt')
+          .sort({ lastBuiltAt: -1 })
+          .limit(50000)
+          .lean()
+      ]);
+    } else {
+      logger.warn?.('[SEO] sitemap: MongoDB not connected — returning static URLs only');
+    }
+  } catch (err) {
+    logger.error?.('[SEO] sitemap DB error (fallback to static):', err);
+  }
 
-    const staticUrls = [
-      { loc: `${base}/`, changefreq: 'daily', priority: '1.0' },
-      { loc: `${base}/poradniki`, changefreq: 'daily', priority: '0.9' },
-      { loc: `${base}/providers`, changefreq: 'daily', priority: '0.8' },
-      { loc: `${base}/services`, changefreq: 'weekly', priority: '0.6' },
-      { loc: `${base}/about`, changefreq: 'monthly', priority: '0.4' },
-      { loc: `${base}/help`, changefreq: 'monthly', priority: '0.4' }
-    ];
-
-    const xml = [
-      '<?xml version="1.0" encoding="UTF-8"?>',
-      '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
-      ...staticUrls.map(
-        (u) =>
-          `<url><loc>${escapeXml(u.loc)}</loc><changefreq>${u.changefreq}</changefreq><priority>${u.priority}</priority></url>`
-      ),
-      ...articles.map((a) => {
-        const lastmod = (a.updatedAt || a.publishedAt || new Date()).toISOString();
-        return `<url><loc>${escapeXml(`${base}/poradnik/${a.slug}`)}</loc><lastmod>${lastmod}</lastmod><changefreq>weekly</changefreq><priority>0.7</priority></url>`;
-      }),
-      // PSEO landing pages – największa masa
-      ...localPages.map((p) => {
-        const lastmod = (p.lastBuiltAt || p.updatedAt || new Date()).toISOString();
-        return `<url><loc>${escapeXml(`${base}/wykonawcy/${p.serviceSlug}/${p.citySlug}`)}</loc><lastmod>${lastmod}</lastmod><changefreq>weekly</changefreq><priority>0.75</priority></url>`;
-      }),
-      '</urlset>'
-    ].join('\n');
-
+  try {
+    const xml = renderSitemapXml(base, articles, localPages, providers, services);
     res.set('Content-Type', 'application/xml; charset=utf-8');
     res.set('Cache-Control', 'public, max-age=3600, s-maxage=3600');
     res.send(xml);
   } catch (err) {
-    logger.error?.('[SEO] sitemap error:', err);
+    logger.error?.('[SEO] sitemap render error:', err);
     res.status(500).set('Content-Type', 'text/plain').send('Sitemap error');
   }
 }
@@ -251,6 +321,7 @@ function robotsHandler(_req, res) {
     'Allow: /poradniki',
     'Allow: /poradnik/',
     'Allow: /wykonawcy/',
+    'Allow: /wykonawcy',
     'Disallow: /login',
     'Disallow: /register',
     'Disallow: /home',
@@ -270,6 +341,9 @@ function robotsHandler(_req, res) {
 
 router.get('/sitemap.xml', sitemapHandler);
 router.get('/robots.txt', robotsHandler);
+
+const { prerenderHandler } = require('../services/SeoPrerenderService');
+router.get('/prerender', prerenderHandler);
 
 /**
  * GET /api/seo/stats?service=&city=
@@ -317,6 +391,32 @@ router.get('/cities', (_req, res) => {
 });
 
 // ===================== PROGRAMMATIC SEO (PSEO) =====================
+
+/** Katalog usług/miast dla huba /wykonawcy (musi być przed /local/:service/:city) */
+router.get('/local/services', (_req, res) => {
+  try {
+    const { SEO_LOCAL_SERVICES } = require('../utils/seoCities');
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.json({ ok: true, services: SEO_LOCAL_SERVICES });
+  } catch (err) {
+    logger.error?.('[SEO] /local/services error:', err);
+    res.status(500).json({ ok: false, message: 'Błąd pobierania usług' });
+  }
+});
+
+router.get('/local/cities', (_req, res) => {
+  try {
+    const { SEO_CITIES } = require('../utils/seoCities');
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.json({
+      ok: true,
+      cities: SEO_CITIES.map((c) => ({ slug: c.slug, name: c.name }))
+    });
+  } catch (err) {
+    logger.error?.('[SEO] /local/cities error:', err);
+    res.status(500).json({ ok: false, message: 'Błąd pobierania miast' });
+  }
+});
 
 /**
  * GET /api/seo/local/:service/:city
@@ -691,7 +791,7 @@ router.post('/admin/local/bulk-build', async (req, res) => {
       return res.status(400).json({ ok: false, message: 'Wymagane: services[], cities[]' });
     }
     const pairCount = services.length * cities.length;
-    const maxPairs = Math.min(Math.max(parseInt(process.env.PSEO_BULK_MAX_PAIRS, 10) || 3, 1), 20);
+    const maxPairs = Math.min(Math.max(parseInt(process.env.PSEO_BULK_MAX_PAIRS, 10) || 15, 1), 50);
     if (pairCount > maxPairs) {
       return res.status(400).json({
         ok: false,
@@ -705,6 +805,7 @@ router.post('/admin/local/bulk-build', async (req, res) => {
     const base = getPublicBaseUrl();
 
     const results = [];
+    const indexNowUrls = [];
     for (const svc of services) {
       for (const city of cities) {
         try {
@@ -713,9 +814,7 @@ router.post('/admin/local/bulk-build', async (req, res) => {
             citySlug: String(city).toLowerCase(),
             forceRegenerate: force
           });
-          if (indexNow) {
-            indexNow.submit(`${base}/wykonawcy/${page.serviceSlug}/${page.citySlug}`).catch(() => {});
-          }
+          indexNowUrls.push(`${base}/wykonawcy/${page.serviceSlug}/${page.citySlug}`);
           results.push({ service: svc, city, ok: true, slug: page.slug });
           // throttle żeby nie spamować Claude API
           await new Promise((r) => setTimeout(r, 500));
@@ -723,6 +822,9 @@ router.post('/admin/local/bulk-build', async (req, res) => {
           results.push({ service: svc, city, ok: false, error: err.message });
         }
       }
+    }
+    if (indexNow && indexNowUrls.length) {
+      indexNow.submitBatch(indexNowUrls).catch(() => {});
     }
     res.json({ ok: true, total: results.length, results });
   } catch (err) {
@@ -983,6 +1085,24 @@ router.delete('/admin/local/:id', async (req, res) => {
   }
 });
 
+/**
+ * POST /api/seo/admin/local/run-pseo-cron
+ *  Ręczne uruchomienie crona budowy brakujących stron PSEO (admin).
+ */
+router.post('/admin/local/run-pseo-cron', async (req, res) => {
+  try {
+    if (!ensureMongoConnected(res)) return;
+    const { runPseoBulkCron } = require('../cron/pseoBulkCron');
+    const maxBuild = Math.min(30, Math.max(1, parseInt(req.body?.maxBuild, 10) || 8));
+    const out = await runPseoBulkCron({ force: true, maxBuild });
+    res.json(out);
+  } catch (err) {
+    logger.error?.('[SEO] run-pseo-cron error:', err);
+    res.status(500).json({ ok: false, message: err.message || 'Błąd crona PSEO' });
+  }
+});
+
 module.exports = router;
 module.exports.sitemapHandler = sitemapHandler;
 module.exports.robotsHandler = robotsHandler;
+module.exports.prerenderHandler = prerenderHandler;

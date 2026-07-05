@@ -111,7 +111,23 @@ router.post('/cron-webhook', async (req, res) => {
   try {
     const { runOnce } = require('../jobs/foundingProviderGrowth');
     await runOnce();
-    res.json({ ok: true, message: 'Founding provider cron executed' });
+    let pseoCron = { skipped: true };
+    try {
+      const { runPseoBulkCron } = require('../cron/pseoBulkCron');
+      pseoCron = await runPseoBulkCron();
+    } catch (pseoErr) {
+      console.warn('[growth] pseo cron:', pseoErr?.message);
+      pseoCron = { ok: false, error: pseoErr?.message };
+    }
+    let funnelAlerts = { skipped: true };
+    try {
+      const { evaluateFunnelRegressionAlerts } = require('./telemetry');
+      funnelAlerts = await evaluateFunnelRegressionAlerts();
+    } catch (funnelErr) {
+      console.warn('[growth] funnel alerts:', funnelErr?.message);
+      funnelAlerts = { ok: false, error: funnelErr?.message };
+    }
+    res.json({ ok: true, message: 'Cron executed', pseoCron, funnelAlerts });
   } catch (e) {
     console.error('[growth] cron-webhook:', e);
     res.status(500).json({ message: e?.message || 'Cron error' });
@@ -126,7 +142,15 @@ router.post('/run-cron', auth, async (req, res) => {
   try {
     const { runOnce } = require('../jobs/foundingProviderGrowth');
     await runOnce();
-    res.json({ message: 'Cron Founding Provider wykonany' });
+    let pseoCron = { skipped: true };
+    try {
+      const { runPseoBulkCron } = require('../cron/pseoBulkCron');
+      pseoCron = await runPseoBulkCron({ force: true, maxBuild: 8 });
+    } catch (pseoErr) {
+      console.warn('[growth] pseo cron:', pseoErr?.message);
+      pseoCron = { ok: false, error: pseoErr?.message };
+    }
+    res.json({ message: 'Cron Founding Provider wykonany', pseoCron });
   } catch (e) {
     res.status(500).json({ message: e?.message || 'Błąd crona' });
   }

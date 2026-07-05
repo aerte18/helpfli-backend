@@ -5,11 +5,13 @@ require('dotenv').config();
 let initSentry = () => {};
 let sentryErrorHandler = () => (_err, _req, _res, _next) => {};
 let sentryMiddleware = () => (_req, _res, _next) => next();
+let captureException = () => {};
 try {
   const s = require('./utils/sentry');
   initSentry = s.initSentry || initSentry;
   sentryErrorHandler = s.sentryErrorHandler || sentryErrorHandler;
   sentryMiddleware = s.sentryMiddleware || sentryMiddleware;
+  captureException = s.captureException || captureException;
 } catch {}
 
 // Initialize Winston logger
@@ -181,7 +183,6 @@ app.set('trust proxy', 1);
 // Inicjalizacja Sentry (jeśli SENTRY_DSN jest ustawione)
 if (process.env.SENTRY_DSN) {
   initSentry(app);
-  app.use(sentryMiddleware());
 }
 
 // ---------- CORS Configuration ----------
@@ -804,6 +805,13 @@ app.use((err, req, res, _next) => {
     ip: req.ip,
     userAgent: req.get('user-agent')
   });
+
+  if (process.env.SENTRY_DSN) {
+    captureException(err, {
+      extra: { errorId, url: req.url, method: req.method },
+      user: req.user?._id ? { id: String(req.user._id) } : undefined
+    });
+  }
   
   // Don't expose error details in production
   const isDevelopment = process.env.NODE_ENV === 'development';

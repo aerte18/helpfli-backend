@@ -251,6 +251,15 @@ router.post('/login', async (req, res) => {
     }
 
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    try {
+      const TelemetryService = require('../services/TelemetryService');
+      TelemetryService.track('login', {
+        userId: user._id,
+        properties: { role: fresh.role },
+        userAgent: req.get('user-agent'),
+        ip: req.ip
+      }).catch(() => {});
+    } catch { /* optional */ }
     return res.json({
       token,
       user: {
@@ -433,6 +442,7 @@ router.post('/register', validate('register'), validateRegistration, async (req,
       // Zmień rolę na company_owner jeśli to provider, w przeciwnym razie zostaw client
       if (role === "provider") {
         user.role = 'company_owner';
+        user.onboardingCompleted = true;
       }
       await user.save();
 
@@ -536,6 +546,16 @@ router.post('/register', validate('register'), validateRegistration, async (req,
 
     // Pobierz świeże dane użytkownika (po ewentualnej zmianie roli na company_owner)
     const freshUser = await User.findById(user._id).select('name email phone role isB2B onboardingCompleted company roleInCompany');
+
+    try {
+      const TelemetryService = require('../services/TelemetryService');
+      TelemetryService.track('register', {
+        userId: user._id,
+        properties: { role: freshUser.role },
+        userAgent: req.get('user-agent'),
+        ip: req.ip
+      }).catch(() => {});
+    } catch { /* optional */ }
     
     // W trybie deweloperskim zwróć token, w produkcji komunikat o weryfikacji
     if (process.env.NODE_ENV === 'development') {

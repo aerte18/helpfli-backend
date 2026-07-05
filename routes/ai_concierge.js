@@ -714,6 +714,19 @@ router.post('/drafts/:id/request-quotes', authMiddleware, async (req, res) => {
 
   const toCreate = chosen.map(pid => ({ draft: draft._id, client: draft.client, provider: pid }));
   await DraftQuote.insertMany(toCreate);
+
+  try {
+    const TelemetryService = require('../services/TelemetryService');
+    TelemetryService.track('quote_request', {
+      userId: req.user._id,
+      properties: {
+        source: 'ai_draft_quotes',
+        draftId: String(draft._id),
+        providerCount: toCreate.length
+      }
+    }).catch(() => {});
+  } catch { /* optional */ }
+
   res.json({ message: 'Zapytania wysłane', count: toCreate.length });
 });
 

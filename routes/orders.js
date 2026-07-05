@@ -376,6 +376,23 @@ router.post("/quote-draft", auth, async (req, res) => {
     }
 
     res.json({ orderId: order._id, conversationId: conversation._id, created });
+
+    try {
+      const TelemetryService = require('../services/TelemetryService');
+      TelemetryService.track('quote_request', {
+        userId: req.user._id,
+        sessionId: req.headers['x-session-id'] || null,
+        userAgent: req.get('user-agent'),
+        ip: req.ip,
+        properties: {
+          providerId: String(providerId),
+          serviceId: String(serviceId),
+          orderId: String(order._id),
+          created,
+          source: String(req.body?.source || 'quote_draft').slice(0, 32)
+        }
+      }).catch(() => {});
+    } catch { /* telemetry optional */ }
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Nie udało się utworzyć/pobrać draftu" });
@@ -2766,6 +2783,13 @@ router.post('/:id/fund', auth, loadOrderById, async (req, res) => {
       description: `Escrow for order ${order.service}`,
       status: 'pending',
     });
+
+    try {
+      await NotificationService.notifyOrderFunded(order._id);
+    } catch (notifyErr) {
+      console.error('FUND_NOTIFY_ERROR:', notifyErr);
+    }
+
     res.json({ message: 'Środki zostały zabezpieczone (escrow)', order });
   } catch (e) {
     console.error('FUND_ERROR:', e);
@@ -2977,6 +3001,14 @@ router.post('/:id/start', auth, loadOrderById, async (req, res) => {
     order.status = 'in_progress';
     order.startedAt = new Date();
     await order.save();
+
+    try {
+      const TelemetryService = require('../services/TelemetryService');
+      TelemetryService.track('order_started', {
+        userId: req.user._id,
+        properties: { orderId: String(order._id) }
+      }).catch(() => {});
+    } catch { /* optional */ }
     
     // Emit Socket.IO event do pokoju order
     const io = req.app.get("io");
@@ -3147,16 +3179,24 @@ router.post('/:id/complete', auth, loadOrderById, requireKycForOrderComplete, as
 
     await order.save();
     
+    try {
+      const TelemetryService = require('../services/TelemetryService');
+      TelemetryService.track('order_completed', {
+        userId: req.user._id,
+        properties: { orderId: String(order._id), status: order.status }
+      }).catch(() => {});
+    } catch { /* optional */ }
+
     // Emit Socket.IO event do pokoju order
     const io = req.app.get("io");
     if (io) {
-      io.to(`order:${order._id}`).emit("order:status_changed", { 
-        orderId: order._id, 
+      io.to(`order:${order._id}`).emit("order:status_changed", {
+        orderId: order._id,
         status: order.status,
         action: 'completed'
       });
     }
-    
+
     // Wyślij powiadomienie do klienta
     try {
       await NotificationService.notifyOrderCompleted(order._id);
@@ -4027,6 +4067,14 @@ router.post('/:id/dispute', auth, loadOrderById, async (req, res) => {
     } catch (error) {
       console.error('Notification error:', error);
     }
+
+    try {
+      const TelemetryService = require('../services/TelemetryService');
+      TelemetryService.track('dispute_reported', {
+        userId: req.user._id,
+        properties: { orderId: String(order._id) }
+      }).catch(() => {});
+    } catch { /* optional */ }
     
     res.json({ message: 'Spór został zgłoszony', order });
   } catch (error) {
@@ -4076,6 +4124,14 @@ router.post('/:id/refund-request', auth, loadOrderById, async (req, res) => {
     order.disputeStatus = 'refund_requested';
     order.status = 'disputed';
     await order.save();
+
+    try {
+      const TelemetryService = require('../services/TelemetryService');
+      TelemetryService.track('refund_requested', {
+        userId: req.user._id,
+        properties: { orderId: String(order._id) }
+      }).catch(() => {});
+    } catch { /* optional */ }
     
     res.json({ message: 'Wniosek o zwrot został złożony', order });
   } catch (error) {

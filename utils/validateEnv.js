@@ -22,7 +22,8 @@ const optionalVars = {
   // Opcjonalne, ale zalecane
   recommended: [
     'SENTRY_DSN',
-    'RESEND_API_KEY'
+    'RESEND_API_KEY',
+    'STRIPE_WEBHOOK_SECRET'
   ]
 };
 
@@ -53,6 +54,22 @@ function validateEnv() {
   for (const varName of optionalVars.recommended) {
     if (!process.env[varName]) {
       warnings.push(`💡 ZALECANE: ${varName} nie jest ustawione (niektóre funkcje mogą nie działać)`);
+    }
+  }
+
+  if (!process.env.STRIPE_WEBHOOK_SECRET && process.env.STRIPE_SECRET_KEY) {
+    warnings.push('💡 ZALECANE: STRIPE_WEBHOOK_SECRET nie jest ustawione — webhooki Stripe mogą nie działać (płatności, subskrypcje)');
+  }
+
+  if (isProduction) {
+    if (!process.env.SEO_PUBLIC_BASE_URL) {
+      warnings.push('💡 ZALECANE: SEO_PUBLIC_BASE_URL (np. https://helpfli.pl) — canonical, sitemap, IndexNow');
+    }
+    if (!process.env.INDEXNOW_KEY) {
+      warnings.push('💡 ZALECANE: INDEXNOW_KEY — szybsza indeksacja Bing/Yandex po publikacji PSEO');
+    }
+    if (process.env.PSEO_CRON_ENABLED !== '1') {
+      warnings.push('💡 ZALECANE: PSEO_CRON_ENABLED=1 — automatyczna budowa brakujących landingów SEO');
     }
   }
 

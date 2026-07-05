@@ -415,6 +415,34 @@ router.post("/", auth, async (req, res) => {
     const order = await Order.findById(orderId);
     if (!order) return res.status(404).json({ message: "Zlecenie nie istnieje" });
 
+    const OFFERABLE_STATUSES = ['open', 'collecting_offers', 'pending'];
+    if (!OFFERABLE_STATUSES.includes(order.status)) {
+      return res.status(400).json({
+        message: 'Na to zlecenie nie można już składać ofert',
+        code: 'order_not_open_for_offers',
+        orderStatus: order.status
+      });
+    }
+    if (order.acceptedOfferId) {
+      return res.status(400).json({
+        message: 'Zlecenie ma już zaakceptowaną ofertę',
+        code: 'order_already_accepted'
+      });
+    }
+
+    const existingOffer = await Offer.findOne({
+      orderId,
+      providerId: req.user._id,
+      status: 'sent'
+    }).select('_id');
+    if (existingOffer) {
+      return res.status(409).json({
+        message: 'Masz już aktywną ofertę na to zlecenie',
+        code: 'duplicate_offer',
+        offerId: existingOffer._id
+      });
+    }
+
     const service = order.service || "inne";
     const city = order?.location?.city || null;
     const lat = order?.location?.coords?.coordinates?.[1] ?? null;

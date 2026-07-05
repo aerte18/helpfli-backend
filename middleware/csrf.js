@@ -10,6 +10,23 @@
 const crypto = require('crypto');
 const logger = require('../utils/logger');
 
+/** Ścieżki wyłączone z walidacji CSRF (własna autoryzacja lub safe public API). */
+const CSRF_SKIP_PREFIXES = [
+  '/api/telemetry/public',
+  '/api/growth/cron-webhook',
+  '/api/health',
+  '/api/payments/webhook',
+  '/webhook'
+];
+
+function shouldSkipCsrf(req) {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return true;
+  if (req.path.includes('/webhook')) return true;
+  if (CSRF_SKIP_PREFIXES.some((p) => req.path.startsWith(p))) return true;
+  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) return true;
+  return false;
+}
+
 // Generuj CSRF token
 function generateCsrfToken() {
   return crypto.randomBytes(32).toString('hex');
@@ -17,15 +34,7 @@ function generateCsrfToken() {
 
 // Middleware do generowania i walidacji CSRF tokenów
 const csrfProtection = (req, res, next) => {
-  // Pomijaj CSRF dla:
-  // 1. GET, HEAD, OPTIONS requests (safe methods)
-  // 2. Webhooks (Stripe, etc.) - mają własną weryfikację
-  // 3. API endpoints które używają tylko JWT (nie cookies)
-  const isSafeMethod = ['GET', 'HEAD', 'OPTIONS'].includes(req.method);
-  const isWebhook = req.path.includes('/webhook');
-  const isApiWithJWT = req.headers.authorization && req.headers.authorization.startsWith('Bearer ');
-  
-  if (isSafeMethod || isWebhook || isApiWithJWT) {
+  if (shouldSkipCsrf(req)) {
     return next();
   }
 

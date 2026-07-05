@@ -97,6 +97,13 @@ describe('CSRF Protection Middleware', () => {
       expect(next).toHaveBeenCalled();
     });
 
+    it('should skip CSRF for public telemetry batch', () => {
+      req.method = 'POST';
+      req.path = '/api/telemetry/public/batch';
+      csrfProtection(req, res, next);
+      expect(next).toHaveBeenCalled();
+    });
+
     it('should generate and set cookie when no CSRF token exists', () => {
       req.method = 'POST';
       req.cookies = {};

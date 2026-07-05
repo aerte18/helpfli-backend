@@ -4,6 +4,10 @@
     { "src": "api/**/*.js", "use": "@vercel/node" }
   ],
   "routes": [
+    { "src": "/sitemap.xml", "dest": "api/sitemap.js" },
+    { "src": "/robots.txt", "dest": "api/robots.js" },
+    { "src": "/api/seo/prerender", "dest": "api/prerender.js" },
+    { "src": "/:key([a-zA-Z0-9-]{8,128}).txt", "dest": "api/indexnow-key.js" },
     { "src": "/api/(.*)", "dest": "api/index.js" }
   ],
   "crons": [

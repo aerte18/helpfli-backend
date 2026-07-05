@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const { sendMail } = require('../utils/email');
 const User = require('../models/User');
+const { getFrontendUrl } = require('../utils/publicUrl');
 
 class EmailVerificationService {
   // Generuje token weryfikacyjny
@@ -19,7 +20,7 @@ class EmailVerificationService {
     await user.save();
 
     // Twórz link weryfikacyjny
-    const verificationUrl = `${process.env.CLIENT_URL}/verify-email?token=${token}`;
+    const verificationUrl = `${getFrontendUrl()}/verify-email?token=${token}`;
 
     // HTML emaila
     const html = `

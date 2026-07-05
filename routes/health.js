@@ -148,4 +148,20 @@ router.get('/detailed', async (req, res) => {
   }
 });
 
+/** GET /api/health/csrf-token — token dla formularzy cookie-based (gdy ENABLE_CSRF=1). */
+router.get('/csrf-token', (req, res) => {
+  const { generateCsrfToken } = require('../middleware/csrf');
+  let token = req.cookies?._csrf;
+  if (!token) {
+    token = generateCsrfToken();
+    res.cookie('_csrf', token, {
+      httpOnly: false,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 3600000
+    });
+  }
+  res.json({ csrfToken: token });
+});
+
 module.exports = router;
