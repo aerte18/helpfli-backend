@@ -1,4 +1,13 @@
-?# 📦 Helpfli – Pakiet 2 - Instrukcje uruchomienia
+# 📦 Helpfli – Pakiet 2 - Instrukcje uruchomienia
+
+## 📡 AI Command Center — Marketing Read API
+
+Read-only integracja service-to-service dla AI Command Center (katalog, agregaty popytu/podaży, fakty platformy, rejestr claims).
+
+- Dokumentacja: [`docs/AI_COMMAND_CENTER_MARKETING_READ_API.md`](docs/AI_COMMAND_CENTER_MARKETING_READ_API.md)
+- Wymagane: `AI_COMMAND_CENTER_READ_TOKEN` w `.env`
+- Prefix: `/api/integrations/marketing/v1`
+
 
 ## ✅ **Co zostało zaimplementowane**
 

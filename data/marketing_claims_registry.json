@@ -1,0 +1,204 @@
+{
+  "registryVersion": "helpfli-marketing-claims-v1",
+  "updatedAt": "2026-07-14T00:00:00.000Z",
+  "claims": [
+    {
+      "code": "platform_marketplace_model",
+      "statement": "Helpfli to marketplace łączący klientów z lokalnymi wykonawcami usług domowych i remontowych.",
+      "status": "verified",
+      "evidenceReference": "backend/utils/swagger.js, backend/services/SeoPrerenderService.js",
+      "allowedAudiences": ["contractors", "clients", "general"],
+      "allowedChannels": ["social", "email", "landing", "ads"],
+      "owner": "platform",
+      "source": "product_documentation"
+    },
+    {
+      "code": "registration_roles",
+      "statement": "Rejestracja obejmuje role klienta i wykonawcy (oraz role firmowe B2B).",
+      "status": "verified",
+      "evidenceReference": "backend/models/User.js role enum",
+      "allowedAudiences": ["contractors", "clients"],
+      "allowedChannels": ["landing", "email", "social"],
+      "owner": "platform",
+      "source": "user_model"
+    },
+    {
+      "code": "payments_stripe_methods",
+      "statement": "Płatności w systemie obsługuje Stripe (karta, Przelewy24, BLIK — zależnie od konfiguracji).",
+      "status": "verified",
+      "evidenceReference": "backend/routes/integrations.js /payments/methods, backend/routes/payments.js",
+      "allowedAudiences": ["clients", "contractors"],
+      "allowedChannels": ["landing", "email"],
+      "owner": "platform",
+      "source": "payments_routes"
+    },
+    {
+      "code": "platform_fee_percent_default",
+      "statement": "Domyślna prowizja platformy od transakcji wynosi ok. 5% (z wyjątkami planów PRO i programów promocyjnych).",
+      "status": "verified",
+      "evidenceReference": "backend/utils/foundingProvider.js computeOrderPlatformFee defaultPercent=5",
+      "allowedAudiences": ["contractors"],
+      "allowedChannels": ["landing", "email"],
+      "owner": "platform",
+      "source": "foundingProvider"
+    },
+    {
+      "code": "provider_free_offers_monthly",
+      "statement": "Wykonawcy na planie FREE mają limit ofert miesięcznie (domyślnie 10 — z planu subskrypcji).",
+      "status": "verified",
+      "evidenceReference": "backend/models/SubscriptionPlan.js providerOffersLimit, backend/utils/syncProviderSubscriptionLimits.js",
+      "allowedAudiences": ["contractors"],
+      "allowedChannels": ["landing", "email", "social"],
+      "owner": "platform",
+      "source": "subscription_plans"
+    },
+    {
+      "code": "offer_highlight_fee_5pln",
+      "statement": "Wyróżnienie oferty po wyczerpaniu darmowych limitów kosztuje 5 zł.",
+      "status": "verified",
+      "evidenceReference": "backend/routes/offers.js paymentAmount=500 groszy",
+      "allowedAudiences": ["contractors"],
+      "allowedChannels": ["email", "in_app"],
+      "owner": "platform",
+      "source": "offers_routes"
+    },
+    {
+      "code": "provider_kyc_verification",
+      "statement": "Wykonawcy mogą przejść weryfikację KYC; status weryfikacji jest przechowywany na koncie.",
+      "status": "verified",
+      "evidenceReference": "backend/models/User.js kyc, verification",
+      "allowedAudiences": ["contractors"],
+      "allowedChannels": ["landing", "email"],
+      "owner": "platform",
+      "source": "user_model"
+    },
+    {
+      "code": "ratings_reviews_system",
+      "statement": "Platforma obsługuje oceny i recenzje po zakończonych zleceniach.",
+      "status": "verified",
+      "evidenceReference": "backend/models/Rating.js, backend/models/Order.js status rated",
+      "allowedAudiences": ["clients", "contractors"],
+      "allowedChannels": ["landing", "social"],
+      "owner": "platform",
+      "source": "rating_model"
+    },
+    {
+      "code": "helpfli_protect_payments",
+      "statement": "Płatność w systemie Helpfli uruchamia ochronę transakcji (Helpfli Protect) przy spełnieniu warunków zlecenia.",
+      "status": "verified",
+      "evidenceReference": "backend/models/Order.js payment.protected, paidInSystem",
+      "allowedAudiences": ["clients"],
+      "allowedChannels": ["landing", "email"],
+      "owner": "platform",
+      "source": "order_model"
+    },
+    {
+      "code": "founding_provider_zero_commission",
+      "statement": "Program Pierwszy wykonawca Helpfli może obniżyć prowizję platformy do 0% przez ograniczony czas (warunki programu).",
+      "status": "verified",
+      "evidenceReference": "backend/utils/foundingProvider.js FOUNDING_COMMISSION_DISCOUNT_PERCENT",
+      "allowedAudiences": ["contractors"],
+      "allowedChannels": ["email", "landing"],
+      "owner": "platform",
+      "source": "foundingProvider"
+    },
+    {
+      "code": "first_10_orders_no_commission",
+      "statement": "Pierwsze 10 zleceń wykonawcy jest bez prowizji platformy.",
+      "status": "forbidden",
+      "evidenceReference": "brak implementacji — limit dotyczy ofert miesięcznie, nie prowizji od zleceń",
+      "allowedAudiences": [],
+      "allowedChannels": [],
+      "owner": "marketing_compliance",
+      "source": "claims_registry",
+      "reason": "Nie znaleziono źródła w kodzie. Istnieje limit ofert miesięcznie (np. 10), nie zwolnienie z prowizji za pierwsze 10 zleceń."
+    },
+    {
+      "code": "guaranteed_orders",
+      "statement": "Gwarantowana liczba zleceń dla wykonawców.",
+      "status": "forbidden",
+      "evidenceReference": "brak gwarancji w modelu zleceń",
+      "allowedAudiences": [],
+      "allowedChannels": [],
+      "owner": "marketing_compliance",
+      "source": "claims_registry",
+      "reason": "Platforma nie gwarantuje liczby zleceń."
+    },
+    {
+      "code": "guaranteed_fast_payouts",
+      "statement": "Gwarantowane szybkie wypłaty dla wykonawców.",
+      "status": "forbidden",
+      "evidenceReference": "brak gwarancji wypłat w kodzie",
+      "allowedAudiences": [],
+      "allowedChannels": [],
+      "owner": "marketing_compliance",
+      "source": "claims_registry",
+      "reason": "Brak twardej gwarancji czasu wypłaty w konfiguracji produktu."
+    },
+    {
+      "code": "all_contractors_verified",
+      "statement": "Wszyscy wykonawcy na Helpfli są zweryfikowani.",
+      "status": "forbidden",
+      "evidenceReference": "backend/models/User.js verification.status default unverified",
+      "allowedAudiences": [],
+      "allowedChannels": [],
+      "owner": "marketing_compliance",
+      "source": "user_model",
+      "reason": "Weryfikacja jest opcjonalna; domyślny status to unverified."
+    },
+    {
+      "code": "availability_24_7",
+      "statement": "Platforma Helpfli działa i przyjmuje zlecenia 24/7.",
+      "status": "forbidden",
+      "evidenceReference": "brak flagi 24/7 w konfiguracji platformy",
+      "allowedAudiences": [],
+      "allowedChannels": [],
+      "owner": "marketing_compliance",
+      "source": "claims_registry",
+      "reason": "Dostępność 24/7 nie jest udokumentowaną funkcją platformy (pilność zlecenia ≠ dostępność platformy)."
+    },
+    {
+      "code": "best_platform_poland",
+      "statement": "Najlepsza platforma usług w Polsce.",
+      "status": "forbidden",
+      "evidenceReference": "brak obiektywnego źródła porównawczego",
+      "allowedAudiences": [],
+      "allowedChannels": [],
+      "owner": "marketing_compliance",
+      "source": "claims_registry",
+      "reason": "Claim superlatywny bez dowodu."
+    },
+    {
+      "code": "more_orders_percent_20_40",
+      "statement": "20–40% więcej zleceń dzięki Helpfli.",
+      "status": "forbidden",
+      "evidenceReference": "brak zweryfikowanych danych lift",
+      "allowedAudiences": [],
+      "allowedChannels": [],
+      "owner": "marketing_compliance",
+      "source": "claims_registry",
+      "reason": "Brak potwierdzonego źródła danych o wzroście zleceń."
+    },
+    {
+      "code": "flat_commission_5pln",
+      "statement": "Stała prowizja platformy 5 zł od każdego zlecenia.",
+      "status": "unverified",
+      "evidenceReference": "5 zł dotyczy wyróżnienia oferty (offers.js), prowizja transakcyjna to % (foundingProvider)",
+      "allowedAudiences": [],
+      "allowedChannels": [],
+      "owner": "marketing_compliance",
+      "source": "code_review",
+      "reason": "W kodzie występuje opłata 5 zł za boost oferty, nie jako stała prowizja od zlecenia."
+    },
+    {
+      "code": "welcome_credit_after_first_order",
+      "statement": "Klienci mogą otrzymać kredyt powitalny po pierwszym ukończonym zleceniu (program growth).",
+      "status": "verified",
+      "evidenceReference": "backend/utils/growthRewards.js, backend/routes/growth.js /me",
+      "allowedAudiences": ["clients"],
+      "allowedChannels": ["email", "landing"],
+      "owner": "platform",
+      "source": "growthRewards"
+    }
+  ]
+}

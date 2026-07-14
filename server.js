@@ -619,6 +619,11 @@ try {
   safeUse('/api/verify', verifyRoutes, 'verify');
   safeUse('/api/notifications', notificationsRoutes, 'notifications');
   safeUse('/api/integrations', loadRoute('integrations', './routes/integrations'), 'integrations');
+  safeUse(
+    '/api/integrations/marketing/v1',
+    loadRoute('integrationsMarketing', './routes/integrationsMarketing'),
+    'integrationsMarketing'
+  );
   safeUse('/api/crm', loadRoute('crm_integrations', './routes/crm_integrations'), 'crm_integrations');
   safeUse('/api/accounting', loadRoute('accounting_integrations', './routes/accounting_integrations'), 'accounting_integrations');
   safeUse('/api/user-services', userServicesRoutes, 'userServices');
