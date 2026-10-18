@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const SOURCE = require('../data/services_catalog.source');
+const { slugifyPolish } = require('../utils/seoSlug');
 
 const POPULAR_SLUGS = new Set([]);
 
@@ -15,13 +16,7 @@ const CATEGORY_LABELS = {
 };
 
 function slugify(s) {
-  return String(s)
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .replace(/-{2,}/g, '-');
+  return slugifyPolish(s);
 }
 
 function childName(child) {

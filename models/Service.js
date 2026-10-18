@@ -4,6 +4,7 @@ const serviceSchema = new mongoose.Schema({
   // Podstawowe informacje
   parent_slug: { type: String, required: true, index: true },
   slug: { type: String, required: true, unique: true, index: true },
+  legacy_slugs: { type: [String], default: [], index: true },
   name_pl: { type: String, required: true },
   name_en: { type: String, required: true },
   description: { type: String, required: true },

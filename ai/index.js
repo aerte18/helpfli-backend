@@ -385,7 +385,7 @@ async function conciergeHandler(req, res) {
 
     // Routing do innych agentów na podstawie nextStep
     // Agent Diagnostyczny - ocena ryzyka/pilności
-    if (conciergeResult.nextStep === 'diagnose') {
+    if (conciergeResult.nextStep === 'diagnose' || conciergeResult.urgency === 'urgent') {
       try {
         agentPayload.diagnostic = await runDiagnosticAgent({
           messages: parsed.messages,
@@ -783,6 +783,14 @@ async function conciergeHandler(req, res) {
       metadata: { stack: error.stack?.substring(0, 1000) }
     }).catch(err => console.error('Error tracking error analytics:', err));
     
+    if (error.code === 'VALIDATION_ERROR' || error.statusCode === 400) {
+      return res.status(400).json({
+        ok: false,
+        error: 'INVALID_REQUEST',
+        message: error.message
+      });
+    }
+
     // Ukryj szczegóły błędów przed użytkownikiem
     const isAuthError = error.message?.includes('401') || 
                        error.message?.includes('authentication') ||

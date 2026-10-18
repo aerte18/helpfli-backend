@@ -2,10 +2,6 @@ const webpush = require("web-push");
 const User = require("../models/User");
 const logger = require("./logger");
 
-// Domyślne klucze VAPID (w produkcji użyj własnych)
-const DEFAULT_VAPID_PUBLIC_KEY = "BDlNtEgV-XsDrBc2dKPCXwY3AlUO0g-hm0GvaAE75E-wqa6WR3zw2Ggzdty9DVz3PVcIaDxpGibBhhv_I15Oqs8";
-const DEFAULT_VAPID_PRIVATE_KEY = "BvSbleBgyYTddIws1H6-1XHZrzyPXdxVJ4CLCCUNsZw";
-
 let VAPID_PUBLIC_KEY = null;
 let VAPID_PRIVATE_KEY = null;
 let webpushEnabled = false;
@@ -28,18 +24,12 @@ function tryConfigureVapid(publicKey, privateKey, label) {
   }
 }
 
-// Konfiguracja VAPID dla push notifications:
-// - jeśli ENV jest ustawiony, spróbuj go użyć
-// - jeśli ENV jest niepoprawny, fallback do domyślnych kluczy
-// - jeśli nadal nie działa, webpush zostaje wyłączony (bez crasha backendu)
+// Klucz prywatny VAPID nigdy nie może mieć repozytoryjnego fallbacku.
 if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
   tryConfigureVapid(process.env.VAPID_PUBLIC_KEY, process.env.VAPID_PRIVATE_KEY, "env");
 }
 if (!webpushEnabled) {
-  tryConfigureVapid(DEFAULT_VAPID_PUBLIC_KEY, DEFAULT_VAPID_PRIVATE_KEY, "default");
-}
-if (!webpushEnabled) {
-  logger?.warn?.("⚠️ Web-push wyłączony (brak poprawnych VAPID keys) - backend działa bez push powiadomień");
+  logger?.warn?.("⚠️ Web-push wyłączony (brak poprawnych VAPID keys w środowisku)");
 }
 
 async function saveSubscription(userId, sub) {
@@ -52,7 +42,7 @@ async function saveSubscription(userId, sub) {
 
 async function sendPushToUser(userId, payload) {
   if (!webpushEnabled) return;
-  const user = await User.findById(userId).lean();
+  const user = await User.findById(userId).select('+pushSubs').lean();
   if (!user?.pushSubs?.length) return;
   
   const results = await Promise.allSettled(

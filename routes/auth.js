@@ -5,6 +5,7 @@ const mongoose = require('mongoose');
 const crypto = require('crypto');
 const User = require('../models/User');
 const { withListableProviders } = require('../utils/listableProviderQuery');
+const { PUBLIC_USER_PROFILE_SELECT } = require('../utils/publicUserFields');
 const logger = require('../utils/logger');
 const { sendMail } = require('../utils/mailer');
 const { getFrontendUrl } = require('../utils/publicUrl');
@@ -63,7 +64,8 @@ router.post('/login', async (req, res) => {
     }
 
     logger.debug('LOGIN_ATTEMPT: Looking up user', { email });
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email })
+      .select('+password +twoFactorSecret +twoFactorBackupCodes');
     if (!user) {
       return res.status(400).json({ message: 'Nieprawidłowe dane logowania' });
     }
@@ -678,20 +680,6 @@ router.get('/me', authMiddleware, async (req, res) => {
   }
 });
 
-// DEV ONLY: elevate current user to admin for testing
-router.post('/dev/elevate-admin', authMiddleware, async (req, res) => {
-  try {
-    if (process.env.NODE_ENV === 'production') {
-      return res.status(403).json({ message: 'Not allowed in production' });
-    }
-    await User.findByIdAndUpdate(req.user._id, { role: 'admin' });
-    const fresh = await User.findById(req.user._id).select('name email role');
-    res.json({ ok: true, user: fresh });
-  } catch (e) {
-    res.status(500).json({ message: 'Elevate failed' });
-  }
-});
-
 // Wylogowanie - ustaw status offline
 router.post('/logout', authMiddleware, async (req, res) => {
   try {
@@ -715,7 +703,9 @@ router.post('/logout', authMiddleware, async (req, res) => {
 // Pobierz wszystkich dostawców usług (providers)
 router.get('/providers', async (req, res) => {
   try {
-    const providers = await User.find(withListableProviders({ role: 'provider' }));
+    const providers = await User.find(withListableProviders({ role: 'provider' }))
+      .select(PUBLIC_USER_PROFILE_SELECT)
+      .lean();
     res.json(providers);
   } catch (err) {
     res.status(500).json({ message: 'Błąd pobierania dostawców' });
@@ -725,8 +715,13 @@ router.get('/providers', async (req, res) => {
 // Pobierz pojedynczego użytkownika po ID
 router.get('/users/:id', async (req, res) => {
   try {
-    const user = await User.findById(req.params.id).select('-password');
+    const user = await User.findById(req.params.id)
+      .select(PUBLIC_USER_PROFILE_SELECT)
+      .lean();
     if (!user) {
+      return res.status(404).json({ message: 'Użytkownik nie został znaleziony' });
+    }
+    if (user.anonymized || user.deletedAt || user.isActive === false) {
       return res.status(404).json({ message: 'Użytkownik nie został znaleziony' });
     }
     res.json(user);
@@ -738,9 +733,9 @@ router.get('/users/:id', async (req, res) => {
 // Pobierz pojedynczego providera po ID
 router.get('/providers/:id', async (req, res) => {
   try {
-    const provider = await User.findById(req.params.id)
-      .select('-password')
-      .where('role', 'provider');
+    const provider = await User.findOne(withListableProviders({ _id: req.params.id, role: 'provider' }))
+      .select(PUBLIC_USER_PROFILE_SELECT)
+      .lean();
     
     if (!provider) {
       return res.status(404).json({ message: 'Provider nie został znaleziony' });
@@ -892,7 +887,7 @@ router.post('/reset-password', async (req, res) => {
     const user = await User.findOne({
       passwordResetToken: tokenHash,
       passwordResetExpires: { $gt: new Date() },
-    });
+    }).select('+password +passwordResetToken +passwordResetExpires');
 
     if (!user) {
       return res.status(400).json({ message: 'Link resetu jest nieprawidłowy lub wygasł.' });

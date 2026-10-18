@@ -2,6 +2,14 @@
  * Testy jednostkowe dla Agent Order Draft
  */
 
+jest.mock('../../../ai/utils/llmAdapter', () => {
+  const actual = jest.requireActual('../../../ai/utils/llmAdapter');
+  return {
+    ...actual,
+    callAgentLLM: jest.fn().mockRejectedValue(new Error('LLM unavailable in unit test'))
+  };
+});
+
 const { runOrderDraftAgent } = require('../../../ai/agents/orderDraftAgent');
 
 describe('Order Draft Agent', () => {

@@ -5,7 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const { authOrGuestMiddleware } = require('../middleware/authOrGuestMiddleware');
-const { aiLimiter } = require('../middleware/rateLimiter');
+const { aiLimiter, uploadLimiter } = require('../middleware/rateLimiter');
 const { getGuestUsage } = require('../utils/guestAiTrial');
 const Service = require('../models/Service');
 const Order = require('../models/Order');
@@ -31,6 +31,11 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 const { requireKycVerified } = require('../middleware/kyc');
 const { validate } = require('../middleware/validation');
 const AIFeedback = require('../models/AIFeedback');
+const {
+  safeUploadName,
+  removeUploadedFiles,
+  validateUploadedFiles,
+} = require('../utils/uploadSafety');
 
 const MAX_MB = parseInt(process.env.MAX_FILE_SIZE_MB || '30', 10);
 const UPLOAD_DIR = process.env.UPLOAD_DIR || 'uploads';
@@ -45,11 +50,33 @@ function ensureUploadSubdir(subdir) {
 const storageDrafts = multer.diskStorage({
   destination: (req, file, cb) => cb(null, ensureUploadSubdir('drafts')),
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname || '');
-    cb(null, 'draft-' + Date.now() + '-' + Math.random().toString(36).slice(2) + ext);
+    try {
+      cb(null, safeUploadName('draft', file, req.user?._id));
+    } catch (error) {
+      cb(error);
+    }
   }
 });
-const uploadDrafts = multer({ storage: storageDrafts, limits: { fileSize: MAX_MB*1024*1024 } });
+const ALLOWED_AI_UPLOAD_MIME = new Set([
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'video/mp4',
+  'video/quicktime',
+  'video/webm',
+  'video/x-msvideo',
+]);
+const aiUploadFileFilter = (_req, file, cb) => {
+  if (ALLOWED_AI_UPLOAD_MIME.has(String(file.mimetype || '').toLowerCase())) return cb(null, true);
+  return cb(new Error('Niedozwolony typ pliku. Dozwolone są obrazy i obsługiwane formaty wideo'), false);
+};
+const uploadDrafts = multer({
+  storage: storageDrafts,
+  limits: { fileSize: MAX_MB*1024*1024 },
+  fileFilter: aiUploadFileFilter,
+});
 
 function detectType(mime) {
   if (!mime) return 'other';
@@ -63,22 +90,43 @@ const toPublicUrl = (filename) => `/uploads/drafts/${filename}`;
 const storageConcierge = multer.diskStorage({
   destination: (req, file, cb) => cb(null, ensureUploadSubdir('concierge')),
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname || '');
-    cb(null, 'concierge-' + Date.now() + '-' + Math.random().toString(36).slice(2) + ext);
+    try {
+      cb(null, safeUploadName('concierge', file, req.user?._id));
+    } catch (error) {
+      cb(error);
+    }
   }
 });
 const uploadConcierge = multer({ 
   storage: storageConcierge, 
   limits: { fileSize: MAX_MB*1024*1024 },
-  fileFilter: (req, file, cb) => {
-    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/avi', 'video/mov'];
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error('Niedozwolony typ pliku. Dozwolone: JPG, PNG, GIF, WebP, MP4, AVI, MOV'), false);
-    }
-  }
+  fileFilter: aiUploadFileFilter,
 });
+
+function runUpload(middleware) {
+  return (req, res, next) => middleware(req, res, (error) => {
+    if (!error) return next();
+    removeUploadedFiles(req.files);
+    const message = error.code === 'LIMIT_FILE_SIZE'
+      ? `Plik jest za duży (maksymalnie ${MAX_MB} MB)`
+      : error.message || 'Błąd uploadu';
+    return res.status(400).json({ message });
+  });
+}
+
+async function loadOwnedDraft(req, res, next) {
+  try {
+    const draft = await OrderDraft.findById(req.params.id);
+    if (!draft) return res.status(404).json({ message: 'Draft nie istnieje' });
+    if (String(draft.client) !== String(req.user._id)) {
+      return res.status(403).json({ message: 'To nie Twój draft' });
+    }
+    req.ownedDraft = draft;
+    return next();
+  } catch (error) {
+    return next(error);
+  }
+}
 
 function normalizeUrgencyForSearch(text = '') {
   const s = String(text || '').toLowerCase();
@@ -166,10 +214,15 @@ router.post('/concierge/service-search', authMiddleware, async (req, res) => {
 });
 
 // POST /api/ai/concierge/upload - upload plików dla AI Concierge
-router.post('/concierge/upload', authMiddleware, uploadConcierge.array('files', 5), async (req, res) => {
+router.post('/concierge/upload', authMiddleware, uploadLimiter, runUpload(uploadConcierge.array('files', 5)), async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ message: 'Brak plików do uploadu' });
+    }
+
+    if (!(await validateUploadedFiles(req.files))) {
+      removeUploadedFiles(req.files);
+      return res.status(400).json({ message: 'Zawartość pliku nie odpowiada zadeklarowanemu formatowi' });
     }
 
     const uploadedFiles = req.files.map(file => ({
@@ -187,6 +240,7 @@ router.post('/concierge/upload', authMiddleware, uploadConcierge.array('files', 
       message: `Przesłano ${uploadedFiles.length} plik(ów)`
     });
   } catch (error) {
+    removeUploadedFiles(req.files);
     console.error('Upload error:', error?.message || error);
     const isKnown = /Niedozwolony typ pliku|File too large/i.test(error?.message || '');
     res.status(isKnown ? 400 : 500).json({ 
@@ -225,6 +279,38 @@ router.post('/concierge/analyze', authMiddleware, aiLimiter, validate('aiAnalyze
     }
     req.aiAccess = access;
 
+    if (access.payPerUse && process.env.NODE_ENV !== 'development') {
+      const payPerUsePrice = 50;
+      const Stripe = require('stripe');
+      const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
+      if (!stripe) {
+        return res.status(503).json({ message: 'Płatności nie są skonfigurowane' });
+      }
+      const intent = await stripe.paymentIntents.create({
+        amount: payPerUsePrice,
+        currency: 'pln',
+        payment_method_types: ['card', 'p24'],
+        description: 'Helpfli AI Concierge - dodatkowe zapytanie',
+        metadata: {
+          type: 'ai_concierge_pay_per_use',
+          userId: String(req.user._id),
+        },
+      });
+      return res.status(402).json({
+        requiresPayment: true,
+        message: 'Wymagana płatność za dodatkowe zapytanie AI',
+        paymentIntentId: intent.id,
+        clientSecret: intent.client_secret,
+        amount: payPerUsePrice,
+        pricePLN: (payPerUsePrice / 100).toFixed(2),
+        upsell: {
+          recommendedPlanKey: 'CLIENT_STD',
+          title: 'STANDARD – nielimitowane AI Concierge',
+          description: 'Lub wykup plan STANDARD za 19 zł/mies aby uzyskać nielimitowany dostęp.',
+        },
+      });
+    }
+
     const { description, locationText, lat, lon, urgency = 'flex', imageUrls = [], conversationHistory = [] } = req.body || {};
     if (!description || description.length < 5) {
       return res.status(400).json({ message: 'Opisz problem nieco dokładniej.' });
@@ -236,6 +322,7 @@ router.post('/concierge/analyze', authMiddleware, aiLimiter, validate('aiAnalyze
     // 1) Wywołaj LLM Service (Claude 3.5 z fallbackiem do Ollama)
     const llmService = require('../services/llm_service');
     let llm = null;
+    let precomputedPriceHints = null;
     try {
       // Włącz wyszukiwanie internetowe dla złożonych problemów
       const enableWebSearch = description.length > 50 && 
@@ -255,7 +342,7 @@ router.post('/concierge/analyze', authMiddleware, aiLimiter, validate('aiAnalyze
       const serviceCandidateForHints = llm?.serviceCandidate || bestHeuristicCandidate;
       
       // Oblicz priceHints wcześniej, aby przekazać do AI
-      const precomputedPriceHints = serviceCandidateForHints?.code
+      precomputedPriceHints = serviceCandidateForHints?.code
         ? (await priceHintsFromHistory({ serviceCode: serviceCandidateForHints.code, cityLike: locationText }).catch(() => null))
           || await computePriceHints(serviceCandidateForHints.code, { lat, lon, text: locationText }).catch(() => null)
         : null;
@@ -306,42 +393,6 @@ router.post('/concierge/analyze', authMiddleware, aiLimiter, validate('aiAnalyze
       console.log('LLM Service not available, using fallback:', error.message);
     }
 
-    const { enforceClientAiAccess } = require('../utils/clientAiAccess');
-    const access = await enforceClientAiAccess(req, { consume: true });
-    if (!access.allowed) {
-      return res.status(access.status || 403).json(access.body || { message: 'Brak dostępu' });
-    }
-    if (access.payPerUse && process.env.NODE_ENV !== 'development') {
-      const payPerUsePrice = 50;
-      const Stripe = require('stripe');
-      const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
-      if (!stripe) {
-        return res.status(500).json({ message: 'Płatności nie są skonfigurowane' });
-      }
-      const intent = await stripe.paymentIntents.create({
-        amount: payPerUsePrice,
-        currency: 'pln',
-        payment_method_types: ['card', 'p24'],
-        description: 'Helpfli AI Concierge - dodatkowe zapytanie',
-        metadata: {
-          type: 'ai_concierge_pay_per_use',
-          userId: String(req.user._id),
-        },
-      });
-      return res.status(402).json({
-        requiresPayment: true,
-        message: 'Wymagana płatność za dodatkowe zapytanie AI',
-        paymentIntentId: intent.id,
-        clientSecret: intent.client_secret,
-        amount: payPerUsePrice,
-        pricePLN: (payPerUsePrice / 100).toFixed(2),
-        upsell: {
-          recommendedPlanKey: 'CLIENT_STD',
-          title: 'STANDARD – nielimitowane AI Concierge',
-          description: 'Lub wykup plan STANDARD za 19 zł/mies aby uzyskać nielimitowany dostęp.',
-        },
-      });
-    }
     if (access.payPerUse && process.env.NODE_ENV === 'development') {
       const userDev = await User.findById(req.user._id);
       userDev.aiConciergeUsage.push({
@@ -353,8 +404,6 @@ router.post('/concierge/analyze', authMiddleware, aiLimiter, validate('aiAnalyze
       });
       await userDev.save();
     }
-    req.aiAccess = access;
-
     const user = await User.findById(req.user._id).populate('company');
 
     // 2) Twoja logika kandydatów/widełek/providerów (jak wcześniej)
@@ -632,36 +681,49 @@ router.patch('/drafts/:id', authMiddleware, async (req, res) => {
 
 // C) Upload załączników (foto/wideo)
 // POST /api/ai/drafts/:id/attachments
-router.post('/drafts/:id/attachments', authMiddleware, uploadDrafts.array('files', 12), async (req, res) => {
-  const d = await OrderDraft.findById(req.params.id);
-  if (!d) return res.status(404).json({ message: 'Draft nie istnieje' });
-  if (String(d.client) !== String(req.user._id)) return res.status(403).json({ message: 'To nie Twój draft' });
+router.post(
+  '/drafts/:id/attachments',
+  authMiddleware,
+  uploadLimiter,
+  loadOwnedDraft,
+  runUpload(uploadDrafts.array('files', 12)),
+  async (req, res) => {
+    try {
+      if (!(await validateUploadedFiles(req.files))) {
+        removeUploadedFiles(req.files);
+        return res.status(400).json({ message: 'Zawartość pliku nie odpowiada zadeklarowanemu formatowi' });
+      }
 
-  const added = (req.files || []).map(f => ({
-    url: toPublicUrl(f.filename),
-    type: detectType(f.mimetype),
-    filename: f.originalname || f.filename,
-    size: f.size
-  }));
-  d.attachments.push(...added);
-  if (!d.expiresAt) d.expiresAt = new Date(Date.now() + 30*24*60*60*1000);
-  await d.save();
+      const d = req.ownedDraft;
+      const added = (req.files || []).map(f => ({
+        url: toPublicUrl(f.filename),
+        type: detectType(f.mimetype),
+        filename: f.originalname || f.filename,
+        size: f.size
+      }));
+      d.attachments.push(...added);
+      if (!d.expiresAt) d.expiresAt = new Date(Date.now() + 30*24*60*60*1000);
+      await d.save();
 
-  // Re-analyze draft po dodaniu załączników
-  const { reAnalyzeDraft } = require('../utils/concierge');
-  const updated = await reAnalyzeDraft(d); // przelicza serviceCandidate, priceHints, diySteps, flags, parts, recommendedProviders
+      const { reAnalyzeDraft } = require('../utils/concierge');
+      const updated = await reAnalyzeDraft(d);
 
-  return res.json({
-    message: 'Dodano załączniki',
-    attachments: updated.attachments,
-    serviceCandidate: updated.serviceCandidate,
-    priceHints: updated.priceHints,
-    recommendedProviders: updated.recommendedProviders,
-    diySteps: updated.diySteps,
-    dangerFlags: updated.dangerFlags,
-    parts: updated.parts
-  });
-});
+      return res.json({
+        message: 'Dodano załączniki',
+        attachments: updated.attachments,
+        serviceCandidate: updated.serviceCandidate,
+        priceHints: updated.priceHints,
+        recommendedProviders: updated.recommendedProviders,
+        diySteps: updated.diySteps,
+        dangerFlags: updated.dangerFlags,
+        parts: updated.parts
+      });
+    } catch (error) {
+      removeUploadedFiles(req.files);
+      return res.status(500).json({ message: 'Nie udało się zapisać załączników' });
+    }
+  }
+);
 
 // D) Usuwanie załącznika
 router.delete('/drafts/:id/attachments/:attId', authMiddleware, async (req, res) => {

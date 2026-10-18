@@ -35,6 +35,11 @@ const { TOP_PL_CITIES, TOP_PL_CITIES_BY_SLUG, detectCitySlug } = require('../uti
 const MarketplaceStats = require('../services/MarketplaceStatsService');
 const { getPublicBaseUrl } = require('../utils/publicUrl');
 const SeoLocalPage = require('../models/SeoLocalPage');
+const { buildCanonicalServiceSlug } = require('../utils/seoSlug');
+const {
+  evaluateSeoLocalPage,
+  isSeoLocalPageIndexable
+} = require('../services/SeoLocalQualityService');
 
 let logger;
 try { logger = require('../utils/logger'); } catch { logger = console; }
@@ -52,13 +57,18 @@ function ensureMongoConnected(res) {
 }
 
 function safeIsoDate(value) {
-  if (!value) return new Date().toISOString();
+  if (!value) return null;
   try {
     const d = value instanceof Date ? value : new Date(value);
-    return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+    return Number.isNaN(d.getTime()) ? null : d.toISOString();
   } catch {
-    return new Date().toISOString();
+    return null;
   }
+}
+
+function renderLastmod(value) {
+  const iso = safeIsoDate(value);
+  return iso ? `<lastmod>${iso}</lastmod>` : '';
 }
 
 function buildStaticSitemapUrls(base) {
@@ -69,7 +79,15 @@ function buildStaticSitemapUrls(base) {
     { loc: `${base}/providers`, changefreq: 'daily', priority: '0.8' },
     { loc: `${base}/services`, changefreq: 'weekly', priority: '0.6' },
     { loc: `${base}/about`, changefreq: 'monthly', priority: '0.4' },
-    { loc: `${base}/help`, changefreq: 'monthly', priority: '0.4' }
+    { loc: `${base}/help`, changefreq: 'monthly', priority: '0.4' },
+    { loc: `${base}/contact`, changefreq: 'monthly', priority: '0.4' },
+    { loc: `${base}/cennik`, changefreq: 'weekly', priority: '0.6' },
+    { loc: `${base}/why-pro`, changefreq: 'monthly', priority: '0.5' },
+    { loc: `${base}/cooperation`, changefreq: 'monthly', priority: '0.4' },
+    { loc: `${base}/reviews`, changefreq: 'weekly', priority: '0.5' },
+    { loc: `${base}/regulamin`, changefreq: 'yearly', priority: '0.2' },
+    { loc: `${base}/prywatnosc`, changefreq: 'yearly', priority: '0.2' },
+    { loc: `${base}/dane-firmy`, changefreq: 'yearly', priority: '0.2' }
   ];
 }
 
@@ -83,20 +101,17 @@ function renderSitemapXml(base, articles = [], localPages = [], providers = [], 
         `<url><loc>${escapeXml(u.loc)}</loc><changefreq>${u.changefreq}</changefreq><priority>${u.priority}</priority></url>`
     ),
     ...articles.map((a) => {
-      const lastmod = safeIsoDate(a.updatedAt || a.publishedAt);
-      return `<url><loc>${escapeXml(`${base}/poradnik/${a.slug}`)}</loc><lastmod>${lastmod}</lastmod><changefreq>weekly</changefreq><priority>0.7</priority></url>`;
+      return `<url><loc>${escapeXml(`${base}/poradnik/${a.slug}`)}</loc>${renderLastmod(a.updatedAt || a.publishedAt)}<changefreq>weekly</changefreq><priority>0.7</priority></url>`;
     }),
     ...localPages.map((p) => {
-      const lastmod = safeIsoDate(p.lastBuiltAt || p.updatedAt);
-      return `<url><loc>${escapeXml(`${base}/wykonawcy/${p.serviceSlug}/${p.citySlug}`)}</loc><lastmod>${lastmod}</lastmod><changefreq>weekly</changefreq><priority>0.75</priority></url>`;
+      return `<url><loc>${escapeXml(`${base}/wykonawcy/${p.serviceSlug}/${p.citySlug}`)}</loc>${renderLastmod(p.lastBuiltAt || p.updatedAt)}<changefreq>weekly</changefreq><priority>0.75</priority></url>`;
     }),
     ...services.map((s) => {
-      const lastmod = safeIsoDate(s.updatedAt);
-      return `<url><loc>${escapeXml(`${base}/service/${s.slug}`)}</loc><lastmod>${lastmod}</lastmod><changefreq>monthly</changefreq><priority>0.55</priority></url>`;
+      const publicSlug = buildCanonicalServiceSlug(s) || s.slug;
+      return `<url><loc>${escapeXml(`${base}/service/${publicSlug}`)}</loc>${renderLastmod(s.updated_at)}<changefreq>monthly</changefreq><priority>0.55</priority></url>`;
     }),
     ...providers.map((p) => {
-      const lastmod = safeIsoDate(p.updatedAt);
-      return `<url><loc>${escapeXml(`${base}/provider/${p._id}`)}</loc><lastmod>${lastmod}</lastmod><changefreq>weekly</changefreq><priority>0.5</priority></url>`;
+      return `<url><loc>${escapeXml(`${base}/provider/${p._id}`)}</loc>${renderLastmod(p.updatedAt)}<changefreq>weekly</changefreq><priority>0.5</priority></url>`;
     }),
     '</urlset>'
   ].join('\n');
@@ -119,15 +134,20 @@ async function fetchSitemapEntityUrls() {
       role: { $in: ['provider', 'company_owner', 'company_manager'] },
       isActive: true,
       anonymized: { $ne: true },
-      deletedAt: null
+      deletedAt: null,
+      name: { $exists: true, $ne: '' },
+      $or: [
+        { bio: { $exists: true, $ne: '' } },
+        { city: { $exists: true, $ne: '' } }
+      ]
     })
       .select('_id updatedAt')
       .sort({ updatedAt: -1 })
       .limit(maxProviders)
       .lean(),
     Service.find({ slug: { $exists: true, $nin: [null, ''] } })
-      .select('slug updatedAt')
-      .sort({ is_top: -1, updatedAt: -1 })
+      .select('slug parent_slug name_pl updated_at')
+      .sort({ is_top: -1, updated_at: -1 })
       .limit(maxServices)
       .lean()
   ]);
@@ -143,6 +163,10 @@ function escapeXml(unsafe) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
+}
+
+function escapeRegex(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 // ===================== PUBLIC =====================
@@ -289,11 +313,14 @@ async function sitemapHandler(_req, res) {
           .limit(50000)
           .lean(),
         SeoLocalPage.find({ published: true })
-          .select('serviceSlug citySlug updatedAt lastBuiltAt')
+          .select(
+            'serviceSlug serviceName citySlug cityName title metaDescription intro contentHtml faq statsSnapshot published updatedAt lastBuiltAt'
+          )
           .sort({ lastBuiltAt: -1 })
           .limit(50000)
           .lean()
       ]);
+      localPages = localPages.filter(isSeoLocalPageIndexable);
     } else {
       logger.warn?.('[SEO] sitemap: MongoDB not connected — returning static URLs only');
     }
@@ -327,7 +354,21 @@ function robotsHandler(_req, res) {
     'Disallow: /admin/',
     'Disallow: /account/',
     'Disallow: /orders/',
-    'Disallow: /chat/',
+    'Disallow: /create-order',
+    'Disallow: /my-orders',
+    'Disallow: /dashboard',
+    'Disallow: /client-dashboard',
+    'Disallow: /provider-home',
+    'Disallow: /manage-services',
+    'Disallow: /available-orders',
+    'Disallow: /provider/quotes',
+    'Disallow: /messages',
+    'Disallow: /inbox',
+    'Disallow: /notifications',
+    'Disallow: /checkout',
+    'Disallow: /payment-result',
+    'Disallow: /kyc',
+    'Disallow: /company/',
     'Disallow: /api/',
     '',
     `Sitemap: ${base}/sitemap.xml`,
@@ -405,11 +446,10 @@ router.get('/local/services', (_req, res) => {
 
 router.get('/local/cities', (_req, res) => {
   try {
-    const { SEO_CITIES } = require('../utils/seoCities');
     res.set('Cache-Control', 'public, max-age=86400');
     res.json({
       ok: true,
-      cities: SEO_CITIES.map((c) => ({ slug: c.slug, name: c.name }))
+      cities: TOP_PL_CITIES.map((c) => ({ slug: c.slug, name: c.name }))
     });
   } catch (err) {
     logger.error?.('[SEO] /local/cities error:', err);
@@ -417,11 +457,35 @@ router.get('/local/cities', (_req, res) => {
   }
 });
 
+/** Indeks zawiera wyłącznie opublikowane strony, które przeszły quality gate. */
+router.get('/local/index', async (_req, res) => {
+  try {
+    const pages = await SeoLocalPage.find({ published: true })
+      .select(
+        'serviceSlug serviceName citySlug cityName title metaDescription intro contentHtml faq statsSnapshot published lastBuiltAt'
+      )
+      .sort({ serviceName: 1, cityName: 1 })
+      .limit(5000)
+      .lean();
+    const items = pages.filter(isSeoLocalPageIndexable).map((page) => ({
+      serviceSlug: page.serviceSlug,
+      serviceName: page.serviceName,
+      citySlug: page.citySlug,
+      cityName: page.cityName,
+      title: page.title
+    }));
+    res.set('Cache-Control', 'public, max-age=600');
+    res.json({ ok: true, items, total: items.length });
+  } catch (err) {
+    logger.error?.('[SEO] /local/index error:', err);
+    res.status(500).json({ ok: false, message: 'Błąd indeksu PSEO' });
+  }
+});
+
 /**
  * GET /api/seo/local/:service/:city
- *   Pobierz (lub zbuduj on-the-fly) landing page miasto×usługa.
- *   Jeśli strona nie istnieje, generujemy ją synchronicznie – pierwszy hit jest
- *   wolniejszy (~5s LLM), kolejne natychmiastowe (LRU cache + DB).
+ *   Pobierz opublikowany landing page miasto×usługa.
+ *   Publiczny ruch nigdy nie uruchamia generatora treści.
  */
 router.get('/local/:service/:city', async (req, res) => {
   try {
@@ -432,16 +496,23 @@ router.get('/local/:service/:city', async (req, res) => {
     }
 
     const SeoLocalPage = require('../models/SeoLocalPage');
-    let page = await SeoLocalPage.findOne({ serviceSlug, citySlug, published: true });
-
-    if (!page) {
-      const { buildOrUpdateLocalPage } = require('../services/SeoLocalPageGenerator');
-      try {
-        page = await buildOrUpdateLocalPage({ serviceSlug, citySlug });
-      } catch (err) {
-        logger.warn?.('[SEO] PSEO build error:', err.message);
-        return res.status(404).json({ ok: false, message: err.message });
-      }
+    const { SEO_LOCAL_SERVICES } = require('../utils/seoCities');
+    const requestedService = SEO_LOCAL_SERVICES.find((item) => item.slug === serviceSlug);
+    const serviceQuery = requestedService
+      ? {
+          $or: [
+            { serviceSlug },
+            { serviceName: { $regex: `^${escapeRegex(requestedService.name)}$`, $options: 'i' } }
+          ]
+        }
+      : { serviceSlug };
+    const page = await SeoLocalPage.findOne({
+      ...serviceQuery,
+      citySlug,
+      published: true
+    });
+    if (!page || !isSeoLocalPageIndexable(page)) {
+      return res.status(404).json({ ok: false, message: 'Strona nie jest dostępna' });
     }
 
     // Dolicz odsłonę (nieblokująco)
@@ -483,7 +554,9 @@ router.get('/local', async (req, res) => {
 
     const [items, total] = await Promise.all([
       SeoLocalPage.find(filter)
-        .select('serviceSlug serviceName citySlug cityName slug title metaDescription statsSnapshot lastBuiltAt')
+        .select(
+          'serviceSlug serviceName citySlug cityName slug title metaDescription intro contentHtml faq statsSnapshot published lastBuiltAt'
+        )
         .sort({ lastBuiltAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -491,8 +564,20 @@ router.get('/local', async (req, res) => {
       SeoLocalPage.countDocuments(filter)
     ]);
 
+    const indexableItems = items.filter(isSeoLocalPageIndexable).map((item) => ({
+      _id: item._id,
+      serviceSlug: item.serviceSlug,
+      serviceName: item.serviceName,
+      citySlug: item.citySlug,
+      cityName: item.cityName,
+      slug: item.slug,
+      title: item.title,
+      metaDescription: item.metaDescription,
+      statsSnapshot: item.statsSnapshot,
+      lastBuiltAt: item.lastBuiltAt
+    }));
     res.set('Cache-Control', 'public, max-age=600');
-    res.json({ ok: true, items, total, page, limit });
+    res.json({ ok: true, items: indexableItems, total, page, limit });
   } catch (err) {
     logger.error?.('[SEO] /local list error:', err);
     res.status(500).json({ ok: false, message: 'Błąd listy PSEO' });
@@ -757,12 +842,14 @@ router.post('/admin/local/rebuild', async (req, res) => {
       citySlug: String(city).toLowerCase(),
       forceRegenerate: Boolean(force)
     });
-    // Trigger IndexNow (jeśli włączony) – fire-and-forget
-    try {
-      const indexNow = require('../services/IndexNowService');
-      const base = getPublicBaseUrl();
-      indexNow.submit(`${base}/wykonawcy/${page.serviceSlug}/${page.citySlug}`).catch(() => {});
-    } catch { /* IndexNow opcjonalny */ }
+    // Draft nie trafia do wyszukiwarek. IndexNow uruchamiamy dopiero po publikacji.
+    if (isSeoLocalPageIndexable(page)) {
+      try {
+        const indexNow = require('../services/IndexNowService');
+        const base = getPublicBaseUrl();
+        indexNow.submit(`${base}/wykonawcy/${page.serviceSlug}/${page.citySlug}`).catch(() => {});
+      } catch { /* IndexNow opcjonalny */ }
+    }
     res.json({ ok: true, page });
   } catch (err) {
     logger.error?.('[SEO] PSEO rebuild error:', err);
@@ -813,7 +900,9 @@ router.post('/admin/local/bulk-build', async (req, res) => {
             citySlug: String(city).toLowerCase(),
             forceRegenerate: force
           });
-          indexNowUrls.push(`${base}/wykonawcy/${page.serviceSlug}/${page.citySlug}`);
+          if (isSeoLocalPageIndexable(page)) {
+            indexNowUrls.push(`${base}/wykonawcy/${page.serviceSlug}/${page.citySlug}`);
+          }
           results.push({ service: svc, city, ok: true, slug: page.slug });
           // throttle żeby nie spamować Claude API
           await new Promise((r) => setTimeout(r, 500));
@@ -1061,10 +1150,61 @@ router.get('/admin/local', async (req, res) => {
         .lean(),
       SeoLocalPage.countDocuments(filter)
     ]);
-    res.json({ ok: true, items, total, page, limit });
+    res.json({
+      ok: true,
+      items: items.map((item) => ({
+        ...item,
+        quality: evaluateSeoLocalPage(item)
+      })),
+      total,
+      page,
+      limit
+    });
   } catch (err) {
     logger.error?.('[SEO] /admin/local list error:', err);
     res.status(500).json({ ok: false, message: 'Błąd listy' });
+  }
+});
+
+/**
+ * PATCH /api/seo/admin/local/:id
+ *   Publikacja wymaga przejścia kontroli jakości. Cofnięcie publikacji jest zawsze dozwolone.
+ */
+router.patch('/admin/local/:id', async (req, res) => {
+  try {
+    if (!ensureMongoConnected(res)) return;
+    const page = await SeoLocalPage.findById(req.params.id);
+    if (!page) return res.status(404).json({ ok: false, message: 'Nie znaleziono' });
+
+    const publishRequested = req.body?.published === true;
+    if (publishRequested) {
+      const quality = evaluateSeoLocalPage(page);
+      if (!quality.indexable) {
+        return res.status(422).json({
+          ok: false,
+          message: 'Strona nie spełnia kryteriów publikacji.',
+          quality
+        });
+      }
+    }
+
+    if (typeof req.body?.published === 'boolean') {
+      page.published = req.body.published;
+    }
+    await page.save();
+
+    if (publishRequested) {
+      try {
+        const indexNow = require('../services/IndexNowService');
+        const base = getPublicBaseUrl();
+        indexNow.submit(`${base}/wykonawcy/${page.serviceSlug}/${page.citySlug}`).catch(() => {});
+      } catch { /* IndexNow opcjonalny */ }
+    }
+
+    res.json({ ok: true, page, quality: evaluateSeoLocalPage(page) });
+  } catch (err) {
+    logger.error?.('[SEO] PATCH local error:', err);
+    res.status(500).json({ ok: false, message: err.message || 'Błąd aktualizacji' });
   }
 });
 
@@ -1105,3 +1245,4 @@ module.exports = router;
 module.exports.sitemapHandler = sitemapHandler;
 module.exports.robotsHandler = robotsHandler;
 module.exports.prerenderHandler = prerenderHandler;
+module.exports.renderSitemapXml = renderSitemapXml;

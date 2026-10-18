@@ -8,12 +8,12 @@ const ProviderStatusSchema = new mongoose.Schema({
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
+  password: { type: String, required: true, select: false },
   emailVerified: { type: Boolean, default: false },
-  emailVerificationToken: { type: String },
-  emailVerificationExpires: { type: Date },
-  passwordResetToken: { type: String },
-  passwordResetExpires: { type: Date },
+  emailVerificationToken: { type: String, select: false },
+  emailVerificationExpires: { type: Date, select: false },
+  passwordResetToken: { type: String, select: false },
+  passwordResetExpires: { type: Date, select: false },
   requiresPasswordChange: { type: Boolean, default: false }, // Wymuś zmianę hasła przy pierwszym logowaniu
   role: { type: String, enum: ['client', 'provider', 'admin', 'company_owner', 'company_manager'], default: 'client' },
   isB2B: { type: Boolean, default: false },
@@ -78,23 +78,23 @@ const userSchema = new mongoose.Schema({
       default: 'not_started' 
     },
     type: { type: String, enum: ['individual','company'], default: 'individual' },
-    rejectionReason: { type: String, default: '' },
+    rejectionReason: { type: String, default: '', select: false },
     submittedAt: { type: Date, default: null },
     verifiedAt: { type: Date, default: null },
 
     // dane wnioskodawcy (trzymaj tylko to, co potrzebne prawnie)
-    firstName: String,
-    lastName: String,
-    idNumber: String,        // np. dowód (opcjonalnie)
-    companyName: String,     // dla type='company'
-    nip: String,             // dla type='company'
+    firstName: { type: String, select: false },
+    lastName: { type: String, select: false },
+    idNumber: { type: String, select: false },        // np. dowód (opcjonalnie)
+    companyName: { type: String, select: false },     // dla type='company'
+    nip: { type: String, select: false },             // dla type='company'
 
     // linki do plików (lokalne URL-e serwowane statycznie)
     docs: {
-      idFrontUrl: String,
-      idBackUrl: String,
-      selfieUrl: String,
-      companyDocUrl: String, // KRS/CEIDG PDF lub skan
+      idFrontUrl: { type: String, select: false },
+      idBackUrl: { type: String, select: false },
+      selfieUrl: { type: String, select: false },
+      companyDocUrl: { type: String, select: false }, // KRS/CEIDG PDF lub skan
     }
   },
   ratingAvg: { type: Number, default: 0 },
@@ -138,11 +138,15 @@ const userSchema = new mongoose.Schema({
   isActive: { type: Boolean, default: true },
 
   // Web-push subskrypcje
-  pushSubs: [{
-    endpoint: String,
-    keys: { p256dh: String, auth: String },
-    createdAt: { type: Date, default: Date.now }
-  }],
+  pushSubs: {
+    type: [{
+      endpoint: String,
+      keys: { p256dh: String, auth: String },
+      createdAt: { type: Date, default: Date.now }
+    }],
+    select: false,
+    default: [],
+  },
   price: { type: Number, default: 100 }, // Nowe pole
   time: { type: Number, default: 2 }, // hours, Nowe pole
   avatar: { type: String, default: 'https://via.placeholder.com/150' }, // Nowe pole dla avatarów
@@ -266,8 +270,8 @@ const userSchema = new mongoose.Schema({
   isClient: { type: Boolean, default: true },
   provider_status: { type: ProviderStatusSchema, default: () => ({}) },
   twoFactorEnabled: { type: Boolean, default: false }, // Dwuskładnikowa autoryzacja
-  twoFactorSecret: { type: String }, // Sekret TOTP (zaszyfrowany)
-  twoFactorBackupCodes: [{ type: String }], // Kody zapasowe (zaszyfrowane)
+  twoFactorSecret: { type: String, select: false }, // Sekret TOTP (zaszyfrowany)
+  twoFactorBackupCodes: { type: [String], select: false, default: [] }, // Kody zapasowe (zaszyfrowane)
   // Statusy promocji (czasowe)
   promo: {
     highlightUntil: { type: Date, default: null },      // fioletowa obwódka

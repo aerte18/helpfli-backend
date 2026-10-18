@@ -3,6 +3,13 @@
  * Wszystkie odpowiedzi agentów muszą przejść przez te schematy
  */
 
+function requestValidationError(message) {
+  const error = new Error(message);
+  error.code = 'VALIDATION_ERROR';
+  error.statusCode = 400;
+  return error;
+}
+
 function validateConciergeRequest(body) {
   const userContext = body.userContext || {};
   
@@ -25,17 +32,17 @@ function validateConciergeRequest(body) {
   const messages = body.messages || body.conversationHistory || [];
   
   if (!Array.isArray(messages) || messages.length === 0) {
-    throw new Error('messages must be a non-empty array or provide description');
+    throw requestValidationError('messages must be a non-empty array or provide description');
   }
 
   for (const m of messages) {
-    if (!m || typeof m !== 'object') throw new Error('Invalid message object');
+    if (!m || typeof m !== 'object') throw requestValidationError('Invalid message object');
     if (m.role && !['user', 'assistant', 'system'].includes(m.role)) {
-      throw new Error('Invalid role in messages. Must be: user, assistant, or system');
+      throw requestValidationError('Invalid role in messages. Must be: user, assistant, or system');
     }
     const content = m.content || m.text || '';
     if (typeof content !== 'string' || !content.trim()) {
-      throw new Error('Message content required');
+      throw requestValidationError('Message content required');
     }
   }
 

@@ -1,0 +1,43 @@
+// Public profile fields must be allow-listed. Never expose a raw User document
+// from an unauthenticated endpoint: the model also contains credentials, KYC
+// data, billing identifiers and notification subscriptions.
+const PUBLIC_USER_PROFILE_SELECT = [
+  '_id',
+  'name',
+  'role',
+  'level',
+  'providerLevel',
+  'providerTier',
+  'location',
+  'locationCoords',
+  'price',
+  'priceMin',
+  'priceMax',
+  'servicePrices',
+  'time',
+  'services',
+  'provider_status',
+  'promo',
+  'badges',
+  'rankingPoints',
+  'verified',
+  'verification.status',
+  'service',
+  'bio',
+  'headline',
+  'priceNote',
+  'availability',
+  'company',
+  'createdAt',
+  'avatar',
+  'isActive',
+  'anonymized',
+  'deletedAt',
+  'ratingAvg',
+  'ratingCount',
+  'isTopProvider',
+  'hasHelpfliGuarantee',
+  'kyc.status',
+].join(' ');
+
+module.exports = { PUBLIC_USER_PROFILE_SELECT };

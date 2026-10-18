@@ -6,20 +6,138 @@ const { recordClick } = require('../utils/sponsorAds');
 const { metricsLimiter, sponsorMetricsGuard } = require('../middleware/sponsorMetrics');
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
+const {
+  safeUploadName,
+  removeUploadedFiles,
+  validateUploadedFiles,
+} = require('../utils/uploadSafety');
+
+const PUBLIC_AD_SELECT = [
+  '_id',
+  'adType',
+  'title',
+  'description',
+  'keywords',
+  'serviceCategories',
+  'orderTypes',
+  'locations.city',
+  'locations.voivodeship',
+  'link',
+  'ctaText',
+  'imageUrl',
+  'logoUrl',
+  'videoUrl',
+  'mediaType',
+  'details',
+  'displayLocations',
+  'advertiser.companyName',
+  'advertiser.website',
+  'campaign.startDate',
+  'campaign.endDate',
+  'status',
+  'createdAt',
+  'updatedAt',
+].join(' ');
+
+function optionalAuth(req, res, next) {
+  if (!req.headers.authorization) return next();
+  return authMiddleware(req, res, next);
+}
+
+function isAdOwnerOrAdmin(ad, user) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  if (ad.owner) return String(ad.owner) === String(user._id);
+  return ad.advertiser?.email === user.email;
+}
+
+function toPublicAd(ad) {
+  const value = ad?.toObject ? ad.toObject() : ad;
+  if (!value) return value;
+  return {
+    _id: value._id,
+    id: value._id,
+    adType: value.adType,
+    title: value.title,
+    description: value.description,
+    keywords: value.keywords,
+    serviceCategories: value.serviceCategories,
+    orderTypes: value.orderTypes,
+    locations: value.locations,
+    link: value.link,
+    ctaText: value.ctaText,
+    imageUrl: value.imageUrl,
+    logoUrl: value.logoUrl,
+    videoUrl: value.videoUrl,
+    mediaType: value.mediaType,
+    details: value.details,
+    displayLocations: value.displayLocations,
+    advertiser: value.advertiser ? {
+      companyName: value.advertiser.companyName,
+      website: value.advertiser.website,
+    } : undefined,
+    campaign: value.campaign ? {
+      startDate: value.campaign.startDate,
+      endDate: value.campaign.endDate,
+    } : undefined,
+    status: value.status,
+    createdAt: value.createdAt,
+    updatedAt: value.updatedAt,
+    abTestVariant: value.abTestVariant,
+    abTestData: value.abTestData ? {
+      title: value.abTestData.title,
+      description: value.abTestData.description,
+      imageUrl: value.abTestData.imageUrl,
+      ctaText: value.abTestData.ctaText,
+    } : undefined,
+  };
+}
+
+function normalizeHttpUrl(value) {
+  try {
+    const parsed = new URL(String(value || ''));
+    if (!['http:', 'https:'].includes(parsed.protocol)) return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function parseJsonValue(value, label) {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    const error = new Error(`Nieprawidłowy format pola ${label}`);
+    error.statusCode = 400;
+    throw error;
+  }
+}
+
+function mediaTypeForFile(file) {
+  if (!file) return 'image';
+  if (file.mimetype === 'image/gif') return 'gif';
+  if (String(file.mimetype || '').startsWith('video/')) return 'video';
+  return 'image';
+}
 
 // Konfiguracja multer dla uploadu obrazów
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadPath = path.join(__dirname, '..', process.env.UPLOAD_DIR || 'uploads', 'sponsor-ads');
-    const fs = require('fs');
     if (!fs.existsSync(uploadPath)) {
       fs.mkdirSync(uploadPath, { recursive: true });
     }
     cb(null, uploadPath);
   },
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname || '');
-    cb(null, 'sponsor-ad-' + Date.now() + '-' + Math.random().toString(36).slice(2) + ext);
+    try {
+      cb(null, safeUploadName('sponsor-ad', file, req.user?._id));
+    } catch (error) {
+      cb(error);
+    }
   }
 });
 
@@ -27,20 +145,33 @@ const upload = multer({
   storage: storage,
   limits: { fileSize: 20 * 1024 * 1024 }, // 20MB (dla GIF i wideo)
   fileFilter: (req, file, cb) => {
-    // Obsługujemy obrazy (w tym animowane GIF), wideo i HTML5
-    const allowedImageTypes = /jpeg|jpg|png|gif|webp/;
-    const allowedVideoTypes = /mp4|webm|ogg/;
-    const ext = path.extname(file.originalname).toLowerCase();
-    const extname = allowedImageTypes.test(ext) || allowedVideoTypes.test(ext);
-    const mimetype = allowedImageTypes.test(file.mimetype) || allowedVideoTypes.test(file.mimetype);
-    
-    if (mimetype && extname) {
-      return cb(null, true);
-    } else {
-      cb(new Error('Dozwolone formaty: obrazy (JPG, PNG, GIF, WebP) i wideo (MP4, WebM, OGG)'));
-    }
+    const allowed = new Set([
+      'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
+      'video/mp4', 'video/webm', 'video/ogg',
+    ]);
+    if (allowed.has(String(file.mimetype || '').toLowerCase())) return cb(null, true);
+    return cb(new Error('Dozwolone formaty: obrazy (JPG, PNG, GIF, WebP) i wideo (MP4, WebM, OGG)'));
   }
 });
+
+function runAdUpload(req, res, next) {
+  upload.fields([{ name: 'image', maxCount: 1 }, { name: 'logo', maxCount: 1 }])(req, res, async (error) => {
+    if (error) {
+      removeUploadedFiles(req.files);
+      return res.status(400).json({ message: error.message || 'Błąd uploadu reklamy' });
+    }
+    try {
+      if (!(await validateUploadedFiles(req.files))) {
+        removeUploadedFiles(req.files);
+        return res.status(400).json({ message: 'Zawartość pliku nie odpowiada zadeklarowanemu formatowi' });
+      }
+      return next();
+    } catch (validationError) {
+      removeUploadedFiles(req.files);
+      return res.status(400).json({ message: 'Nie udało się zweryfikować pliku' });
+    }
+  });
+}
 
 // Middleware - tylko admin dla niektórych endpointów
 const requireAdmin = async (req, res, next) => {
@@ -51,7 +182,7 @@ const requireAdmin = async (req, res, next) => {
 };
 
 // POST /api/sponsor-ads - Utwórz nową reklamę (wymaga konta)
-router.post('/', authMiddleware, upload.fields([{ name: 'image', maxCount: 1 }, { name: 'logo', maxCount: 1 }]), async (req, res) => {
+router.post('/', authMiddleware, runAdUpload, async (req, res) => {
   try {
     const {
       advertiser,
@@ -74,8 +205,20 @@ router.post('/', authMiddleware, upload.fields([{ name: 'image', maxCount: 1 }, 
     const detailsData = typeof details === 'string' ? JSON.parse(details) : details;
     const displayLocationsData = typeof req.body.displayLocations === 'string' ? JSON.parse(req.body.displayLocations) : (req.body.displayLocations || []);
     const geotargetingData = typeof req.body.geotargeting === 'string' ? JSON.parse(req.body.geotargeting) : (req.body.geotargeting || { enabled: false });
+    if (!advertiserData?.companyName || !campaignData || !title || !description) {
+      removeUploadedFiles(req.files);
+      return res.status(400).json({ message: 'Brak wymaganych danych reklamy' });
+    }
+    const normalizedLink = normalizeHttpUrl(link);
+    if (!normalizedLink) {
+      removeUploadedFiles(req.files);
+      return res.status(400).json({ message: 'Link reklamy musi używać protokołu HTTP lub HTTPS' });
+    }
+    advertiserData.email = req.user.email;
     let packageType = req.body.package || 'custom';
-    const priority = parseInt(req.body.priority) || 0;
+    let priority = req.user.role === 'admin'
+      ? Math.max(0, Math.min(100, parseInt(req.body.priority, 10) || 0))
+      : 0;
     
     // Affiliate system - sprawdź kod referencyjny
     const referralCode = req.body.referralCode;
@@ -108,8 +251,14 @@ router.post('/', authMiddleware, upload.fields([{ name: 'image', maxCount: 1 }, 
     
     if (isFreeTrialRequested) {
       // Sprawdź czy firma już korzystała z darmowej próby
+      const ownerFilter = {
+        $or: [
+          { owner: req.user._id },
+          { owner: { $exists: false }, 'advertiser.email': req.user.email },
+        ],
+      };
       const existingTrial = await SponsorAd.findOne({
-        'advertiser.email': advertiserData.email,
+        ...ownerFilter,
         'freeTrial.isFreeTrial': true,
         'freeTrial.convertedToPackage': false
       });
@@ -117,7 +266,7 @@ router.post('/', authMiddleware, upload.fields([{ name: 'image', maxCount: 1 }, 
       if (!existingTrial) {
         // Sprawdź czy firma już miała jakąkolwiek darmową próbę (nawet jeśli skonwertowała)
         const hadTrial = await SponsorAd.findOne({
-          'advertiser.email': advertiserData.email,
+          ...ownerFilter,
           'freeTrial.isFreeTrial': true
         });
         
@@ -145,6 +294,7 @@ router.post('/', authMiddleware, upload.fields([{ name: 'image', maxCount: 1 }, 
     }
 
     const ad = await SponsorAd.create({
+      owner: req.user._id,
       advertiser: advertiserData,
       adType,
       title,
@@ -153,7 +303,7 @@ router.post('/', authMiddleware, upload.fields([{ name: 'image', maxCount: 1 }, 
       serviceCategories: Array.isArray(serviceCategories) ? serviceCategories : (serviceCategories ? serviceCategories.split(',') : []),
       orderTypes: Array.isArray(orderTypes) ? orderTypes : (orderTypes ? orderTypes.split(',') : []),
       locations: Array.isArray(locations) ? locations : (locations ? JSON.parse(locations) : []),
-      link,
+      link: normalizedLink,
       ctaText: ctaText || 'Sprawdź ofertę',
       package: isFreeTrial ? 'free_trial' : packageType,
       displayLocations: isFreeTrial ? ['landing_page_banner'] : displayLocationsData, // Tylko banner dla próby
@@ -163,51 +313,49 @@ router.post('/', authMiddleware, upload.fields([{ name: 'image', maxCount: 1 }, 
         trialImpressionsUsed: 0
       },
       campaign: {
-        ...campaignData,
+        budget: isFreeTrial ? 0 : Math.max(0, Number(campaignData.budget) || 0),
         spent: 0,
-        // Dla darmowej próby ustaw minimalne wartości
-        budget: isFreeTrial ? 0 : campaignData.budget,
-        originalPrice: campaignData.originalPrice || campaignData.budget, // Oryginalna cena przed zniżką
-        discountApplied: campaignData.discountApplied || 0, // Zastosowana zniżka w %
-        subscriptionMonths: campaignData.subscriptionMonths || 1, // Liczba miesięcy subskrypcji
-        pricingModel: isFreeTrial ? 'package' : campaignData.pricingModel
+        pricingModel: isFreeTrial ? 'package' : campaignData.pricingModel,
+        startDate: campaignData.startDate,
+        endDate: campaignData.endDate,
+        dailyBudget: Math.max(0, Number(campaignData.dailyBudget) || 0) || undefined,
+        maxImpressions: Math.max(0, Number(campaignData.maxImpressions) || 0) || undefined,
+        maxClicks: Math.max(0, Number(campaignData.maxClicks) || 0) || undefined,
+        autoRenew: campaignData.autoRenew === true || campaignData.autoRenew === 'true',
+        renewalPeriod: Math.max(1, Math.min(365, parseInt(campaignData.renewalPeriod, 10) || 30)),
+        subscriptionMonths: [1, 3, 6, 12].includes(Number(campaignData.subscriptionMonths))
+          ? Number(campaignData.subscriptionMonths)
+          : 1,
+        originalPrice: isFreeTrial ? 0 : Math.max(0, Number(campaignData.budget) || 0),
+        discountApplied: 0,
       },
       details: detailsData || {},
       geotargeting: geotargetingData,
-      mediaType: req.body.mediaType || 'image',
-      imageUrl: req.files?.image?.[0] && req.body.mediaType !== 'video' ? `/uploads/sponsor-ads/${req.files.image[0].filename}` : undefined,
-      videoUrl: req.files?.image?.[0] && req.body.mediaType === 'video' ? `/uploads/sponsor-ads/${req.files.image[0].filename}` : undefined,
+      mediaType: mediaTypeForFile(req.files?.image?.[0]),
+      imageUrl: req.files?.image?.[0] && !String(req.files.image[0].mimetype).startsWith('video/') ? `/uploads/sponsor-ads/${req.files.image[0].filename}` : undefined,
+      videoUrl: req.files?.image?.[0] && String(req.files.image[0].mimetype).startsWith('video/') ? `/uploads/sponsor-ads/${req.files.image[0].filename}` : undefined,
       logoUrl: req.files?.logo?.[0] ? `/uploads/sponsor-ads/${req.files.logo[0].filename}` : undefined,
-      status: isFreeTrial ? 'active' : 'pending' // Darmowa próba od razu aktywna (po akceptacji admina)
+      // Każda kreacja musi przejść moderację, także bezpłatna próba.
+      status: 'pending'
     });
-    
-    // Jeśli to darmowa próba, automatycznie zatwierdź (bez moderacji)
-    if (isFreeTrial) {
-      ad.status = 'active';
-      ad.moderation = {
-        reviewedBy: null,
-        reviewedAt: new Date(),
-        notes: 'Automatyczna akceptacja darmowej próby'
-      };
-      await ad.save();
-    }
 
     res.status(201).json({
       success: true,
       ad,
       message: isFreeTrial 
-        ? 'Darmowa próba została aktywowana! Twoja reklama będzie widoczna przez 7 dni lub do wyczerpania 100 wyświetleń.'
+        ? 'Darmowa próba została zapisana i oczekuje na akceptację administratora.'
         : 'Reklama została utworzona i oczekuje na akceptację administratora',
       isFreeTrial: isFreeTrial
     });
   } catch (error) {
+    removeUploadedFiles(req.files);
     console.error('Error creating sponsor ad:', error);
     res.status(500).json({ message: 'Błąd tworzenia reklamy', error: error.message });
   }
 });
 
 // GET /api/sponsor-ads - Lista reklam (admin widzi wszystkie, firmy tylko swoje, publiczne dla frontendu)
-router.get('/', async (req, res) => {
+router.get('/', optionalAuth, async (req, res) => {
   try {
     const { status, adType, limit = 50, context, displayLocation } = req.query;
     const query = {};
@@ -220,7 +368,7 @@ router.get('/', async (req, res) => {
         const { findRelevantAds } = require('../utils/sponsorAds');
         const userId = req.user?._id || null; // Przekaż userId dla retargetingu
         const relevantAds = await findRelevantAds(contextData, parseInt(limit) || 3, displayLocation, userId);
-        return res.json({ ads: relevantAds || [] });
+        return res.json({ ads: (relevantAds || []).map(toPublicAd) });
       } catch (error) {
         console.error('[GET /api/sponsor-ads] Error parsing context or finding relevant ads:', error);
         console.error('[GET /api/sponsor-ads] Stack:', error.stack);
@@ -232,14 +380,17 @@ router.get('/', async (req, res) => {
     if (req.user) {
       // Admin widzi wszystkie, firmy tylko swoje (po emailu)
       if (req.user.role !== 'admin') {
-        query['advertiser.email'] = req.user.email;
+        query.$or = [
+          { owner: req.user._id },
+          { owner: { $exists: false }, 'advertiser.email': req.user.email },
+        ];
       }
     } else {
       // Publiczne - tylko aktywne reklamy
       query.status = 'active';
     }
 
-    if (status) query.status = status;
+    if (req.user && status) query.status = status;
     if (adType) query.adType = adType;
     
     // Filtruj po displayLocation jeśli podano
@@ -247,12 +398,14 @@ router.get('/', async (req, res) => {
       query.displayLocations = { $in: [displayLocation] };
     }
 
-    const ads = await SponsorAd.find(query)
+    const safeLimit = Math.max(1, Math.min(100, parseInt(limit, 10) || 50));
+    let adsQuery = SponsorAd.find(query)
       .sort({ priority: -1, createdAt: -1 })
-      .limit(parseInt(limit))
-      .lean();
+      .limit(safeLimit);
+    if (!req.user) adsQuery = adsQuery.select(PUBLIC_AD_SELECT);
+    const ads = await adsQuery.lean();
 
-    res.json({ ads });
+    res.json({ ads: req.user ? ads : ads.map(toPublicAd) });
   } catch (error) {
     console.error('Error fetching sponsor ads:', error);
     res.status(500).json({ message: 'Błąd pobierania reklam', error: error.message });
@@ -305,7 +458,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
     }
 
     // Sprawdź uprawnienia
-    if (req.user.role !== 'admin' && ad.advertiser.email !== req.user.email) {
+    if (!isAdOwnerOrAdmin(ad, req.user)) {
       return res.status(403).json({ message: 'Brak uprawnień' });
     }
 
@@ -325,7 +478,7 @@ router.delete('/:id', authMiddleware, async (req, res) => {
     }
 
     // Sprawdź uprawnienia
-    if (req.user.role !== 'admin' && ad.advertiser.email !== req.user.email) {
+    if (!isAdOwnerOrAdmin(ad, req.user)) {
       return res.status(403).json({ message: 'Brak uprawnień' });
     }
 
@@ -345,7 +498,8 @@ router.delete('/:id', authMiddleware, async (req, res) => {
 });
 
 // PUT /api/sponsor-ads/:id - Aktualizuj reklamę
-router.put('/:id', authMiddleware, upload.fields([{ name: 'image', maxCount: 1 }, { name: 'logo', maxCount: 1 }]), async (req, res) => {
+router.put('/:id', authMiddleware, runAdUpload, async (req, res) => {
+  let persisted = false;
   try {
     const ad = await SponsorAd.findById(req.params.id);
     if (!ad) {
@@ -353,47 +507,63 @@ router.put('/:id', authMiddleware, upload.fields([{ name: 'image', maxCount: 1 }
     }
 
     // Sprawdź uprawnienia
-    if (req.user.role !== 'admin' && ad.advertiser.email !== req.user.email) {
+    if (!isAdOwnerOrAdmin(ad, req.user)) {
       return res.status(403).json({ message: 'Brak uprawnień' });
     }
 
-    const updates = { ...req.body };
-    
-    // Parsuj JSON jeśli przysłano jako string
-    if (updates.advertiser && typeof updates.advertiser === 'string') {
-      updates.advertiser = JSON.parse(updates.advertiser);
-    }
-    if (updates.campaign && typeof updates.campaign === 'string') {
-      updates.campaign = JSON.parse(updates.campaign);
-    }
-    if (updates.details && typeof updates.details === 'string') {
-      updates.details = JSON.parse(updates.details);
+    const updates = {};
+    const contentFields = [
+      'title', 'description', 'keywords', 'serviceCategories', 'orderTypes',
+      'locations', 'link', 'ctaText', 'details', 'geotargeting', 'displayLocations',
+    ];
+    for (const field of contentFields) {
+      if (req.body[field] !== undefined) updates[field] = req.body[field];
     }
 
-    // Parsuj tablice
-    if (updates.keywords && typeof updates.keywords === 'string') {
-      updates.keywords = updates.keywords.split(',');
-    }
-    if (updates.serviceCategories && typeof updates.serviceCategories === 'string') {
-      updates.serviceCategories = updates.serviceCategories.split(',');
-    }
-    if (updates.orderTypes && typeof updates.orderTypes === 'string') {
-      updates.orderTypes = updates.orderTypes.split(',');
-    }
-    
-    // Obsługa auto-renew (jeśli przysłano jako string)
-    if (updates.campaign && updates.campaign.autoRenew !== undefined) {
-      if (typeof updates.campaign.autoRenew === 'string') {
-        updates.campaign.autoRenew = updates.campaign.autoRenew === 'true';
+    for (const field of ['keywords', 'serviceCategories', 'orderTypes']) {
+      if (typeof updates[field] === 'string') {
+        updates[field] = updates[field].split(',').map((item) => item.trim()).filter(Boolean);
       }
     }
-    if (updates.campaign && updates.campaign.renewalPeriod !== undefined) {
-      updates.campaign.renewalPeriod = parseInt(updates.campaign.renewalPeriod) || 30;
+    for (const field of ['locations', 'details', 'geotargeting', 'displayLocations']) {
+      if (updates[field] !== undefined) updates[field] = parseJsonValue(updates[field], field);
+    }
+    if (updates.link !== undefined) {
+      updates.link = normalizeHttpUrl(updates.link);
+      if (!updates.link) {
+        removeUploadedFiles(req.files);
+        return res.status(400).json({ message: 'Link reklamy musi używać protokołu HTTP lub HTTPS' });
+      }
+    }
+
+    const campaignInput = parseJsonValue(req.body.campaign, 'campaign');
+    if (campaignInput && typeof campaignInput === 'object') {
+      const allowedCampaignFields = [
+        'startDate', 'endDate', 'dailyBudget', 'maxImpressions', 'maxClicks',
+        'autoRenew', 'renewalPeriod',
+      ];
+      if (req.user.role === 'admin') {
+        allowedCampaignFields.push('budget', 'pricingModel', 'subscriptionMonths');
+      }
+      const campaignUpdates = {};
+      for (const field of allowedCampaignFields) {
+        if (campaignInput[field] !== undefined) campaignUpdates[field] = campaignInput[field];
+      }
+      if (campaignUpdates.autoRenew !== undefined) {
+        campaignUpdates.autoRenew = campaignUpdates.autoRenew === true || campaignUpdates.autoRenew === 'true';
+      }
+      if (campaignUpdates.renewalPeriod !== undefined) {
+        campaignUpdates.renewalPeriod = Math.max(1, Math.min(365, parseInt(campaignUpdates.renewalPeriod, 10) || 30));
+      }
+      updates.campaign = {
+        ...(ad.campaign?.toObject ? ad.campaign.toObject() : ad.campaign || {}),
+        ...campaignUpdates,
+      };
     }
 
     // Aktualizuj obrazy/wideo jeśli przesłano
     if (req.files?.image?.[0]) {
-      const mediaType = updates.mediaType || req.body.mediaType || 'image';
+      const mediaType = mediaTypeForFile(req.files.image[0]);
       if (mediaType === 'video') {
         updates.videoUrl = `/uploads/sponsor-ads/${req.files.image[0].filename}`;
         updates.imageUrl = undefined; // Usuń stary obraz jeśli był
@@ -407,23 +577,43 @@ router.put('/:id', authMiddleware, upload.fields([{ name: 'image', maxCount: 1 }
       updates.logoUrl = `/uploads/sponsor-ads/${req.files.logo[0].filename}`;
     }
 
-    // Jeśli admin zmienia status, zapisz w moderacji
+    if (req.user.role === 'admin') {
+      const allowedStatuses = new Set(['pending', 'active', 'paused', 'expired', 'rejected']);
+      if (req.body.status !== undefined) {
+        if (!allowedStatuses.has(req.body.status)) {
+          removeUploadedFiles(req.files);
+          return res.status(400).json({ message: 'Nieprawidłowy status reklamy' });
+        }
+        updates.status = req.body.status;
+      }
+      if (req.body.priority !== undefined) {
+        updates.priority = Math.max(0, Math.min(100, parseInt(req.body.priority, 10) || 0));
+      }
+    }
+
     if (req.user.role === 'admin' && updates.status && updates.status !== ad.status) {
       updates.moderation = {
         reviewedBy: req.user._id,
         reviewedAt: new Date(),
-        notes: updates.moderationNotes || ad.moderation?.notes
+        notes: req.body.moderationNotes || ad.moderation?.notes
       };
-      delete updates.moderationNotes;
+    } else if (req.user.role !== 'admin' && ad.status === 'active' && Object.keys(updates).length > 0) {
+      // Zmiana treści po akceptacji zawsze wraca do moderacji.
+      updates.status = 'pending';
+      updates.moderation = undefined;
     }
 
     Object.assign(ad, updates);
     await ad.save();
+    persisted = true;
 
     res.json({ success: true, ad });
   } catch (error) {
+    if (!persisted) removeUploadedFiles(req.files);
     console.error('Error updating sponsor ad:', error);
-    res.status(500).json({ message: 'Błąd aktualizacji reklamy', error: error.message });
+    res.status(error.statusCode || 500).json({
+      message: error.statusCode === 400 ? error.message : 'Błąd aktualizacji reklamy',
+    });
   }
 });
 

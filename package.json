@@ -28,6 +28,7 @@
     "build:services": "node scripts/build_servicecatalog.js",
     "seed:services:catalog": "node scripts/import_services_from_catalog.js",
     "seed:services:catalog:prune": "node scripts/import_services_from_catalog.js --prune",
+    "seo:repair-service-slugs": "node scripts/repair_service_slugs.js",
     "seed:services:top": "node scripts/seed_top_services.js",
     "seed:services:top:reset": "node scripts/seed_top_services.js --reset",
     "db:indexes": "node scripts/add_indexes_optimization.js",

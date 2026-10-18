@@ -10,7 +10,7 @@ const UserSubscription = require('../models/UserSubscription');
 const SubscriptionPlan = require('../models/SubscriptionPlan');
 const { auth } = require('../middleware/auth');
 const { requireCompanyAccess, checkCompanyLimits } = require('../middleware/companyMiddleware');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const NotificationService = require('../services/NotificationService');
 

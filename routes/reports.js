@@ -1,14 +1,17 @@
 const express = require("express");
 const router = express.Router();
 const multer = require("multer");
+const mongoose = require("mongoose");
 const path = require("path");
 const fs = require("fs");
 const { authMiddleware: auth } = require("../middleware/authMiddleware");
 const Report = require("../models/Report");
-const Verification = require("../models/Verification");
-const VerificationAudit = require("../models/VerificationAudit");
-
-const ABUSE_THRESHOLD = 3; // po tylu zgłoszeniach – zawieszenie
+const { reportLimiter } = require('../middleware/rateLimiter');
+const {
+  safeUploadName,
+  removeUploadedFiles,
+  validateUploadedFiles,
+} = require('../utils/uploadSafety');
 
 // Konfiguracja multer dla uploadu załączników do zgłoszeń
 const storage = multer.diskStorage({
@@ -20,8 +23,11 @@ const storage = multer.diskStorage({
     cb(null, uploadPath);
   },
   filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
+    try {
+      cb(null, safeUploadName('report', file, req.user?._id));
+    } catch (error) {
+      cb(error);
+    }
   }
 });
 
@@ -31,32 +37,55 @@ const upload = multer({
     fileSize: 10 * 1024 * 1024, // 10MB max
   },
   fileFilter: (req, file, cb) => {
-    // Dozwolone typy plików: obrazy, PDF, dokumenty
-    const allowedTypes = /jpeg|jpg|png|gif|pdf|doc|docx|txt|mp4|mov|avi/;
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
-    
-    if (extname && mimetype) {
-      return cb(null, true);
-    } else {
-      cb(new Error('Nieobsługiwany typ pliku. Dozwolone: obrazy, PDF, dokumenty, wideo.'));
-    }
+    const allowedTypes = new Set([
+      'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
+      'application/pdf', 'video/mp4', 'video/quicktime', 'video/x-msvideo',
+    ]);
+    if (allowedTypes.has(String(file.mimetype || '').toLowerCase())) return cb(null, true);
+    return cb(new Error('Nieobsługiwany typ pliku. Dozwolone: obrazy, PDF i wideo.'));
   }
 });
 
 const toPublicUrl = (filename) => `/uploads/reports/${filename}`;
 
-router.post("/", auth, upload.array('attachments', 5), async (req, res) => {
+function runReportUpload(req, res, next) {
+  upload.array('attachments', 5)(req, res, (error) => {
+    if (!error) return next();
+    removeUploadedFiles(req.files);
+    const message = error.code === 'LIMIT_FILE_SIZE'
+      ? 'Załącznik jest za duży (maksymalnie 10 MB)'
+      : error.message || 'Błąd uploadu załącznika';
+    return res.status(400).json({ message });
+  });
+}
+
+router.post("/", auth, reportLimiter, runReportUpload, async (req, res) => {
   try {
     const { reportedUser, reason } = req.body;
-    if (!reportedUser || !reason) {
+    const normalizedReason = String(reason || '').trim();
+    if (!mongoose.Types.ObjectId.isValid(reportedUser) || normalizedReason.length < 10 || normalizedReason.length > 2000) {
       // Usuń przesłane pliki jeśli brak danych
       if (req.files) {
         req.files.forEach(file => {
           fs.unlink(file.path, () => {});
         });
       }
-      return res.status(400).json({ message: "Brak danych zgłoszenia" });
+      return res.status(400).json({ message: "Podaj prawidłowego użytkownika i powód (10–2000 znaków)" });
+    }
+
+    if (String(reportedUser) === String(req.user._id)) {
+      removeUploadedFiles(req.files);
+      return res.status(400).json({ message: 'Nie możesz zgłosić własnego konta' });
+    }
+
+    if (await Report.exists({ user: req.user._id, reportedUser })) {
+      removeUploadedFiles(req.files);
+      return res.status(409).json({ message: 'To konto zostało już przez Ciebie zgłoszone' });
+    }
+
+    if (!(await validateUploadedFiles(req.files))) {
+      removeUploadedFiles(req.files);
+      return res.status(400).json({ message: 'Zawartość pliku nie odpowiada zadeklarowanemu formatowi' });
     }
     
     // Przygotuj załączniki
@@ -71,30 +100,19 @@ router.post("/", auth, upload.array('attachments', 5), async (req, res) => {
     await Report.create({ 
       user: req.user._id, 
       reportedUser, 
-      reason,
+      reason: normalizedReason,
       attachments 
     });
-    
-    const count = await Report.countDocuments({ reportedUser });
-    if (count >= ABUSE_THRESHOLD) {
-      const v = await Verification.findOne({ user: reportedUser });
-      if (v && v.status !== "suspended") {
-        v.status = "suspended";
-        await v.save();
-        await VerificationAudit.create({ user: reportedUser, actor: req.user._id, action: "SUSPEND", meta: { reason: `Auto przez raporty: ${count}` } });
-      }
-    }
     
     res.json({ message: "Zgłoszenie przyjęte", attachmentsCount: attachments.length });
   } catch (e) {
     // Usuń przesłane pliki w przypadku błędu
-    if (req.files) {
-      req.files.forEach(file => {
-        fs.unlink(file.path, () => {});
-      });
-    }
+    removeUploadedFiles(req.files);
     console.error('Report error:', e);
-    res.status(500).json({ message: e.message || "Błąd serwera" });
+    if (e?.code === 11000) {
+      return res.status(409).json({ message: 'To konto zostało już przez Ciebie zgłoszone' });
+    }
+    res.status(500).json({ message: "Błąd serwera" });
   }
 });
 

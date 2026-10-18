@@ -92,7 +92,22 @@ module.exports = function initSocket(io) {
       if (!isMember) return;
 
       let finalText = text || "";
-      let finalAttachments = Array.isArray(attachments) ? attachments : [];
+      // Akceptuj wyłącznie pliki utworzone przez endpoint uploadu dla nadawcy.
+      // Zapobiega to "podpinaniu" cudzych, odgadniętych ścieżek do własnej rozmowy.
+      const ownChatPrefix = `/uploads/chat/chat-${userId}-`;
+      let finalAttachments = (Array.isArray(attachments) ? attachments : [])
+        .filter((attachment) =>
+          attachment &&
+          typeof attachment.url === 'string' &&
+          attachment.url.startsWith(ownChatPrefix)
+        )
+        .slice(0, 10)
+        .map((attachment) => ({
+          url: attachment.url,
+          name: String(attachment.name || '').slice(0, 255),
+          size: Math.max(0, Number(attachment.size) || 0),
+          type: String(attachment.type || 'application/octet-stream').slice(0, 100),
+        }));
       let policyNotice = null;
       const moderationEvents = [];
 

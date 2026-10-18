@@ -3,7 +3,7 @@
  * ---------------------
  * Generator PSEO landing pages „usługa × miasto" (Programmatic SEO).
  *
- * Per (service, city) generujemy raz unikalny intro + FAQ + content przez LLM
+ * Per (service, city) generujemy raz unikalny draft intro + FAQ + content przez LLM
  * (Claude → Gemini → fallback). Statystyki są zaszyte w prompt jako fakty,
  * dzięki czemu LLM tworzy treść bazowaną na realnych danych Helpfli — nie
  * generyczną „ogólnopolską" formułkę. To istotna przewaga nad konkurencją
@@ -30,7 +30,7 @@ ilość aktywności w ostatnich 30 dniach). Wpleć je naturalnie w tekst – to 
 ZASADY:
 - Po polsku, prosto, konkretnie, bez lania wody.
 - NIE wymyślaj wykonawców z imienia/nazwiska. NIE wymyślaj firm. NIE podawaj numerów telefonu.
-- Cena: opieraj się na podanych medianach. Jeśli nie mamy próby (sampleSize=0) – używaj wide markets PL 2026.
+ - Cena: opieraj się wyłącznie na podanych danych. Jeśli nie mamy próby (sampleSize=0), nie podawaj kwot.
 - Intro 2–4 zdania, naturalna nasycenie frazą "${'${serviceName}'} ${'${cityName}'}".
 - FAQ: 5–7 pytań/odpowiedzi, każde realne i odpowiadające intencji szukającego
   (np. „ile kosztuje", „jak szybko przyjedzie", „czy mają gwarancję", „czy zweryfikowani").
@@ -113,9 +113,9 @@ function buildFallback({ serviceName, cityName, stats }) {
     contentHtml:
       `<h2>Co warto wiedzieć</h2>` +
       `<ul>` +
-      `<li>Wszyscy wykonawcy w Helpfli przechodzą weryfikację tożsamości.</li>` +
-      `<li>Płacisz dopiero po wykonaniu pracy – Twoje pieniądze chroni system Helpfli Protect.</li>` +
-      `<li>Oceny od prawdziwych klientów (tylko po zakończonym zleceniu).</li>` +
+      `<li>Przed wyborem możesz porównać profile i dostępne opinie wykonawców.</li>` +
+      `<li>Zakres pracy i warunki ustalasz z wykonawcą przed rozpoczęciem zlecenia.</li>` +
+      `<li>Oceny pomagają porównać wykonawców, gdy na profilu są dostępne opinie.</li>` +
       `<li>Pomoc AI 24/7 – jeśli nie wiesz, kogo szukasz, AI zapyta i doradzi.</li>` +
       `</ul>`,
     faq: [
@@ -131,7 +131,7 @@ function buildFallback({ serviceName, cityName, stats }) {
       },
       {
         question: `Czy wykonawcy są sprawdzeni?`,
-        answer: `Tak. Każdy wykonawca przechodzi weryfikację (KYC). Możesz też przeczytać opinie od poprzednich klientów.`
+        answer: `Na profilu możesz sprawdzić dostępne informacje o wykonawcy i opinie klientów przed wyborem oferty.`
       }
     ]
   };
@@ -224,16 +224,18 @@ async function buildOrUpdateLocalPage({ serviceSlug, citySlug, forceRegenerate =
       sampleSize: stats.prices?.sampleSize || 0,
       recentOrders30d: stats.recentOrders30d ?? null
     },
-    lastBuiltAt: new Date(),
-    published: true
+    lastBuiltAt: new Date()
   };
 
   if (existing) {
+    const published = existing.published;
     Object.assign(existing, payload);
+    // Rebuild nie może samodzielnie zmienić decyzji redakcyjnej o publikacji.
+    existing.published = published;
     await existing.save();
     return existing;
   }
-  return SeoLocalPage.create(payload);
+  return SeoLocalPage.create({ ...payload, published: false });
 }
 
 module.exports = {

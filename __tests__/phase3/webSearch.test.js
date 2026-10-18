@@ -57,7 +57,7 @@ describe('Phase 3: WebSearchIntegrationService', () => {
 
   describe('searchForProblem', () => {
     test('should return empty results if webSearchTool not available', async () => {
-      mockWebSearchTool.mockResolvedValue({
+      webSearchTool.mockResolvedValue({
         success: false,
         message: 'Web search is not available',
         results: []
@@ -69,18 +69,11 @@ describe('Phase 3: WebSearchIntegrationService', () => {
       );
 
       expect(result.success).toBe(false);
-
-      const result = await WebSearchIntegrationService.searchForProblem(
-        'Test problem',
-        'hydraulik'
-      );
-
-      expect(result.success).toBe(false);
       expect(result.results).toEqual([]);
     });
 
     test('should search and return results', async () => {
-      mockWebSearchTool.mockResolvedValue({
+      webSearchTool.mockResolvedValue({
         success: true,
         query: 'hydraulik Test problem',
         results: [
@@ -111,7 +104,7 @@ describe('Phase 3: WebSearchIntegrationService', () => {
     });
 
     test('should calculate relevance correctly', async () => {
-      mockWebSearchTool.mockResolvedValue({
+      webSearchTool.mockResolvedValue({
         success: true,
         query: 'test',
         results: [
@@ -135,7 +128,7 @@ describe('Phase 3: WebSearchIntegrationService', () => {
     });
 
     test('should prioritize Polish sources', async () => {
-      mockWebSearchTool.mockResolvedValue({
+      webSearchTool.mockResolvedValue({
         success: true,
         query: 'test',
         results: [

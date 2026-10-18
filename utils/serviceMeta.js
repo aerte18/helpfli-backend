@@ -34,13 +34,15 @@ async function getServiceMetaBySlug(slug) {
   const normalized = normalizeSlug(slug);
   if (!normalized) return null;
 
-  try {
-    const fromDb = await Service.findOne({ slug: normalized })
-      .select('slug parent_slug name_pl tier offerOnlySuggested b2b base_price_min base_price_max')
-      .lean();
-    if (fromDb) return metaFromRecord(fromDb);
-  } catch {
-    /* DB optional */
+  if (Service.db?.readyState === 1) {
+    try {
+      const fromDb = await Service.findOne({ slug: normalized })
+        .select('slug parent_slug name_pl tier offerOnlySuggested b2b base_price_min base_price_max')
+        .lean();
+      if (fromDb) return metaFromRecord(fromDb);
+    } catch {
+      /* DB optional */
+    }
   }
 
   const hit = getStaticCatalog().find((s) => normalizeSlug(s.slug) === normalized);

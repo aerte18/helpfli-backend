@@ -2,11 +2,37 @@
  * Testy jednostkowe dla Agent Concierge (Orchestrator)
  */
 
+jest.mock('../../../ai/utils/llmAdapter', () => {
+  const actual = jest.requireActual('../../../ai/utils/llmAdapter');
+  return {
+    ...actual,
+    callAgentLLM: jest.fn()
+  };
+});
+
+const { callAgentLLM } = require('../../../ai/utils/llmAdapter');
 const { runConciergeAgent } = require('../../../ai/agents/conciergeAgent');
 
 describe('Concierge Agent', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    callAgentLLM.mockResolvedValue({
+      ok: true,
+      agent: 'concierge',
+      reply: 'Pomogę Ci znaleźć właściwe rozwiązanie.',
+      intent: 'service_request',
+      detectedService: 'hydraulik',
+      urgency: 'standard',
+      confidence: 0.9,
+      nextStep: 'ask_more',
+      questions: ['W jakiej lokalizacji potrzebujesz pomocy?'],
+      extracted: {
+        location: 'Warszawa',
+        timeWindow: null,
+        budget: null,
+        details: []
+      }
+    });
   });
 
   test('powinien zwrócić odpowiedź dla podstawowego problemu', async () => {

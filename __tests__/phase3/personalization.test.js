@@ -28,6 +28,7 @@ describe('Phase 3: PersonalizationService', () => {
     await Order.deleteMany({ client: userId }).catch(() => {});
     await AIFeedback.deleteMany({ user: userId }).catch(() => {});
     await User.deleteOne({ _id: userId }).catch(() => {});
+    await mongoose.disconnect();
   });
 
   beforeEach(() => {

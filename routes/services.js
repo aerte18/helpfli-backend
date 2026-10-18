@@ -4,6 +4,7 @@ const router = express.Router();
 const Service = require('../models/Service');
 const path = require('path');
 const TOP_SERVICE_SLUGS = require('../constants/topServiceSlugs');
+const { buildCanonicalServiceSlug } = require('../utils/seoSlug');
 
 // Static fallback (serverless/no-DB mode)
 let STATIC_CATALOG = [];
@@ -433,7 +434,18 @@ router.get('/:slug', async (req, res) => {
     const underscored = normalized.replace(/-/g, '_');
     const variants = [...new Set([raw, raw.toLowerCase(), normalized, underscored])].filter(Boolean);
 
-    let service = await Service.findOne({ slug: { $in: variants } }).lean();
+    let service = await Service.findOne({
+      $or: [{ slug: { $in: variants } }, { legacy_slugs: { $in: variants } }]
+    }).lean();
+
+    // Okres przejściowy przed migracją bazy: rozpoznaj nowy, poprawnie
+    // transliterowany slug na podstawie nazwy i kategorii usługi.
+    if (!service) {
+      const candidates = await Service.find({})
+        .select('slug legacy_slugs parent_slug name_pl name_en name description service_kind is_top urgency_level seasonal base_price_min base_price_max unit')
+        .lean();
+      service = candidates.find((item) => variants.includes(buildCanonicalServiceSlug(item))) || null;
+    }
     
     if (!service) {
       const hit = (STATIC_CATALOG || []).find(
@@ -445,6 +457,16 @@ router.get('/:slug', async (req, res) => {
           offerOnlySuggested: Boolean(hit.offer_only_suggested ?? hit.offerOnlySuggested),
         };
       }
+    }
+
+    if (service) {
+      const storedSlug = service.slug;
+      const publicSlug = buildCanonicalServiceSlug(service) || storedSlug;
+      service = {
+        ...service,
+        slug: publicSlug,
+        ...(storedSlug !== publicSlug ? { legacy_slug: storedSlug } : {})
+      };
     }
     
     if (!service) {

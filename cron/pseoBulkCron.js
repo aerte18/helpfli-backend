@@ -34,16 +34,12 @@ async function runPseoBulkCron(options = {}) {
   const cityLimit = options.cityLimit ?? asInt(process.env.PSEO_CRON_CITY_LIMIT, 12);
   const serviceLimit = options.serviceLimit ?? asInt(process.env.PSEO_CRON_SERVICE_LIMIT, 8);
 
-  const { SEO_CITIES, SEO_LOCAL_SERVICES } = require('../utils/seoCities');
+  const { SEO_LOCAL_SERVICES } = require('../utils/seoCities');
+  const { TOP_PL_CITIES } = require('../utils/polishCities');
   const SeoLocalPage = require('../models/SeoLocalPage');
   const { buildOrUpdateLocalPage } = require('../services/SeoLocalPageGenerator');
-  const { getPublicBaseUrl } = require('../utils/publicUrl');
 
-  let indexNow = null;
-  try { indexNow = require('../services/IndexNowService'); } catch { /* optional */ }
-
-  const cities = [...SEO_CITIES]
-    .sort((a, b) => (b.population || 0) - (a.population || 0))
+  const cities = [...TOP_PL_CITIES]
     .slice(0, cityLimit)
     .map((c) => c.slug);
 
@@ -51,8 +47,7 @@ async function runPseoBulkCron(options = {}) {
 
   const existing = await SeoLocalPage.find({
     serviceSlug: { $in: services },
-    citySlug: { $in: cities },
-    published: true
+    citySlug: { $in: cities }
   })
     .select('serviceSlug citySlug')
     .lean();
@@ -68,9 +63,7 @@ async function runPseoBulkCron(options = {}) {
   }
 
   const toBuild = missing.slice(0, maxBuild);
-  const base = getPublicBaseUrl();
   const results = [];
-  const indexNowUrls = [];
 
   for (const { service, city } of toBuild) {
     try {
@@ -79,17 +72,12 @@ async function runPseoBulkCron(options = {}) {
         citySlug: city,
         forceRegenerate: false
       });
-      indexNowUrls.push(`${base}/wykonawcy/${page.serviceSlug}/${page.citySlug}`);
-      results.push({ service, city, ok: true });
+      results.push({ service, city, ok: true, published: page.published === true });
       await new Promise((r) => setTimeout(r, 600));
     } catch (err) {
       results.push({ service, city, ok: false, error: err.message });
       logger.warn?.('[PSEO CRON] build failed:', service, city, err.message);
     }
-  }
-
-  if (indexNow && indexNowUrls.length) {
-    indexNow.submitBatch(indexNowUrls).catch(() => {});
   }
 
   const summary = {

@@ -74,7 +74,7 @@ class EmailVerificationService {
     const user = await User.findOne({
       emailVerificationToken: token,
       emailVerificationExpires: { $gt: new Date() }
-    });
+    }).select('+emailVerificationToken +emailVerificationExpires');
 
     if (!user) {
       return { success: false, message: 'Nieprawidłowy lub wygasły token weryfikacyjny' };

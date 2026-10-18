@@ -22,6 +22,10 @@ describe('Phase 3: Integration Tests', () => {
     userId = new mongoose.Types.ObjectId();
   });
 
+  afterAll(async () => {
+    await mongoose.disconnect();
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
     ConversationMemoryService.getUserPreferences.mockResolvedValue({

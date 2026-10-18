@@ -49,6 +49,7 @@ describe('Phase 2: Tools', () => {
     } catch (e) {
       // Ignore cleanup errors
     }
+    await mongoose.disconnect();
   });
 
   describe('createOrderTool', () => {

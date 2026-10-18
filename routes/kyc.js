@@ -7,6 +7,27 @@ const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/clien
 const { authMiddleware } = require('../middleware/authMiddleware');
 const { requireRole } = require('../middleware/roles');
 const User = require('../models/User');
+const {
+  extensionForMime,
+  safeUploadName,
+  hasExpectedMagicBytes,
+  flattenUploadedFiles,
+  removeUploadedFiles,
+  validateUploadedFiles,
+} = require('../utils/uploadSafety');
+
+const KYC_PRIVATE_SELECT = [
+  '+kyc.rejectionReason',
+  '+kyc.firstName',
+  '+kyc.lastName',
+  '+kyc.idNumber',
+  '+kyc.companyName',
+  '+kyc.nip',
+  '+kyc.docs.idFrontUrl',
+  '+kyc.docs.idBackUrl',
+  '+kyc.docs.selfieUrl',
+  '+kyc.docs.companyDocUrl',
+].join(' ');
 
 const MAX_MB = parseInt(process.env.MAX_FILE_SIZE_MB || '10', 10);
 const BUCKET = process.env.AWS_BUCKET_NAME || process.env.AWS_S3_BUCKET;
@@ -40,9 +61,11 @@ const storage = useS3
   : multer.diskStorage({
       destination: (req, file, cb) => cb(null, KYC_UPLOAD_DIR()),
       filename: (req, file, cb) => {
-        const ext = path.extname(file.originalname || '');
-        const safe = file.fieldname + '-' + Date.now() + '-' + Math.random().toString(36).slice(2) + ext;
-        cb(null, safe);
+        try {
+          cb(null, safeUploadName(`kyc-${file.fieldname}`, file, req.user?._id));
+        } catch (error) {
+          cb(error);
+        }
       },
     });
 
@@ -59,7 +82,7 @@ const toPublicUrl = (filename) => `/uploads/kyc/${filename}`;
 
 async function persistKycFile(file, userId, fieldName) {
   if (useS3 && file.buffer) {
-    const ext = path.extname(file.originalname || '') || '';
+    const ext = extensionForMime(file.mimetype);
     const key = `kyc/${userId}/${fieldName}-${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
     await s3.send(
       new PutObjectCommand({
@@ -73,6 +96,16 @@ async function persistKycFile(file, userId, fieldName) {
   }
   if (file.filename) return { storage: 'local', url: toPublicUrl(file.filename) };
   throw new Error('Nie udało się zapisać pliku');
+}
+
+async function validateKycUploads(files) {
+  const uploaded = flattenUploadedFiles(files);
+  if (useS3) {
+    return uploaded.every((file) =>
+      Buffer.isBuffer(file.buffer) && hasExpectedMagicBytes(file.buffer.subarray(0, 16), file.mimetype)
+    );
+  }
+  return validateUploadedFiles(uploaded);
 }
 
 function docRefFromPersistResult(result) {
@@ -117,14 +150,14 @@ function getMissingDocs(kyc) {
 
 // GET /api/kyc/me – stan KYC i dane
 router.get('/me', authMiddleware, async (req, res) => {
-  const user = await User.findById(req.user._id).select('role kyc name email');
+  const user = await User.findById(req.user._id).select(`role kyc name email ${KYC_PRIVATE_SELECT}`);
   res.json(user);
 });
 
 // POST /api/kyc/save – zapis danych (krok 1)
 router.post('/save', authMiddleware, async (req, res) => {
   const { type, firstName, lastName, idNumber, companyName, nip } = req.body;
-  const user = await User.findById(req.user._id);
+  const user = await User.findById(req.user._id).select(KYC_PRIVATE_SELECT);
   if (user.role !== 'provider') return res.status(403).json({ message: 'Tylko dla wykonawców' });
 
   user.kyc = user.kyc || {};
@@ -166,7 +199,7 @@ router.post(
   },
   async (req, res) => {
     try {
-      const user = await User.findById(req.user._id);
+      const user = await User.findById(req.user._id).select(KYC_PRIVATE_SELECT);
       if (user.role !== 'provider') return res.status(403).json({ message: 'Tylko dla wykonawców' });
 
       const hasAnyFile =
@@ -176,6 +209,11 @@ router.post(
         req.files?.companyDoc?.[0];
       if (!hasAnyFile) {
         return res.status(400).json({ message: 'Wybierz co najmniej jeden plik do wysłania' });
+      }
+
+      if (!(await validateKycUploads(req.files))) {
+        removeUploadedFiles(req.files);
+        return res.status(400).json({ message: 'Zawartość pliku nie odpowiada zadeklarowanemu formatowi' });
       }
 
       user.kyc = user.kyc || {};
@@ -199,6 +237,7 @@ router.post(
       await user.save();
       res.json({ message: 'Pliki zapisane', kyc: user.kyc, missing: getMissingDocs(user.kyc) });
     } catch (e) {
+      removeUploadedFiles(req.files);
       console.error('[kyc/upload]', e);
       res.status(500).json({ message: 'Błąd zapisu plików na serwerze' });
     }
@@ -207,7 +246,7 @@ router.post(
 
 // POST /api/kyc/submit – złożenie wniosku (krok 3)
 router.post('/submit', authMiddleware, async (req, res) => {
-  const user = await User.findById(req.user._id);
+  const user = await User.findById(req.user._id).select(KYC_PRIVATE_SELECT);
   if (user.role !== 'provider') return res.status(403).json({ message: 'Tylko dla wykonawców' });
 
   const missing = getMissingDocs(user.kyc);
@@ -229,12 +268,13 @@ router.post('/submit', authMiddleware, async (req, res) => {
 // ADMIN – lista
 router.get('/admin/list', authMiddleware, requireRole('admin'), async (req, res) => {
   const status = req.query.status || 'submitted';
-  const users = await User.find({ role: 'provider', 'kyc.status': status }).select('name email kyc');
+  const users = await User.find({ role: 'provider', 'kyc.status': status })
+    .select(`name email kyc ${KYC_PRIVATE_SELECT}`);
   res.json({ items: users });
 });
 
 router.post('/admin/:userId/approve', authMiddleware, requireRole('admin'), async (req, res) => {
-  const u = await User.findById(req.params.userId);
+  const u = await User.findById(req.params.userId).select(KYC_PRIVATE_SELECT);
   if (!u) return res.status(404).json({ message: 'Not found' });
   if (u.role !== 'provider') return res.status(400).json({ message: 'Nie-dotyczy' });
 
@@ -248,7 +288,7 @@ router.post('/admin/:userId/approve', authMiddleware, requireRole('admin'), asyn
 
 router.post('/admin/:userId/reject', authMiddleware, requireRole('admin'), async (req, res) => {
   const { reason = 'Brak zgodności dokumentów' } = req.body || {};
-  const u = await User.findById(req.params.userId);
+  const u = await User.findById(req.params.userId).select(KYC_PRIVATE_SELECT);
   if (!u) return res.status(404).json({ message: 'Not found' });
   if (u.role !== 'provider') return res.status(400).json({ message: 'Nie-dotyczy' });
 
@@ -272,7 +312,7 @@ router.get('/document/:field', authMiddleware, async (req, res) => {
     if (!docKey) return res.status(400).json({ message: 'Nieprawidłowe pole dokumentu' });
 
     const targetUserId = req.query.userId || req.user._id;
-    const target = await User.findById(targetUserId).select('kyc role');
+    const target = await User.findById(targetUserId).select(`kyc role ${KYC_PRIVATE_SELECT}`);
     if (!target) return res.status(404).json({ message: 'Nie znaleziono użytkownika' });
 
     const stored = target.kyc?.docs?.[docKey];

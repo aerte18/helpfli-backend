@@ -1,7 +1,7 @@
 [
   {
     "parent_slug": "hydraulika",
-    "slug": "hydraulika-udraznianie-odp-ywow-i-kanalizacji",
+    "slug": "hydraulika-udraznianie-odplywow-i-kanalizacji",
     "name_pl": "Udrażnianie odpływów i kanalizacji",
     "name_en": "Udrażnianie odpływów i kanalizacji",
     "description": "Usługa Helpfli: Udrażnianie odpływów i kanalizacji",
@@ -31,7 +31,7 @@
   },
   {
     "parent_slug": "hydraulika",
-    "slug": "hydraulika-pod-aczenie-zmywarki-pralki-bia-y-montaz",
+    "slug": "hydraulika-podlaczenie-zmywarki-pralki-bialy-montaz",
     "name_pl": "Podłączenie zmywarki / pralki (biały montaż)",
     "name_en": "Podłączenie zmywarki / pralki (biały montaż)",
     "description": "Usługa Helpfli: Podłączenie zmywarki / pralki (biały montaż)",
@@ -46,7 +46,7 @@
   },
   {
     "parent_slug": "hydraulika",
-    "slug": "hydraulika-wymiana-wc-sp-uczki-mechanizmu",
+    "slug": "hydraulika-wymiana-wc-spluczki-mechanizmu",
     "name_pl": "Wymiana WC / spłuczki / mechanizmu",
     "name_en": "Wymiana WC / spłuczki / mechanizmu",
     "description": "Usługa Helpfli: Wymiana WC / spłuczki / mechanizmu",
@@ -121,7 +121,7 @@
   },
   {
     "parent_slug": "elektryka",
-    "slug": "elektryka-montaz-gniazdek-w-acznikow-oswietlenia-led",
+    "slug": "elektryka-montaz-gniazdek-wlacznikow-oswietlenia-led",
     "name_pl": "Montaż gniazdek / włączników / oświetlenia (LED)",
     "name_en": "Montaż gniazdek / włączników / oświetlenia (LED)",
     "description": "Usługa Helpfli: Montaż gniazdek / włączników / oświetlenia (LED)",
@@ -151,7 +151,7 @@
   },
   {
     "parent_slug": "elektryka",
-    "slug": "elektryka-pomiary-elektryczne-i-protoko-y",
+    "slug": "elektryka-pomiary-elektryczne-i-protokoly",
     "name_pl": "Pomiary elektryczne i protokoły",
     "name_en": "Pomiary elektryczne i protokoły",
     "description": "Usługa Helpfli: Pomiary elektryczne i protokoły",
@@ -181,7 +181,7 @@
   },
   {
     "parent_slug": "elektryka",
-    "slug": "elektryka-stacje-adowania-ev-montaz-przeglad",
+    "slug": "elektryka-stacje-ladowania-ev-montaz-przeglad",
     "name_pl": "Stacje ładowania EV – montaż/przegląd",
     "name_en": "Stacje ładowania EV – montaż/przegląd",
     "description": "Usługa Helpfli: Stacje ładowania EV – montaż/przegląd",
@@ -346,7 +346,7 @@
   },
   {
     "parent_slug": "klimatyzacja-ogrzewanie",
-    "slug": "klimatyzacja-ogrzewanie-serwis-pomp-ciep-a",
+    "slug": "klimatyzacja-ogrzewanie-serwis-pomp-ciepla",
     "name_pl": "Serwis pomp ciepła",
     "name_en": "Serwis pomp ciepła",
     "description": "Usługa Helpfli: Serwis pomp ciepła",
@@ -436,7 +436,7 @@
   },
   {
     "parent_slug": "remont-wykonczenia",
-    "slug": "remont-wykonczenia-remont-azienki",
+    "slug": "remont-wykonczenia-remont-lazienki",
     "name_pl": "Remont łazienki",
     "name_en": "Remont łazienki",
     "description": "Usługa Helpfli: Remont łazienki",
@@ -466,7 +466,7 @@
   },
   {
     "parent_slug": "remont-wykonczenia",
-    "slug": "remont-wykonczenia-g-adzie-szpachlowanie-naprawy-scian",
+    "slug": "remont-wykonczenia-gladzie-szpachlowanie-naprawy-scian",
     "name_pl": "Gładzie / szpachlowanie / naprawy ścian",
     "name_en": "Gładzie / szpachlowanie / naprawy ścian",
     "description": "Usługa Helpfli: Gładzie / szpachlowanie / naprawy ścian",
@@ -496,7 +496,7 @@
   },
   {
     "parent_slug": "remont-wykonczenia",
-    "slug": "remont-wykonczenia-tynki-gips-p-yty",
+    "slug": "remont-wykonczenia-tynki-gips-plyty",
     "name_pl": "Tynki / gips / płyty",
     "name_en": "Tynki / gips / płyty",
     "description": "Usługa Helpfli: Tynki / gips / płyty",
@@ -541,7 +541,7 @@
   },
   {
     "parent_slug": "remont-wykonczenia",
-    "slug": "remont-wykonczenia-cyklinowanie-renowacja-pod-og",
+    "slug": "remont-wykonczenia-cyklinowanie-renowacja-podlog",
     "name_pl": "Cyklinowanie / renowacja podłóg",
     "name_en": "Cyklinowanie / renowacja podłóg",
     "description": "Usługa Helpfli: Cyklinowanie / renowacja podłóg",
@@ -661,7 +661,7 @@
   },
   {
     "parent_slug": "stolarstwo-montaz",
-    "slug": "stolarstwo-montaz-sk-adanie-mebli",
+    "slug": "stolarstwo-montaz-skladanie-mebli",
     "name_pl": "Składanie mebli",
     "name_en": "Składanie mebli",
     "description": "Usługa Helpfli: Składanie mebli",
@@ -691,7 +691,7 @@
   },
   {
     "parent_slug": "stolarstwo-montaz",
-    "slug": "stolarstwo-montaz-blaty-kuchenne-po-ki-na-wymiar",
+    "slug": "stolarstwo-montaz-blaty-kuchenne-polki-na-wymiar",
     "name_pl": "Blaty kuchenne, półki na wymiar",
     "name_en": "Blaty kuchenne, półki na wymiar",
     "description": "Usługa Helpfli: Blaty kuchenne, półki na wymiar",
@@ -721,7 +721,7 @@
   },
   {
     "parent_slug": "stolarstwo-montaz",
-    "slug": "stolarstwo-montaz-listwy-przypod-ogowe-progi-coko-y",
+    "slug": "stolarstwo-montaz-listwy-przypodlogowe-progi-cokoly",
     "name_pl": "Listwy przypodłogowe, progi, cokoły",
     "name_en": "Listwy przypodłogowe, progi, cokoły",
     "description": "Usługa Helpfli: Listwy przypodłogowe, progi, cokoły",
@@ -796,7 +796,7 @@
   },
   {
     "parent_slug": "slusarz-zabezpieczenia",
-    "slug": "slusarz-zabezpieczenia-montaz-zamkow-antyw-amaniowych",
+    "slug": "slusarz-zabezpieczenia-montaz-zamkow-antywlamaniowych",
     "name_pl": "Montaż zamków antywłamaniowych",
     "name_en": "Montaż zamków antywłamaniowych",
     "description": "Usługa Helpfli: Montaż zamków antywłamaniowych",
@@ -901,7 +901,7 @@
   },
   {
     "parent_slug": "sprzatanie",
-    "slug": "sprzatanie-sprzatanie-biur-lokali-us-ugowych",
+    "slug": "sprzatanie-sprzatanie-biur-lokali-uslugowych",
     "name_pl": "Sprzątanie biur / lokali usługowych",
     "name_en": "Sprzątanie biur / lokali usługowych",
     "description": "Usługa Helpfli: Sprzątanie biur / lokali usługowych",
@@ -1021,7 +1021,7 @@
   },
   {
     "parent_slug": "dom-ogrod",
-    "slug": "dom-ogrod-ma-a-architektura-taras-pergola-sciezki",
+    "slug": "dom-ogrod-mala-architektura-taras-pergola-sciezki",
     "name_pl": "Mała architektura (taras, pergola, ścieżki)",
     "name_en": "Mała architektura (taras, pergola, ścieżki)",
     "description": "Usługa Helpfli: Mała architektura (taras, pergola, ścieżki)",
@@ -1051,7 +1051,7 @@
   },
   {
     "parent_slug": "dom-ogrod",
-    "slug": "dom-ogrod-zak-adanie-trawnika-wertykulacja-aeracja",
+    "slug": "dom-ogrod-zakladanie-trawnika-wertykulacja-aeracja",
     "name_pl": "Zakładanie trawnika / wertykulacja / aeracja",
     "name_en": "Zakładanie trawnika / wertykulacja / aeracja",
     "description": "Usługa Helpfli: Zakładanie trawnika / wertykulacja / aeracja",
@@ -1261,7 +1261,7 @@
   },
   {
     "parent_slug": "auto-mobilne",
-    "slug": "auto-mobilne-wymiana-ko-a",
+    "slug": "auto-mobilne-wymiana-kola",
     "name_pl": "Wymiana koła",
     "name_en": "Wymiana koła",
     "description": "Usługa Helpfli: Wymiana koła",
@@ -1276,7 +1276,7 @@
   },
   {
     "parent_slug": "auto-mobilne",
-    "slug": "auto-mobilne-wymiana-opon-ko-a-na-miejscu-sezonowo",
+    "slug": "auto-mobilne-wymiana-opon-kola-na-miejscu-sezonowo",
     "name_pl": "Wymiana opon/koła na miejscu (sezonowo)",
     "name_en": "Wymiana opon/koła na miejscu (sezonowo)",
     "description": "Usługa Helpfli: Wymiana opon/koła na miejscu (sezonowo)",
@@ -1831,7 +1831,7 @@
   },
   {
     "parent_slug": "przeprowadzki-transport",
-    "slug": "przeprowadzki-transport-taxi-bagazowe-ma-e-przeprowadzki",
+    "slug": "przeprowadzki-transport-taxi-bagazowe-male-przeprowadzki",
     "name_pl": "Taxi bagażowe (małe przeprowadzki)",
     "name_en": "Taxi bagażowe (małe przeprowadzki)",
     "description": "Usługa Helpfli: Taxi bagażowe (małe przeprowadzki)",
@@ -1981,7 +1981,7 @@
   },
   {
     "parent_slug": "gaz",
-    "slug": "gaz-proby-szczelnosci-i-protoko-y",
+    "slug": "gaz-proby-szczelnosci-i-protokoly",
     "name_pl": "Próby szczelności i protokoły",
     "name_en": "Próby szczelności i protokoły",
     "description": "Usługa Helpfli: Próby szczelności i protokoły",
@@ -2056,7 +2056,7 @@
   },
   {
     "parent_slug": "wywoz-utylizacja",
-    "slug": "wywoz-utylizacja-wywoz-zieleni-ga-ezi",
+    "slug": "wywoz-utylizacja-wywoz-zieleni-galezi",
     "name_pl": "Wywóz zieleni / gałęzi",
     "name_en": "Wywóz zieleni / gałęzi",
     "description": "Usługa Helpfli: Wywóz zieleni / gałęzi",
@@ -2086,7 +2086,7 @@
   },
   {
     "parent_slug": "wywoz-utylizacja",
-    "slug": "wywoz-utylizacja-wywoz-z-omu",
+    "slug": "wywoz-utylizacja-wywoz-zlomu",
     "name_pl": "Wywóz złomu",
     "name_en": "Wywóz złomu",
     "description": "Usługa Helpfli: Wywóz złomu",
@@ -2176,7 +2176,7 @@
   },
   {
     "parent_slug": "pomoc-24-7",
-    "slug": "pomoc-24-7-pomoc-drogowa-rozruch-ko-o",
+    "slug": "pomoc-24-7-pomoc-drogowa-rozruch-kolo",
     "name_pl": "Pomoc drogowa / rozruch / koło",
     "name_en": "Pomoc drogowa / rozruch / koło",
     "description": "Usługa Helpfli: Pomoc drogowa / rozruch / koło",
@@ -2266,7 +2266,7 @@
   },
   {
     "parent_slug": "zlota-raczka",
-    "slug": "zlota-raczka-skrecanie-mebli-po-ki-uchwyty",
+    "slug": "zlota-raczka-skrecanie-mebli-polki-uchwyty",
     "name_pl": "Skręcanie mebli / półki / uchwyty",
     "name_en": "Skręcanie mebli / półki / uchwyty",
     "description": "Usługa Helpfli: Skręcanie mebli / półki / uchwyty",
@@ -2326,7 +2326,7 @@
   },
   {
     "parent_slug": "codzienne-sprawy",
-    "slug": "codzienne-sprawy-pomoc-przy-przeprowadzce-light-pude-ka",
+    "slug": "codzienne-sprawy-pomoc-przy-przeprowadzce-light-pudelka",
     "name_pl": "Pomoc przy przeprowadzce light (pudełka)",
     "name_en": "Pomoc przy przeprowadzce light (pudełka)",
     "description": "Usługa Helpfli: Pomoc przy przeprowadzce light (pudełka)",
@@ -2371,7 +2371,7 @@
   },
   {
     "parent_slug": "urzedy-formalnosci",
-    "slug": "urzedy-formalnosci-wype-nianie-wnioskow-epuap-profil-zaufany",
+    "slug": "urzedy-formalnosci-wypelnianie-wnioskow-epuap-profil-zaufany",
     "name_pl": "Wypełnianie wniosków / ePUAP / profil zaufany",
     "name_en": "Wypełnianie wniosków / ePUAP / profil zaufany",
     "description": "Usługa Helpfli: Wypełnianie wniosków / ePUAP / profil zaufany",
@@ -2401,7 +2401,7 @@
   },
   {
     "parent_slug": "urzedy-formalnosci",
-    "slug": "urzedy-formalnosci-t-umaczenie-krotkich-pism-nie-przysieg-e",
+    "slug": "urzedy-formalnosci-tlumaczenie-krotkich-pism-nie-przysiegle",
     "name_pl": "Tłumaczenie krótkich pism (nie-przysięgłe)",
     "name_en": "Tłumaczenie krótkich pism (nie-przysięgłe)",
     "description": "Usługa Helpfli: Tłumaczenie krótkich pism (nie-przysięgłe)",
@@ -2461,7 +2461,7 @@
   },
   {
     "parent_slug": "edukacja-korepetycje",
-    "slug": "edukacja-korepetycje-nauka-obs-ugi-komputera-telefonu",
+    "slug": "edukacja-korepetycje-nauka-obslugi-komputera-telefonu",
     "name_pl": "Nauka obsługi komputera/telefonu",
     "name_en": "Nauka obsługi komputera/telefonu",
     "description": "Usługa Helpfli: Nauka obsługi komputera/telefonu",
@@ -2626,7 +2626,7 @@
   },
   {
     "parent_slug": "akwarystyka",
-    "slug": "akwarystyka-zak-adanie-i-start-akwarium",
+    "slug": "akwarystyka-zakladanie-i-start-akwarium",
     "name_pl": "Zakładanie i start akwarium",
     "name_en": "Zakładanie i start akwarium",
     "description": "Usługa Helpfli: Zakładanie i start akwarium",
@@ -2866,7 +2866,7 @@
   },
   {
     "parent_slug": "architektura",
-    "slug": "architektura-audyt-funkcjonalny-lokalu-us-ugu-uk-ad-scian-strefy",
+    "slug": "architektura-audyt-funkcjonalny-lokalu-uslugu-uklad-scian-strefy",
     "name_pl": "Audyt funkcjonalny lokalu/usługu (układ ścian, strefy)",
     "name_en": "Audyt funkcjonalny lokalu/usługu (układ ścian, strefy)",
     "description": "Usługa Helpfli: Audyt funkcjonalny lokalu/usługu (układ ścian, strefy)",

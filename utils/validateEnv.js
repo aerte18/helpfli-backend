@@ -39,7 +39,9 @@ function validateEnv() {
     if (!process.env[varName]) {
       errors.push(`❌ WYMAGANE: ${varName} nie jest ustawione`);
     } else if (varName === 'JWT_SECRET' && process.env[varName].length < 32) {
-      warnings.push(`⚠️ OSTRZEŻENIE: ${varName} jest zbyt krótkie (min. 32 znaki dla bezpieczeństwa)`);
+      const message = `❌ ${varName} jest zbyt krótkie (min. 32 znaki dla bezpieczeństwa)`;
+      if (isProduction) errors.push(message);
+      else warnings.push(message.replace('❌', '⚠️ OSTRZEŻENIE:'));
     }
   }
 

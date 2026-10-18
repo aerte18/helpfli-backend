@@ -2,11 +2,27 @@ const express = require('express');
 const router = express.Router();
 const { authMiddleware } = require('../middleware/authMiddleware');
 const SponsorAd = require('../models/SponsorAd');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+
+const getStripe = () => {
+  if (!process.env.STRIPE_SECRET_KEY) return null;
+  return require('stripe')(process.env.STRIPE_SECRET_KEY);
+};
+
+const requireStripe = (res) => {
+  const stripe = getStripe();
+  if (!stripe) {
+    res.status(503).json({ message: 'Płatności nie są skonfigurowane' });
+    return null;
+  }
+  return stripe;
+};
 
 // POST /api/sponsor-ads/:id/pay - Zapłać za reklamę
 router.post('/:id/pay', authMiddleware, async (req, res) => {
   try {
+    const stripe = requireStripe(res);
+    if (!stripe) return;
+
     const { paymentMethod, amount } = req.body;
     const ad = await SponsorAd.findById(req.params.id);
     
@@ -52,6 +68,9 @@ router.post('/:id/pay', authMiddleware, async (req, res) => {
 // POST /api/sponsor-ads/:id/activate - Aktywuj reklamę po płatności
 router.post('/:id/activate', authMiddleware, async (req, res) => {
   try {
+    const stripe = requireStripe(res);
+    if (!stripe) return;
+
     const { paymentIntentId } = req.body;
     const ad = await SponsorAd.findById(req.params.id);
     

@@ -11,6 +11,15 @@ jest.mock('@anthropic-ai/sdk');
 describe('Phase 3: MultiModalService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.spyOn(multiModalService, 'prepareImageContent').mockResolvedValue({
+      type: 'base64',
+      media_type: 'image/jpeg',
+      data: 'dGVzdA=='
+    });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   describe('analyzeImage', () => {
@@ -103,6 +112,7 @@ describe('Phase 3: MultiModalService', () => {
 
   describe('prepareImageContent', () => {
     test('should handle base64 data URL', async () => {
+      multiModalService.prepareImageContent.mockRestore();
       const base64Image = 'data:image/jpeg;base64,/9j/4AAQSkZJRg==';
       
       const result = await multiModalService.prepareImageContent(base64Image);
@@ -113,6 +123,7 @@ describe('Phase 3: MultiModalService', () => {
     });
 
     test('should throw error for unsupported format', async () => {
+      multiModalService.prepareImageContent.mockRestore();
       await expect(
         multiModalService.prepareImageContent('invalid://url')
       ).rejects.toThrow();

@@ -10,9 +10,12 @@ const mongoose = require('mongoose');
 jest.mock('../../../models/User');
 jest.mock('../../../models/Order');
 jest.mock('../../../models/Service');
+jest.mock('../../../middleware/authMiddleware', () => ({
+  authMiddleware: jest.fn()
+}));
 
 const { conciergeHandler } = require('../../../ai/index');
-const authMiddleware = require('../../../middleware/authMiddleware');
+const { authMiddleware } = require('../../../middleware/authMiddleware');
 
 describe('AI Concierge E2E Flow', () => {
   let app;

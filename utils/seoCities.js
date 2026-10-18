@@ -61,7 +61,7 @@ const SEO_CITIES = [
   { slug: 'nowy-sacz',        name: 'Nowy Sącz',        locative: 'Nowym Sączu',        voivodeship: 'małopolskie',         population: 83000 },
   { slug: 'jelenia-gora',     name: 'Jelenia Góra',     locative: 'Jeleniej Górze',     voivodeship: 'dolnośląskie',        population: 78000 },
   { slug: 'siedlce',          name: 'Siedlce',          locative: 'Siedlcach',          voivodeship: 'mazowieckie',         population: 77000 },
-  { slug: 'mysłowice',        name: 'Mysłowice',        locative: 'Mysłowicach',        voivodeship: 'śląskie',             population: 74000 },
+  { slug: 'myslowice',        name: 'Mysłowice',        locative: 'Mysłowicach',        voivodeship: 'śląskie',             population: 74000 },
   { slug: 'pila',             name: 'Piła',             locative: 'Pile',               voivodeship: 'wielkopolskie',       population: 73000 },
   { slug: 'ostrow-wielkopolski', name: 'Ostrów Wielkopolski', locative: 'Ostrowie Wielkopolskim', voivodeship: 'wielkopolskie', population: 71000 },
   { slug: 'lubin',            name: 'Lubin',            locative: 'Lubinie',            voivodeship: 'dolnośląskie',        population: 71000 },

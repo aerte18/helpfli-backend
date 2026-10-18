@@ -144,7 +144,7 @@ async function runSubscriptionPushNotifications() {
         $gte: now,
         $lte: tomorrow
       }
-    }).populate('user');
+    }).populate({ path: 'user', select: '+pushSubs' });
     
     for (const sub of trialsEndingTomorrow) {
       if (sub.user && sub.user.pushSubs && sub.user.pushSubs.length > 0) {
@@ -161,7 +161,7 @@ async function runSubscriptionPushNotifications() {
         $lte: threeDaysFromNow
       },
       isTrial: false
-    }).populate('user');
+    }).populate({ path: 'user', select: '+pushSubs' });
     
     for (const sub of expiringSubscriptions) {
       if (sub.user && sub.user.pushSubs && sub.user.pushSubs.length > 0) {

@@ -216,6 +216,19 @@ const uploadLimiter = DISABLE_LIMITERS ? passThrough : rateLimit({
   legacyHeaders: false
 });
 
+// Zgłoszenia nadużyć nie mogą być używane do masowego nękania użytkowników.
+const reportLimiter = DISABLE_LIMITERS ? passThrough : rateLimit({
+  windowMs: 24 * 60 * 60 * 1000,
+  max: envInt('REPORT_RATE_LIMIT_MAX', 10),
+  keyGenerator: (req) => `report:${req.user?._id || ipKeyGenerator(req.ip || 'unknown')}`,
+  message: {
+    error: 'Osiągnięto dzienny limit zgłoszeń. Spróbuj ponownie później.',
+    retryAfter: 24 * 60 * 60,
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 module.exports = {
   authLimiter,
   registerLimiter,
@@ -226,5 +239,6 @@ module.exports = {
   speedLimiter,
   telemetryLimiter,
   uploadLimiter,
+  reportLimiter,
   aiLimiter
 };

@@ -9,6 +9,10 @@ jest.mock('../../../utils/concierge', () => ({
   recommendProviders: jest.fn(),
   computePriceHints: jest.fn()
 }));
+jest.mock('../../../services/CacheService', () => ({
+  getProviderSearch: jest.fn().mockResolvedValue(null),
+  setProviderSearch: jest.fn().mockResolvedValue(true)
+}));
 
 const { recommendProviders } = require('../../../utils/concierge');
 

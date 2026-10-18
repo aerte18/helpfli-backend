@@ -42,7 +42,7 @@ module.exports = async function handler(req, res) {
       res.statusCode = 400; return res.end(JSON.stringify({ message: 'Podaj email i hasło' }));
     }
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email }).select('+password');
     if (!user) { res.statusCode = 400; return res.end(JSON.stringify({ message: 'Nieprawidłowe dane logowania' })); }
 
     const match = await bcrypt.compare(password, user.password);

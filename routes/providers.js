@@ -2,6 +2,7 @@ const express = require('express');
 const User = require('../models/User');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const { withListableProviders } = require('../utils/listableProviderQuery');
+const { PUBLIC_USER_PROFILE_SELECT } = require('../utils/publicUserFields');
 const { recommendProviders } = require('../utils/concierge');
 const router = express.Router();
 
@@ -34,7 +35,6 @@ router.get('/', async (req, res) => {
       const searchRegex = new RegExp(searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
       query.$or = [
         { name: searchRegex },
-        { email: searchRegex },
         { 'services.name': searchRegex }
       ];
     }
@@ -83,7 +83,7 @@ router.get('/', async (req, res) => {
     const hardLimit = Math.min(Math.max(Number(limit) || 300, 1), 500);
 
     let providers = await User.find(query)
-      .select('name email avatar providerLevel provider_status locationCoords services')
+      .select(PUBLIC_USER_PROFILE_SELECT)
       .limit(bboxParsed ? hardLimit : 0)
       .lean();
 

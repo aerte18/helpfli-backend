@@ -208,7 +208,7 @@ router.put("/me/password", authMiddleware, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
     
-    const user = await User.findById(req.user._id);
+    const user = await User.findById(req.user._id).select('+password');
     if (!user) {
       return res.status(404).json({ message: 'Użytkownik nie został znaleziony' });
     }
@@ -261,7 +261,9 @@ router.put("/me/password", authMiddleware, async (req, res) => {
 // GET /api/users/me/2fa - sprawdź status 2FA
 router.get("/me/2fa", authMiddleware, async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).select('twoFactorEnabled twoFactorSecret').lean();
+    const user = await User.findById(req.user._id)
+      .select('twoFactorEnabled +twoFactorSecret')
+      .lean();
     res.json({ 
       enabled: user?.twoFactorEnabled || false,
       setup: !!(user?.twoFactorSecret) // Czy 2FA jest skonfigurowane (ma sekret)
@@ -287,7 +289,7 @@ router.post("/me/2fa/setup", authMiddleware, async (req, res) => {
       });
     }
 
-    const user = await User.findById(req.user._id);
+    const user = await User.findById(req.user._id).select('+twoFactorSecret');
     if (!user) {
       return res.status(404).json({ message: 'Użytkownik nie został znaleziony' });
     }
@@ -340,7 +342,7 @@ router.post("/me/2fa/verify", authMiddleware, async (req, res) => {
       });
     }
 
-    const user = await User.findById(req.user._id);
+    const user = await User.findById(req.user._id).select('+twoFactorSecret');
     if (!user || !user.twoFactorSecret) {
       return res.status(400).json({ message: 'Najpierw rozpocznij konfigurację 2FA' });
     }
@@ -435,7 +437,7 @@ router.delete("/me/avatar", authMiddleware, async (req, res) => {
 router.put("/me/2fa", authMiddleware, async (req, res) => {
   try {
     const { enabled, password } = req.body;
-    const user = await User.findById(req.user._id);
+    const user = await User.findById(req.user._id).select('+password +twoFactorSecret');
     
     if (!user) {
       return res.status(404).json({ message: 'Użytkownik nie został znaleziony' });
@@ -513,7 +515,7 @@ router.post('/me/account-delete', authMiddleware, async (req, res) => {
       return res.status(400).json({ message: 'Podaj hasło, aby potwierdzić usunięcie konta.' });
     }
 
-    const user = await User.findById(userId);
+    const user = await User.findById(userId).select('+password');
     if (!user) {
       return res.status(404).json({ message: 'Użytkownik nie został znaleziony' });
     }
@@ -559,7 +561,7 @@ router.get("/:id", async (req, res) => {
     const { id } = req.params;
     
     const user = await User.findById(id)
-      .select("name role level providerLevel location locationCoords price priceMin priceMax servicePrices time services provider_status promo badges kyc rankingPoints verified service bio headline priceNote company createdAt avatar isActive anonymized deletedAt")
+      .select("name role level providerLevel location locationCoords price priceMin priceMax servicePrices time services provider_status promo badges kyc.status rankingPoints verified verification.status service bio headline priceNote company createdAt avatar isActive anonymized deletedAt")
       .populate('company', 'name logo')
       .populate('services', 'name_pl name_en parent_slug slug code icon')
       .lean();

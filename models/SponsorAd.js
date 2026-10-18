@@ -6,6 +6,8 @@ const mongoose = require('mongoose');
  * Przykład: "Zepsuła się pralka" → AI poleca sklep z częściami AGD
  */
 const SponsorAdSchema = new mongoose.Schema({
+  owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
+
   // Firma zewnętrzna (może być niezalogowana)
   advertiser: {
     companyName: { type: String, required: true },
@@ -79,10 +81,9 @@ const SponsorAdSchema = new mongoose.Schema({
   videoUrl: String, // URL do wideo (opcjonalnie)
   mediaType: {
     type: String,
-    enum: ['image', 'gif', 'video', 'html5'], // Typ mediów
+    enum: ['image', 'gif', 'video'], // Aktywny HTML nie jest obsługiwany
     default: 'image'
   },
-  htmlContent: String, // HTML5 reklama (dla zaawansowanych)
   
   // Szczegóły dla różnych typów reklam
   details: {

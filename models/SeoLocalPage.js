@@ -12,7 +12,7 @@ const faqEntrySchema = new mongoose.Schema(
  * URL: /wykonawcy/:serviceSlug/:citySlug
  *
  * Idea:
- *  - generujemy LAZY (on first hit) lub pre-build via admin (cron co tydzień)
+ *  - generujemy wyłącznie poza publicznym ruchem (panel admina / cron)
  *  - intro + FAQ generuje LLM (unikalna treść per kombinacja)
  *  - live stats (avg cena, liczba wykonawców) dociągamy z MarketplaceStatsService
  *  - dane są dynamiczne – odświeżamy podczas renderu (cache 10 min), żeby content
@@ -52,7 +52,8 @@ const seoLocalPageSchema = new mongoose.Schema(
       recentOrders30d: { type: Number, default: null }
     },
 
-    published: { type: Boolean, default: true, index: true },
+    // Nowe strony są draftami. Publikacja wymaga przejścia quality gate w API admina.
+    published: { type: Boolean, default: false, index: true },
     lastBuiltAt: { type: Date, default: Date.now },
     views: { type: Number, default: 0 }
   },

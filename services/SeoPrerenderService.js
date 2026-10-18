@@ -4,6 +4,8 @@
  */
 const mongoose = require('mongoose');
 const { getPublicBaseUrl } = require('../utils/publicUrl');
+const { buildCanonicalServiceSlug } = require('../utils/seoSlug');
+const { isSeoLocalPageIndexable } = require('./SeoLocalQualityService');
 
 let logger;
 try { logger = require('../utils/logger'); } catch { logger = console; }
@@ -28,9 +30,18 @@ function stripHtml(html) {
     .trim();
 }
 
-function buildHtmlDocument({ title, description, canonical, ogImage, jsonLd = [], bodyHtml }) {
+function buildHtmlDocument({
+  title,
+  description,
+  canonical,
+  ogImage,
+  ogType = 'website',
+  robots = 'index,follow',
+  jsonLd = [],
+  bodyHtml
+}) {
   const base = getPublicBaseUrl();
-  const img = ogImage || `${base}/icons/icon-192x192.png`;
+  const img = ogImage || `${base}/img/landing%20front.webp`;
   const ldScripts = (Array.isArray(jsonLd) ? jsonLd : [jsonLd])
     .filter(Boolean)
     .map((ld) => `<script type="application/ld+json">${JSON.stringify(ld)}</script>`)
@@ -43,11 +54,12 @@ function buildHtmlDocument({ title, description, canonical, ogImage, jsonLd = []
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${escapeHtml(title)}</title>
   <meta name="description" content="${escapeHtml(description)}" />
+  <meta name="robots" content="${escapeHtml(robots)}" />
   <link rel="canonical" href="${escapeHtml(canonical)}" />
   <meta property="og:title" content="${escapeHtml(title)}" />
   <meta property="og:description" content="${escapeHtml(description)}" />
   <meta property="og:url" content="${escapeHtml(canonical)}" />
-  <meta property="og:type" content="website" />
+  <meta property="og:type" content="${escapeHtml(ogType)}" />
   <meta property="og:site_name" content="Helpfli" />
   <meta property="og:locale" content="pl_PL" />
   <meta property="og:image" content="${escapeHtml(img)}" />
@@ -171,6 +183,7 @@ async function renderArticlePage(slug) {
     description,
     canonical,
     ogImage,
+    ogType: 'article',
     jsonLd: [articleLd, faqLd, howToLd, breadcrumbLd].filter(Boolean),
     bodyHtml
   });
@@ -179,20 +192,20 @@ async function renderArticlePage(slug) {
 async function renderPseoPage(serviceSlug, citySlug) {
   const SeoLocalPage = require('../models/SeoLocalPage');
   const { TOP_PL_CITIES_BY_SLUG } = require('../utils/polishCities');
+  const { SEO_LOCAL_SERVICES } = require('../utils/seoCities');
   if (!TOP_PL_CITIES_BY_SLUG[citySlug]) return null;
 
-  let page = await SeoLocalPage.findOne({ serviceSlug, citySlug, published: true }).lean();
-  if (!page) {
-    try {
-      const { buildOrUpdateLocalPage } = require('../services/SeoLocalPageGenerator');
-      page = await buildOrUpdateLocalPage({ serviceSlug, citySlug });
-      if (page?.toObject) page = page.toObject();
-    } catch (err) {
-      logger.warn?.('[SeoPrerender] PSEO build failed:', err.message);
-      return null;
-    }
-  }
-  if (!page) return null;
+  const requestedService = SEO_LOCAL_SERVICES.find((item) => item.slug === serviceSlug);
+  const serviceQuery = requestedService
+    ? {
+        $or: [
+          { serviceSlug },
+          { serviceName: { $regex: `^${requestedService.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' } }
+        ]
+      }
+    : { serviceSlug };
+  const page = await SeoLocalPage.findOne({ ...serviceQuery, citySlug, published: true }).lean();
+  if (!page || !isSeoLocalPageIndexable(page)) return null;
 
   const base = getPublicBaseUrl();
   const canonical = `${base}/wykonawcy/${page.serviceSlug}/${page.citySlug}`;
@@ -214,14 +227,19 @@ async function renderPseoPage(serviceSlug, citySlug) {
         }
       : null;
 
-  const localBusinessLd = {
+  const webPageLd = {
     '@context': 'https://schema.org',
-    '@type': 'LocalBusiness',
-    name: `Helpfli – ${page.serviceName} ${page.cityName}`,
+    '@type': 'WebPage',
+    name: page.title || `${page.serviceName} ${page.cityName} — Helpfli`,
     description,
     url: canonical,
-    areaServed: { '@type': 'City', name: page.cityName },
-    image: `${base}/icons/icon-192x192.png`
+    inLanguage: 'pl-PL',
+    isPartOf: { '@type': 'WebSite', name: 'Helpfli', url: base },
+    about: {
+      '@type': 'Service',
+      name: page.serviceName,
+      areaServed: { '@type': 'City', name: page.cityName }
+    }
   };
 
   const breadcrumbLd = {
@@ -255,6 +273,7 @@ async function renderPseoPage(serviceSlug, citySlug) {
     <p>${escapeHtml(page.intro || stripHtml(page.contentHtml).slice(0, 400))}</p>
     ${contentBlock}
     ${faqHtml}
+    <p><a href="${escapeHtml(base)}/wykonawcy">Zobacz wszystkie dostępne usługi i miasta</a></p>
     <div class="cta"><p><a href="${escapeHtml(base)}/create-order?service=${escapeHtml(page.serviceSlug)}&city=${escapeHtml(page.cityName)}">Zleć ${escapeHtml(page.serviceName)} w ${escapeHtml(page.cityName)} →</a></p></div>
   `;
 
@@ -262,7 +281,7 @@ async function renderPseoPage(serviceSlug, citySlug) {
     title,
     description,
     canonical,
-    jsonLd: [localBusinessLd, faqLd, breadcrumbLd].filter(Boolean),
+    jsonLd: [webPageLd, faqLd, breadcrumbLd].filter(Boolean),
     bodyHtml
   });
 }
@@ -273,12 +292,7 @@ async function renderHomePage() {
     '@context': 'https://schema.org',
     '@type': 'WebSite',
     name: 'Helpfli',
-    url: base,
-    potentialAction: {
-      '@type': 'SearchAction',
-      target: `${base}/home?search={search_term_string}`,
-      'query-input': 'required name=search_term_string'
-    }
+    url: base
   };
   const orgLd = {
     '@context': 'https://schema.org',
@@ -296,7 +310,13 @@ async function renderHomePage() {
     bodyHtml: `
       <h1>Helpfli — usługi lokalne w Polsce</h1>
       <p>Znajdź sprawdzonego wykonawcę w swojej okolicy. Opisz problem, porównaj oferty, zapłać bezpiecznie.</p>
-      <div class="cta"><p><a href="${escapeHtml(base)}/home">Szukaj wykonawców →</a></p></div>
+      <ul>
+        <li><a href="${escapeHtml(base)}/wykonawcy">Usługi w miastach</a></li>
+        <li><a href="${escapeHtml(base)}/services">Lista usług</a></li>
+        <li><a href="${escapeHtml(base)}/providers">Katalog wykonawców</a></li>
+        <li><a href="${escapeHtml(base)}/poradniki">Poradniki</a></li>
+      </ul>
+      <div class="cta"><p><a href="${escapeHtml(base)}/register">Załóż konto i opisz zlecenie →</a></p></div>
     `
   });
 }
@@ -308,6 +328,7 @@ async function renderProviderProfile(providerId) {
     .lean();
   if (!user || !user.isActive || user.anonymized || user.deletedAt) return null;
   if (!['provider', 'company_owner', 'company_manager'].includes(user.role)) return null;
+  if (!user.name || (!user.bio && !user.city)) return null;
 
   const base = getPublicBaseUrl();
   const canonical = `${base}/provider/${providerId}`;
@@ -316,12 +337,14 @@ async function renderProviderProfile(providerId) {
     (user.bio && String(user.bio).slice(0, 160)) ||
     `Profil wykonawcy ${user.name} na Helpfli. Sprawdź usługi i wyślij zapytanie o wycenę.`;
 
-  const localBusinessLd = {
+  const providerLd = {
     '@context': 'https://schema.org',
-    '@type': 'LocalBusiness',
+    '@type': 'Person',
     name: user.name,
     url: canonical,
-    description
+    description,
+    jobTitle: 'Wykonawca usług lokalnych',
+    ...(user.city ? { areaServed: { '@type': 'City', name: user.city } } : {})
   };
 
   const bodyHtml = `
@@ -336,19 +359,29 @@ async function renderProviderProfile(providerId) {
     description,
     canonical,
     ogImage: user.avatar?.startsWith('http') ? user.avatar : undefined,
-    jsonLd: localBusinessLd,
+    jsonLd: providerLd,
     bodyHtml
   });
 }
 
 async function renderServicePage(slug) {
   const Service = require('../models/Service');
-  const service = await Service.findOne({ slug: String(slug).toLowerCase() }).lean();
+  const requestedSlug = String(slug).toLowerCase();
+  let service = await Service.findOne({
+    $or: [{ slug: requestedSlug }, { legacy_slugs: requestedSlug }]
+  }).lean();
+  if (!service) {
+    const candidates = await Service.find({})
+      .select('slug legacy_slugs parent_slug name_pl name_en name description')
+      .lean();
+    service = candidates.find((item) => buildCanonicalServiceSlug(item) === requestedSlug) || null;
+  }
   if (!service) return null;
 
   const base = getPublicBaseUrl();
   const name = service.name_pl || service.name_en || service.name || slug;
-  const canonical = `${base}/service/${service.slug || slug}`;
+  const publicSlug = buildCanonicalServiceSlug(service) || service.slug || requestedSlug;
+  const canonical = `${base}/service/${publicSlug}`;
   const title = `${name} — wykonawcy i ceny | Helpfli`;
   const description = `Znajdź wykonawców: ${name}. Porównaj oferty i zleć usługę na Helpfli.`;
 
@@ -371,6 +404,175 @@ async function renderServicePage(slug) {
       <p>${escapeHtml(description)}</p>
       <div class="cta"><p><a href="${escapeHtml(base)}/home?search=${encodeURIComponent(name)}">Znajdź wykonawców →</a></p></div>
     `
+  });
+}
+
+async function renderArticleIndex() {
+  const SeoArticle = require('../models/SeoArticle');
+  const base = getPublicBaseUrl();
+  const articles = await SeoArticle.find({ published: true })
+    .select('slug title metaDescription tldr')
+    .sort({ publishedAt: -1 })
+    .limit(100)
+    .lean();
+  const links = articles
+    .map(
+      (article) =>
+        `<li><a href="${escapeHtml(base)}/poradnik/${escapeHtml(article.slug)}">${escapeHtml(article.title)}</a>${
+          article.metaDescription || article.tldr
+            ? ` — ${escapeHtml(article.metaDescription || article.tldr)}`
+            : ''
+        }</li>`
+    )
+    .join('');
+  return buildHtmlDocument({
+    title: 'Poradniki Helpfli — porady domowe i usługi',
+    description:
+      'Poradniki Helpfli: AGD, hydraulika, elektryka, remont. Praktyczne wskazówki i znajdowanie wykonawców.',
+    canonical: `${base}/poradniki`,
+    bodyHtml: `<h1>Poradniki Helpfli</h1><p>Praktyczne artykuły o domu, AGD i usługach lokalnych.</p><ul>${links}</ul>`
+  });
+}
+
+async function renderPseoIndex() {
+  const SeoLocalPage = require('../models/SeoLocalPage');
+  const base = getPublicBaseUrl();
+  const pages = await SeoLocalPage.find({ published: true })
+    .select(
+      'serviceSlug serviceName citySlug cityName title metaDescription intro contentHtml faq statsSnapshot published'
+    )
+    .sort({ serviceName: 1, cityName: 1 })
+    .limit(2000)
+    .lean();
+  const links = pages
+    .filter(isSeoLocalPageIndexable)
+    .map(
+      (page) =>
+        `<li><a href="${escapeHtml(base)}/wykonawcy/${escapeHtml(page.serviceSlug)}/${escapeHtml(page.citySlug)}">${escapeHtml(page.serviceName)} — ${escapeHtml(page.cityName)}</a></li>`
+    )
+    .join('');
+  return buildHtmlDocument({
+    title: 'Wykonawcy Helpfli — usługi w Twoim mieście',
+    description:
+      'Katalog wykonawców Helpfli: hydraulik, elektryk, remont i inne usługi w miastach w całej Polsce.',
+    canonical: `${base}/wykonawcy`,
+    bodyHtml: `<h1>Wykonawcy Helpfli</h1><p>Przeglądaj dostępne usługi lokalne w miastach obsługiwanych przez Helpfli.</p><ul>${links}</ul>`
+  });
+}
+
+async function renderProvidersIndex() {
+  const User = require('../models/User');
+  const base = getPublicBaseUrl();
+  const providers = await User.find({
+    role: { $in: ['provider', 'company_owner', 'company_manager'] },
+    isActive: true,
+    anonymized: { $ne: true },
+    deletedAt: null
+  })
+    .select('_id name bio city')
+    .sort({ updatedAt: -1 })
+    .limit(100)
+    .lean();
+  const links = providers
+    .filter((provider) => provider.name && (provider.bio || provider.city))
+    .map(
+      (provider) =>
+        `<li><a href="${escapeHtml(base)}/provider/${escapeHtml(provider._id)}">${escapeHtml(provider.name)}</a>${provider.city ? ` — ${escapeHtml(provider.city)}` : ''}</li>`
+    )
+    .join('');
+  return buildHtmlDocument({
+    title: 'Sprawdzeni wykonawcy usług | Helpfli',
+    description: 'Przeglądaj profile wykonawców, porównuj dostępne informacje i znajdź pomoc w swojej okolicy.',
+    canonical: `${base}/providers`,
+    bodyHtml: `<h1>Katalog wykonawców</h1><p>Znajdź wykonawcę dopasowanego do swojej usługi i lokalizacji.</p><ul>${links}</ul>`
+  });
+}
+
+async function renderServicesIndex() {
+  const Service = require('../models/Service');
+  const base = getPublicBaseUrl();
+  const services = await Service.find({ slug: { $exists: true, $nin: [null, ''] } })
+    .select('slug parent_slug name_pl name_en name')
+    .sort({ is_top: -1, name_pl: 1 })
+    .limit(500)
+    .lean();
+  const links = services
+    .map((service) => {
+      const name = service.name_pl || service.name_en || service.name || service.slug;
+      const publicSlug = buildCanonicalServiceSlug(service) || service.slug;
+      return `<li><a href="${escapeHtml(base)}/service/${escapeHtml(publicSlug)}">${escapeHtml(name)}</a></li>`;
+    })
+    .join('');
+  return buildHtmlDocument({
+    title: 'Lista usług lokalnych | Helpfli',
+    description: 'Sprawdź katalog usług Helpfli i znajdź wykonawcę dopasowanego do swojego zadania.',
+    canonical: `${base}/services`,
+    bodyHtml: `<h1>Lista usług Helpfli</h1><p>Wybierz usługę, aby zobaczyć szczegóły i dostępnych wykonawców.</p><ul>${links}</ul>`
+  });
+}
+
+const STATIC_PUBLIC_PAGES = Object.freeze({
+  '/about': {
+    title: 'O Helpfli — marketplace usług lokalnych',
+    description: 'Dowiedz się, jak Helpfli łączy klientów z wykonawcami usług lokalnych.',
+    heading: 'O Helpfli'
+  },
+  '/help': {
+    title: 'Centrum pomocy Helpfli',
+    description: 'Odpowiedzi na najczęstsze pytania dotyczące zleceń, wykonawców, płatności i konta Helpfli.',
+    heading: 'Centrum pomocy'
+  },
+  '/contact': {
+    title: 'Kontakt z Helpfli',
+    description: 'Skontaktuj się z zespołem Helpfli w sprawie konta, zlecenia lub współpracy.',
+    heading: 'Kontakt z Helpfli'
+  },
+  '/why-pro': {
+    title: 'Helpfli Pro — narzędzia dla wykonawców',
+    description: 'Poznaj możliwości Helpfli Pro dla wykonawców usług lokalnych.',
+    heading: 'Helpfli Pro'
+  },
+  '/regulamin': {
+    title: 'Regulamin platformy Helpfli',
+    description: 'Zasady korzystania z platformy Helpfli przez klientów i wykonawców.',
+    heading: 'Regulamin Helpfli'
+  },
+  '/prywatnosc': {
+    title: 'Polityka prywatności Helpfli',
+    description: 'Informacje o przetwarzaniu i ochronie danych osobowych w Helpfli.',
+    heading: 'Polityka prywatności'
+  },
+  '/cennik': {
+    title: 'Cennik i opłaty Helpfli',
+    description: 'Sprawdź informacje o opłatach i rozliczeniach na platformie Helpfli.',
+    heading: 'Cennik i opłaty'
+  },
+  '/dane-firmy': {
+    title: 'Dane firmy Helpfli',
+    description: 'Informacje o operatorze platformy Helpfli.',
+    heading: 'Dane firmy'
+  },
+  '/cooperation': {
+    title: 'Współpraca z Helpfli',
+    description: 'Możliwości współpracy biznesowej z platformą Helpfli.',
+    heading: 'Współpraca z Helpfli'
+  },
+  '/reviews': {
+    title: 'Opinie o wykonawcach | Helpfli',
+    description: 'Sprawdź, jak działają opinie i oceny wykonawców na platformie Helpfli.',
+    heading: 'Opinie o wykonawcach'
+  }
+});
+
+function renderStaticPublicPage(path) {
+  const page = STATIC_PUBLIC_PAGES[path];
+  if (!page) return null;
+  const base = getPublicBaseUrl();
+  return buildHtmlDocument({
+    title: page.title,
+    description: page.description,
+    canonical: `${base}${path}`,
+    bodyHtml: `<h1>${escapeHtml(page.heading)}</h1><p>${escapeHtml(page.description)}</p><p><a href="${escapeHtml(base)}${escapeHtml(path)}">Przejdź do strony</a></p>`
   });
 }
 
@@ -401,25 +603,14 @@ async function renderForPath(pathname) {
     return renderPseoPage(pseoMatch[1].toLowerCase(), pseoMatch[2].toLowerCase());
   }
 
-  if (path === '/poradniki') {
-    const base = getPublicBaseUrl();
-    return buildHtmlDocument({
-      title: 'Poradniki Helpfli — porady domowe i usługi',
-      description: 'Poradniki Helpfli: AGD, hydraulika, elektryka, remont. Praktyczne wskazówki i znajdowanie wykonawców.',
-      canonical: `${base}/poradniki`,
-      bodyHtml: `<h1>Poradniki Helpfli</h1><p>Praktyczne artykuły o domu, AGD i usługach lokalnych.</p><p><a href="${base}/poradniki">Przeglądaj poradniki →</a></p>`
-    });
-  }
+  if (path === '/poradniki') return renderArticleIndex();
 
-  if (path === '/wykonawcy') {
-    const base = getPublicBaseUrl();
-    return buildHtmlDocument({
-      title: 'Wykonawcy Helpfli — usługi w Twoim mieście',
-      description: 'Katalog wykonawców Helpfli: hydraulik, elektryk, remont, sprzątanie w całej Polsce.',
-      canonical: `${base}/wykonawcy`,
-      bodyHtml: `<h1>Wykonawcy Helpfli</h1><p>Znajdź sprawdzonego fachowca w swoim mieście.</p><p><a href="${base}/wykonawcy">Przeglądaj katalog →</a></p>`
-    });
-  }
+  if (path === '/wykonawcy') return renderPseoIndex();
+  if (path === '/providers') return renderProvidersIndex();
+  if (path === '/services') return renderServicesIndex();
+
+  const staticPage = renderStaticPublicPage(path);
+  if (staticPage) return staticPage;
 
   return null;
 }

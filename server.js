@@ -36,7 +36,15 @@ if (!process.env.MONGO_URI && process.env.MONGODB_URI) process.env.MONGO_URI = p
 if (process.env.VERCEL !== '1') {
   if (!process.env.MONGO_URI) process.env.MONGO_URI = 'mongodb://localhost:27017/helpfli';
 }
-if (!process.env.JWT_SECRET) process.env.JWT_SECRET = 'your-super-secret-jwt-key-here';
+if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'test') {
+  process.env.JWT_SECRET = 'test-only-jwt-secret-not-for-deployment-0001';
+}
+if (!process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET is required. Generate a strong secret and provide it through the environment.');
+}
+if (process.env.NODE_ENV === 'production' && process.env.JWT_SECRET.length < 32) {
+  throw new Error('JWT_SECRET must contain at least 32 characters in production.');
+}
 if (!process.env.CORS_ORIGIN && process.env.NODE_ENV !== 'production') {
   process.env.CORS_ORIGIN = 'http://localhost:5174';
 }
@@ -98,19 +106,13 @@ const loadRoute = (name, path) => {
     logger.debug(`✅ Route ${name} loaded successfully`);
     return route;
   } catch (e) {
-    if (e.message && e.message.includes('Missing parameter name')) {
-      logger.error(`\n❌❌❌ CRITICAL ERROR in route: ${name} (${path})`);
-      logger.error(`   This route file has invalid parameter syntax!`);
-      logger.error(`   Look for routes with ':' followed by space or invalid characters`);
-      logger.error(`   Error: ${e.message}`);
-      if (e.stack) {
-        const stackLines = e.stack.split('\n').slice(0, 15);
-        stackLines.forEach(line => logger.error(`   ${line}`));
-      }
-      throw e; // Rzuć błąd dalej, żeby zatrzymać serwer
+    logger.error(`\n❌❌❌ CRITICAL ERROR while loading route: ${name} (${path})`);
+    logger.error(`   Error: ${e.message}`);
+    if (e.stack) {
+      const stackLines = e.stack.split('\n').slice(0, 15);
+      stackLines.forEach(line => logger.error(`   ${line}`));
     }
-    logger.warn(`⚠️  Skipping route ${name}: ${e.message}`);
-    return express.Router();
+    throw e;
   }
 };
 

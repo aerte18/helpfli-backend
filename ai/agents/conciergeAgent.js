@@ -25,12 +25,17 @@ const { shouldEnableConciergeTools } = require('../../services/aiRouter');
  * @returns {Promise<Object>} Response agenta
  */
 async function runConciergeAgent({ messages, userContext = {}, allowedServicesHint = [] }) {
+  messages = Array.isArray(messages) ? messages : [];
+
   try {
     // Jeśli nie ma podanych usług, pobierz je z bazy (opcjonalnie, dla lepszej klasyfikacji)
     let services = allowedServicesHint;
     if (services.length === 0) {
       try {
         const Service = require('../../models/Service');
+        if (Service.db?.readyState !== 1) {
+          throw new Error('Database is not connected');
+        }
         const allServices = await Service.find({}).select('code name').lean();
         services = allServices.map(s => s.code || s.name).filter(Boolean);
       } catch (err) {

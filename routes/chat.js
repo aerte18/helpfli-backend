@@ -2,13 +2,17 @@ const router = require("express").Router();
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
-const { v4: uuid } = require("uuid");
 
 const Conversation = require("../models/Conversation");
 const Message = require("../models/Message");
 const { authMiddleware: auth } = require("../middleware/authMiddleware");
 const { getUserFromToken } = require("../middleware/authMiddleware");
 const { chatLimiter, uploadLimiter } = require("../middleware/rateLimiter");
+const {
+  safeUploadName,
+  removeUploadedFiles,
+  validateUploadedFiles,
+} = require('../utils/uploadSafety');
 
 // Multer storage
 const uploadDir = path.join(__dirname, "..", "uploads", "chat");
@@ -25,10 +29,32 @@ const ALLOWED_CHAT_UPLOAD_TYPES = [
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `${uuid()}${ext}`);
+    try {
+      cb(null, safeUploadName('chat', file, req.userId));
+    } catch (error) {
+      cb(error);
+    }
   },
 });
+
+function runChatUpload(req, res, next) {
+  upload.array("files", 10)(req, res, async (error) => {
+    if (error) {
+      removeUploadedFiles(req.files);
+      return res.status(400).json({ message: error.message || 'Błąd uploadu' });
+    }
+    try {
+      if (!(await validateUploadedFiles(req.files))) {
+        removeUploadedFiles(req.files);
+        return res.status(400).json({ message: 'Zawartość pliku nie odpowiada zadeklarowanemu formatowi' });
+      }
+      return next();
+    } catch {
+      removeUploadedFiles(req.files);
+      return res.status(400).json({ message: 'Nie udało się zweryfikować pliku' });
+    }
+  });
+}
 
 const upload = multer({
   storage,
@@ -122,7 +148,7 @@ router.post("/:conversationId/mark-read", requireUser, async (req, res) => {
 });
 
 // POST: upload załączników (zwraca metadane do socket `message:send`)
-router.post("/upload", requireUser, chatLimiter, uploadLimiter, upload.array("files", 10), async (req, res) => {
+router.post("/upload", requireUser, chatLimiter, uploadLimiter, runChatUpload, async (req, res) => {
   const files = (req.files || []).map((f) => ({
     url: `/uploads/chat/${f.filename}`,
     name: f.originalname,
