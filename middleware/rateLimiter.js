@@ -200,7 +200,7 @@ const aiLimiter = DISABLE_LIMITERS ? passThrough : rateLimit({
     const userId = req.user?._id || req.user?.id;
     if (userId) return `ai:user:${userId}`;
     if (req.guest?.id) return `ai:guest:${req.guest.id}`;
-    return `ai:ip:${req.ip}`;
+    return `ai:ip:${ipKeyGenerator(req.ip || 'unknown')}`;
   }
 });
 
