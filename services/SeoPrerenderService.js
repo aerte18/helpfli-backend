@@ -10,6 +10,30 @@ const { isSeoLocalPageIndexable } = require('./SeoLocalQualityService');
 let logger;
 try { logger = require('../utils/logger'); } catch { logger = console; }
 
+const HOME_SERVICE_LINKS = Object.freeze([
+  ['hydraulika-naprawa-wycieku', 'Hydraulik — naprawa wycieku'],
+  ['elektryka-montaz-gniazdek-wlacznikow-oswietlenia-led', 'Elektryk — gniazdka i oświetlenie'],
+  ['agd-rtv-naprawa-agd', 'Naprawa AGD'],
+  ['remont-wykonczenia-malowanie', 'Malowanie mieszkania'],
+  ['sprzatanie-sprzatanie-mieszkania', 'Sprzątanie mieszkania'],
+  ['remont-wykonczenia-remont-lazienki', 'Remont łazienki']
+]);
+
+const HOME_FAQ = Object.freeze([
+  {
+    question: 'Czy muszę zakładać konto, żeby korzystać?',
+    answer: 'Nie — możesz przetestować Asystenta AI i wyszukiwanie wykonawców bez logowania. Konto jest potrzebne dopiero do utworzenia zlecenia lub płatności.'
+  },
+  {
+    question: 'Czy dodanie zlecenia i porównanie ofert jest bezpłatne?',
+    answer: 'Tak — samo opisanie potrzeby i porównanie otrzymanych ofert jest bezpłatne i nie zobowiązuje do wyboru wykonawcy.'
+  },
+  {
+    question: 'Jak działa gwarancja Helpfli?',
+    answer: 'Przy płatności przez system pieniądze są chronione do momentu zakończenia usługi. W razie problemów klient może zgłosić reklamację.'
+  }
+]);
+
 function escapeHtml(str) {
   if (str == null) return '';
   return String(str)
@@ -291,32 +315,59 @@ async function renderHomePage() {
   const websiteLd = {
     '@context': 'https://schema.org',
     '@type': 'WebSite',
+    '@id': `${base}/#website`,
     name: 'Helpfli',
-    url: base
+    url: base,
+    inLanguage: 'pl-PL',
+    potentialAction: {
+      '@type': 'SearchAction',
+      target: `${base}/providers?q={search_term_string}`,
+      'query-input': 'required name=search_term_string'
+    }
   };
   const orgLd = {
     '@context': 'https://schema.org',
     '@type': 'Organization',
+    '@id': `${base}/#organization`,
     name: 'Helpfli',
     url: base,
     logo: `${base}/icons/icon-192x192.png`
   };
+  const faqLd = {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: HOME_FAQ.map((item) => ({
+      '@type': 'Question',
+      name: item.question,
+      acceptedAnswer: { '@type': 'Answer', text: item.answer }
+    }))
+  };
+  const serviceLinks = HOME_SERVICE_LINKS.map(
+    ([slug, label]) => `<li><a href="${escapeHtml(base)}/service/${escapeHtml(slug)}">${escapeHtml(label)}</a></li>`
+  ).join('');
+  const faqHtml = HOME_FAQ.map(
+    (item) => `<h3>${escapeHtml(item.question)}</h3><p>${escapeHtml(item.answer)}</p>`
+  ).join('');
   return buildHtmlDocument({
-    title: 'Helpfli — marketplace usług lokalnych w Polsce',
+    title: 'Fachowcy i usługi lokalne w Twojej okolicy | Helpfli',
     description:
-      'Helpfli łączy klientów ze sprawdzonymi wykonawcami: hydraulik, elektryk, remont, sprzątanie. Porównaj oferty i zleć usługę online.',
+      'Znajdź sprawdzonego hydraulika, elektryka, serwis AGD, ekipę remontową lub sprzątającą. Dodaj zlecenie bezpłatnie i porównaj oferty lokalnych wykonawców.',
     canonical: `${base}/`,
-    jsonLd: [websiteLd, orgLd],
+    jsonLd: [websiteLd, orgLd, faqLd],
     bodyHtml: `
-      <h1>Helpfli — usługi lokalne w Polsce</h1>
-      <p>Znajdź sprawdzonego wykonawcę w swojej okolicy. Opisz problem, porównaj oferty, zapłać bezpiecznie.</p>
+      <h1>Znajdź lokalnego fachowca i porównaj oferty</h1>
+      <p>Opisz zadanie bez zobowiązań. Lokalni wykonawcy mogą odpowiedzieć wyceną, a Ty porównasz zakres, cenę i profile.</p>
+      <h2>Najczęściej szukane usługi</h2>
+      <ul>${serviceLinks}</ul>
+      <h2>Przeglądaj Helpfli</h2>
       <ul>
         <li><a href="${escapeHtml(base)}/wykonawcy">Usługi w miastach</a></li>
         <li><a href="${escapeHtml(base)}/services">Lista usług</a></li>
         <li><a href="${escapeHtml(base)}/providers">Katalog wykonawców</a></li>
         <li><a href="${escapeHtml(base)}/poradniki">Poradniki</a></li>
       </ul>
-      <div class="cta"><p><a href="${escapeHtml(base)}/register">Załóż konto i opisz zlecenie →</a></p></div>
+      <section><h2>Najczęstsze pytania</h2>${faqHtml}</section>
+      <div class="cta"><p><a href="${escapeHtml(base)}/create-order">Dodaj zlecenie bezpłatnie →</a></p></div>
     `
   });
 }
@@ -393,16 +444,26 @@ async function renderServicePage(slug) {
     provider: { '@type': 'Organization', name: 'Helpfli' },
     areaServed: { '@type': 'Country', name: 'Polska' }
   };
+  const breadcrumbLd = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Strona główna', item: base },
+      { '@type': 'ListItem', position: 2, name: 'Katalog usług', item: `${base}/services` },
+      { '@type': 'ListItem', position: 3, name, item: canonical }
+    ]
+  };
 
   return buildHtmlDocument({
     title,
     description,
     canonical,
-    jsonLd: serviceLd,
+    jsonLd: [serviceLd, breadcrumbLd],
     bodyHtml: `
       <h1>${escapeHtml(name)}</h1>
       <p>${escapeHtml(description)}</p>
-      <div class="cta"><p><a href="${escapeHtml(base)}/home?search=${encodeURIComponent(name)}">Znajdź wykonawców →</a></p></div>
+      <p><a href="${escapeHtml(base)}/services">Zobacz wszystkie usługi</a> · <a href="${escapeHtml(base)}/wykonawcy">Usługi w miastach</a> · <a href="${escapeHtml(base)}/poradniki">Poradniki</a></p>
+      <div class="cta"><p><a href="${escapeHtml(base)}/create-order?service=${encodeURIComponent(publicSlug)}">Poproś o bezpłatną wycenę →</a></p></div>
     `
   });
 }
@@ -451,12 +512,28 @@ async function renderPseoIndex() {
         `<li><a href="${escapeHtml(base)}/wykonawcy/${escapeHtml(page.serviceSlug)}/${escapeHtml(page.citySlug)}">${escapeHtml(page.serviceName)} — ${escapeHtml(page.cityName)}</a></li>`
     )
     .join('');
+  const indexablePages = pages.filter(isSeoLocalPageIndexable);
+  const itemListLd = indexablePages.length
+    ? {
+        '@context': 'https://schema.org',
+        '@type': 'ItemList',
+        name: 'Usługi lokalne Helpfli w polskich miastach',
+        numberOfItems: indexablePages.length,
+        itemListElement: indexablePages.slice(0, 100).map((page, index) => ({
+          '@type': 'ListItem',
+          position: index + 1,
+          name: `${page.serviceName} — ${page.cityName}`,
+          url: `${base}/wykonawcy/${page.serviceSlug}/${page.citySlug}`
+        }))
+      }
+    : null;
   return buildHtmlDocument({
-    title: 'Wykonawcy Helpfli — usługi w Twoim mieście',
+    title: 'Usługi lokalne i fachowcy w polskich miastach | Helpfli',
     description:
-      'Katalog wykonawców Helpfli: hydraulik, elektryk, remont i inne usługi w miastach w całej Polsce.',
+      'Sprawdź dostępne usługi lokalne, orientacyjne ceny i wykonawców w obsługiwanych miastach. Hydraulik, elektryk, AGD, remont i sprzątanie.',
     canonical: `${base}/wykonawcy`,
-    bodyHtml: `<h1>Wykonawcy Helpfli</h1><p>Przeglądaj dostępne usługi lokalne w miastach obsługiwanych przez Helpfli.</p><ul>${links}</ul>`
+    jsonLd: itemListLd,
+    bodyHtml: `<h1>Usługi lokalne w Twoim mieście</h1><p>Wybierz usługę i miasto, sprawdź przydatne informacje, a następnie poproś lokalnych wykonawców o wycenę.</p>${links ? `<ul>${links}</ul>` : '<p>Katalog lokalnych stron jest właśnie uzupełniany.</p>'}<p><a href="${escapeHtml(base)}/services">Zobacz pełny katalog usług</a></p><div class="cta"><p><a href="${escapeHtml(base)}/create-order">Dodaj zlecenie bezpłatnie →</a></p></div>`
   });
 }
 
