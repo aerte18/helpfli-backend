@@ -10,11 +10,12 @@ const User = require('../models/User');
 
 const FUNNEL_SEQUENCE = [
   'page_view',
-  'search',
-  'provider_view',
-  'provider_contact',
-  'quote_request',
+  'order_cta_click',
   'order_form_start',
+  'order_auth_required',
+  'registration_start',
+  'registration_success',
+  'email_verification_success',
   'order_form_success',
   'offer_form_start',
   'offer_form_submit',
@@ -54,7 +55,16 @@ const PUBLIC_BATCH_TYPES = new Set([
   'filter_applied',
   'category_selected',
   'order_form_start',
+  'order_cta_click',
+  'order_auth_required',
+  'order_draft_saved',
+  'order_step_view',
+  'order_form_abandon',
   'order_form_success',
+  'no_results_lead',
+  'registration_start',
+  'registration_success',
+  'email_verification_success',
   'offer_form_start',
   'offer_form_submit',
   'payment_succeeded',
@@ -156,14 +166,33 @@ function sanitizePublicProperties(eventType, raw) {
   }
   if (
     eventType === 'order_form_start' ||
+    eventType === 'order_cta_click' ||
+    eventType === 'order_auth_required' ||
+    eventType === 'order_draft_saved' ||
+    eventType === 'order_step_view' ||
+    eventType === 'order_form_abandon' ||
     eventType === 'order_form_success' ||
+    eventType === 'no_results_lead' ||
+    eventType === 'registration_start' ||
+    eventType === 'registration_success' ||
+    eventType === 'email_verification_success' ||
     eventType === 'offer_form_start' ||
     eventType === 'offer_form_submit'
   ) {
     return {
       orderId: sanitizeId(p.orderId),
       orderType: typeof p.orderType === 'string' ? p.orderType.slice(0, 32) : undefined,
-      source: typeof p.source === 'string' ? p.source.slice(0, 32) : undefined
+      source: typeof p.source === 'string' ? p.source.slice(0, 32) : undefined,
+      audience: typeof p.audience === 'string' ? p.audience.slice(0, 24) : undefined,
+      intent: typeof p.intent === 'string' ? p.intent.slice(0, 32) : undefined,
+      service: typeof p.service === 'string' ? p.service.slice(0, 120) : undefined,
+      hasLocation: typeof p.hasLocation === 'boolean' ? p.hasLocation : undefined,
+      lastStep: Number.isFinite(Number(p.lastStep))
+        ? Math.max(0, Math.min(12, Math.round(Number(p.lastStep))))
+        : undefined,
+      step: Number.isFinite(Number(p.step))
+        ? Math.max(0, Math.min(12, Math.round(Number(p.step))))
+        : undefined
     };
   }
   if (eventType === 'payment_succeeded' || eventType === 'payment_failed') {

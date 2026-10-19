@@ -26,6 +26,12 @@ function computeConversionRates(funnelRows) {
   const search = m.search || 0;
   const prv = m.provider_view || 0;
   const qreq = m.quote_request || 0;
+  const cta = m.order_cta_click || 0;
+  const formStart = m.order_form_start || 0;
+  const authRequired = m.order_auth_required || 0;
+  const registrationStart = m.registration_start || 0;
+  const registrationSuccess = m.registration_success || 0;
+  const verificationSuccess = m.email_verification_success || 0;
   const ofs = m.order_form_success || 0;
   return {
     counts: m,
@@ -33,7 +39,12 @@ function computeConversionRates(funnelRows) {
       searchPerPageView: pv ? Number((search / pv).toFixed(4)) : null,
       providerViewPerSearch: search ? Number((prv / search).toFixed(4)) : null,
       quotePerProviderView: prv ? Number((qreq / prv).toFixed(4)) : null,
-      orderSuccessPerPageView: pv ? Number((ofs / pv).toFixed(4)) : null
+      orderSuccessPerPageView: pv ? Number((ofs / pv).toFixed(4)) : null,
+      orderFormPerCta: cta ? Number((formStart / cta).toFixed(4)) : null,
+      registrationSuccessPerStart: registrationStart ? Number((registrationSuccess / registrationStart).toFixed(4)) : null,
+      verificationPerRegistration: registrationSuccess ? Number((verificationSuccess / registrationSuccess).toFixed(4)) : null,
+      orderSuccessPerFormStart: formStart ? Number((ofs / formStart).toFixed(4)) : null,
+      orderSuccessAfterAuthGate: authRequired ? Number((ofs / authRequired).toFixed(4)) : null
     }
   };
 }
@@ -1613,7 +1624,20 @@ router.get('/product-insights', authMiddleware, requireRole('admin'), async (req
       Event.aggregate([
         {
           $match: {
-            type: { $in: ['page_view', 'search', 'provider_view', 'quote_request', 'order_form_success'] },
+            type: { $in: [
+              'page_view',
+              'search',
+              'provider_view',
+              'quote_request',
+              'order_cta_click',
+              'order_form_start',
+              'order_auth_required',
+              'registration_start',
+              'registration_success',
+              'email_verification_success',
+              'order_form_success',
+              'no_results_lead'
+            ] },
             createdAt: { $gte: start, $lte: end }
           }
         },

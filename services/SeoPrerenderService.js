@@ -22,7 +22,7 @@ const HOME_SERVICE_LINKS = Object.freeze([
 const HOME_FAQ = Object.freeze([
   {
     question: 'Czy muszę zakładać konto, żeby korzystać?',
-    answer: 'Nie — możesz przetestować Asystenta AI i wyszukiwanie wykonawców bez logowania. Konto jest potrzebne dopiero do utworzenia zlecenia lub płatności.'
+    answer: 'Nie — możesz wyszukiwać wykonawców i wypełnić całe zlecenie bez logowania. Konto potwierdzasz dopiero przy wysłaniu zlecenia, aby móc odbierać oferty i wiadomości.'
   },
   {
     question: 'Czy dodanie zlecenia i porównanie ofert jest bezpłatne?',

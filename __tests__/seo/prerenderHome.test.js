@@ -11,5 +11,6 @@ describe('SEO prerender homepage', () => {
     expect(html).toContain('/services');
     expect(html).toContain('/wykonawcy');
     expect(html).toContain('/create-order');
+    expect(html).toContain('wypełnić całe zlecenie bez logowania');
   });
 });

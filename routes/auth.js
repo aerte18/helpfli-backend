@@ -299,7 +299,7 @@ router.post('/login', async (req, res) => {
 
 // Rejestracja
 router.post('/register', validate('register'), validateRegistration, async (req, res) => {
-  let { name, email, password, role, isB2B, phone, address, locationCoords, company, notificationPreferences, consents } = req.body;
+  let { name, email, password, role, isB2B, phone, address, locationCoords, company, notificationPreferences, consents, registrationIntent, continuePath } = req.body;
   
   try {
     const existing = await User.findOne({ email });
@@ -526,7 +526,7 @@ router.post('/register', validate('register'), validateRegistration, async (req,
       } else {
         try {
           const svc = getEmailService();
-          await svc?.sendVerificationEmail(user);
+          await svc?.sendVerificationEmail(user, { continuePath });
         } catch (emailError) {
           logger.error('EMAIL_SEND_ERROR:', emailError);
           // Nie usuwaj konta przy błędzie maila - użytkownik może ponowić wysyłkę.
@@ -554,7 +554,10 @@ router.post('/register', validate('register'), validateRegistration, async (req,
       const TelemetryService = require('../services/TelemetryService');
       TelemetryService.track('register', {
         userId: user._id,
-        properties: { role: freshUser.role },
+        properties: {
+          role: freshUser.role,
+          intent: registrationIntent === 'order' ? 'order' : 'account',
+        },
         userAgent: req.get('user-agent'),
         ip: req.ip
       }).catch(() => {});
@@ -759,10 +762,20 @@ router.post('/verify-email', async (req, res) => {
     const result = await (svc?.verifyToken(token));
     
     if (result.success) {
+      if (!process.env.JWT_SECRET) {
+        return res.status(500).json({ message: 'Błąd konfiguracji serwera' });
+      }
+
+      const verifiedUser = await User.findById(result.user._id)
+        .select('name email phone role isB2B onboardingCompleted company roleInCompany emailVerified')
+        .lean();
+      const sessionToken = jwt.sign({ id: result.user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+
       res.json({ 
         success: true, 
-        message: 'Email został pomyślnie zweryfikowany! Możesz się teraz zalogować.',
-        user: result.user
+        message: 'Email został pomyślnie zweryfikowany.',
+        token: sessionToken,
+        user: verifiedUser
       });
     } else {
       res.status(400).json({ message: result.message });
@@ -778,7 +791,7 @@ router.post('/verify-email', async (req, res) => {
 
 // Ponowne wysłanie emaila weryfikacyjnego
 router.post('/resend-verification', async (req, res) => {
-  const { email } = req.body;
+  const { email, continuePath } = req.body;
   
   if (!email) {
     return res.status(400).json({ message: 'Email jest wymagany' });
@@ -797,7 +810,7 @@ router.post('/resend-verification', async (req, res) => {
 
     // Wysyłaj ponownie email weryfikacyjny
     const svc = getEmailService();
-    await svc?.sendVerificationEmail(user);
+    await svc?.sendVerificationEmail(user, { continuePath });
     
     res.json({ 
       success: true, 

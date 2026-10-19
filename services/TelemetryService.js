@@ -26,9 +26,16 @@ class TelemetryService {
       ORDER_COMPLETED: 'order_completed',
       // Funnel: tworzenie zlecenia (gdzie użytkownik rezygnuje)
       ORDER_FORM_START: 'order_form_start',
+      ORDER_CTA_CLICK: 'order_cta_click',
+      ORDER_AUTH_REQUIRED: 'order_auth_required',
+      ORDER_DRAFT_SAVED: 'order_draft_saved',
       ORDER_STEP_VIEW: 'order_step_view',
       ORDER_FORM_ABANDON: 'order_form_abandon',
       ORDER_FORM_SUCCESS: 'order_form_success',
+      NO_RESULTS_LEAD: 'no_results_lead',
+      REGISTRATION_START: 'registration_start',
+      REGISTRATION_SUCCESS: 'registration_success',
+      EMAIL_VERIFICATION_SUCCESS: 'email_verification_success',
       // Funnel: składanie oferty
       OFFER_FORM_START: 'offer_form_start',
       OFFER_STEP_VIEW: 'offer_step_view',

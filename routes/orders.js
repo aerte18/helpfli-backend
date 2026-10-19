@@ -16,6 +16,7 @@ const Conversation = require("../models/Conversation");
 const Message = require("../models/Message");
 const { buildServiceSlugPrefixRegex, escapeRegex } = require("../utils/serviceSlugRegex");
 const Revenue = require("../models/Revenue");
+const Notification = require("../models/Notification");
 const NotificationService = require("../services/NotificationService");
 const Payment = require("../models/Payment");
 const Stripe = require("stripe");
@@ -476,8 +477,9 @@ router.post("/", auth, async (req, res) => {
     }
     
     const {
-      service, 
-      description, 
+      service,
+      serviceDetails,
+      description,
       location, 
       status = "open", 
       type = "open",
@@ -499,7 +501,8 @@ router.post("/", auth, async (req, res) => {
       paymentPreference = "system", // MVP: 'system' | 'external'
       paymentMethod = "system", // Legacy: 'system' | 'external'
       orderMode = "standard", // 'standard' | 'offers_only'
-      requestInvoice = false // Klient prosi o fakturę VAT od wykonawcy
+      requestInvoice = false, // Klient prosi o fakturę VAT od wykonawcy
+      acquisitionSource = 'direct'
     } = req.body;
 
     // Attachments can arrive as JSON string or objects array.
@@ -549,6 +552,19 @@ router.post("/", auth, async (req, res) => {
     }
 
     const normalizedAiBrief = normalizeAiBrief(aiBrief);
+    const allowedAcquisitionSources = new Set([
+      'direct',
+      'landing_hero',
+      'landing_trust',
+      'search_no_results',
+      'providers_no_results',
+      'saved_draft',
+      'service_page',
+      'ai'
+    ]);
+    const normalizedAcquisitionSource = allowedAcquisitionSources.has(acquisitionSource)
+      ? acquisitionSource
+      : 'direct';
     
     // Normalizacja: użyj nowych pól jeśli dostępne
     const finalUrgency = urgency || 'flexible';
@@ -641,6 +657,7 @@ router.post("/", auth, async (req, res) => {
       client: req.user._id,
       ...(providerId ? { provider: providerId } : {}),
       service,
+      serviceDetails: typeof serviceDetails === 'string' ? serviceDetails.trim().slice(0, 500) : '',
       description,
       // Schema `Order.location` jest obiektem { lat, lng, address }.
       // Nawet gdy użytkownik nie podał GPS, zapisujemy address jako location.address.
@@ -652,6 +669,7 @@ router.post("/", auth, async (req, res) => {
       matchMode: matchMode,
       aiTriage: aiTriage || null,
       ...(normalizedAiBrief ? { aiBrief: normalizedAiBrief, source: 'ai' } : {}),
+      acquisitionSource: normalizedAcquisitionSource,
       orderMode: normalizedOrderMode,
       requestInvoice:
         normalizedOrderMode === 'offers_only' || normalizedPaymentPreference === 'external'
@@ -681,6 +699,44 @@ router.post("/", auth, async (req, res) => {
       ...(normalizedAttachments.length > 0 && { attachments: normalizedAttachments }),
       createdAt: new Date(),
     });
+
+    // Brak wyników w wyszukiwarce nie może kończyć ścieżki klienta.
+    // Zlecenie jest normalnie tworzone, a administratorzy dostają sygnał do ręcznego rozszerzenia podaży.
+    if (normalizedAcquisitionSource.endsWith('_no_results')) {
+      try {
+        const admins = await User.find({ role: 'admin', isActive: true }).select('_id').lean();
+        if (admins.length) {
+          await Notification.insertMany(
+            admins.map((admin) => ({
+              user: admin._id,
+              type: 'admin_alert',
+              title: 'Lead z wyszukiwania bez wyników',
+              message: `Klient utworzył zlecenie po braku wyników: ${String(service).slice(0, 120)}.`,
+              link: `/orders/${order._id}`,
+              metadata: {
+                alertType: 'no_provider_lead',
+                orderId: order._id,
+                acquisitionSource: normalizedAcquisitionSource,
+                service: String(service).slice(0, 120)
+              }
+            }))
+          );
+        }
+        const TelemetryService = require('../services/TelemetryService');
+        TelemetryService.track('no_results_lead', {
+          userId: req.user._id,
+          properties: {
+            orderId: order._id,
+            source: normalizedAcquisitionSource,
+            service: String(service).slice(0, 120)
+          },
+          userAgent: req.get('user-agent'),
+          ip: req.ip
+        }).catch(() => {});
+      } catch (leadAlertError) {
+        logger.warn('NO_PROVIDER_LEAD_ALERT_FAILED:', leadAlertError?.message || leadAlertError);
+      }
+    }
     
     // Automatyczne przypisanie zlecenia dla firm B2B
     try {

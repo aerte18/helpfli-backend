@@ -231,6 +231,21 @@ const orderSchema = new mongoose.Schema({
   
   // AI Concierge - NOWE POLA
   source: { type: String, enum: ['manual','ai'], default: 'manual' },
+  acquisitionSource: {
+    type: String,
+    enum: [
+      'direct',
+      'landing_hero',
+      'landing_trust',
+      'search_no_results',
+      'providers_no_results',
+      'saved_draft',
+      'service_page',
+      'ai'
+    ],
+    default: 'direct',
+    index: true
+  },
   priceQuotedMin: { type: Number, default: 0 }, // grosze
   priceQuotedMax: { type: Number, default: 0 }, // grosze
   invitedProviders: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }], // opcjonalne zaproszenia z draftu

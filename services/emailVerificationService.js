@@ -3,6 +3,16 @@ const { sendMail } = require('../utils/email');
 const User = require('../models/User');
 const { getFrontendUrl } = require('../utils/publicUrl');
 
+const AUTH_PATHS = ['/login', '/register', '/forgot-password', '/reset-password', '/verify-email'];
+
+function safeContinuePath(value) {
+  if (typeof value !== 'string' || value.length > 500) return '';
+  const path = value.trim();
+  if (!path.startsWith('/') || path.startsWith('//')) return '';
+  if (AUTH_PATHS.some((authPath) => path === authPath || path.startsWith(`${authPath}?`))) return '';
+  return path;
+}
+
 class EmailVerificationService {
   // Generuje token weryfikacyjny
   static generateVerificationToken() {
@@ -10,7 +20,7 @@ class EmailVerificationService {
   }
 
   // Wysyła email weryfikacyjny
-  static async sendVerificationEmail(user) {
+  static async sendVerificationEmail(user, { continuePath = '' } = {}) {
     const token = this.generateVerificationToken();
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 godziny
 
@@ -20,7 +30,9 @@ class EmailVerificationService {
     await user.save();
 
     // Twórz link weryfikacyjny
-    const verificationUrl = `${getFrontendUrl()}/verify-email?token=${token}`;
+    const safePath = safeContinuePath(continuePath);
+    const nextParam = safePath ? `&next=${encodeURIComponent(safePath)}` : '';
+    const verificationUrl = `${getFrontendUrl()}/verify-email?token=${token}${nextParam}`;
 
     // HTML emaila
     const html = `
@@ -93,6 +105,10 @@ class EmailVerificationService {
   static async isEmailVerified(userId) {
     const user = await User.findById(userId);
     return user && user.emailVerified;
+  }
+
+  static safeContinuePath(value) {
+    return safeContinuePath(value);
   }
 }
 
