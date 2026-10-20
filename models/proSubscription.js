@@ -6,18 +6,16 @@ const proSubscriptionSchema = new mongoose.Schema({
   status: { type: String, enum: ['active','past_due','canceled','incomplete'], default: 'incomplete' },
   stripeCustomerId: String,
   stripeSubscriptionId: String,
+  stripeCheckoutSessionId: String,
   currentPeriodEnd: Date,
 }, { timestamps: true });
 
-module.exports = mongoose.model('ProSubscription', proSubscriptionSchema);
 proSubscriptionSchema.index({ user: 1, status: 1 });
+proSubscriptionSchema.index(
+  { stripeCheckoutSessionId: 1 },
+  { unique: true, partialFilterExpression: { stripeCheckoutSessionId: { $type: 'string' } } }
+);
 
-
-
-
-
-
-
-
-
+module.exports = mongoose.models.ProSubscription ||
+  mongoose.model('ProSubscription', proSubscriptionSchema);
 

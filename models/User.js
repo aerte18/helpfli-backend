@@ -55,7 +55,10 @@ const userSchema = new mongoose.Schema({
   aiConciergeUsage: [{
     date: { type: Date, default: Date.now },
     description: String,
-    service: String
+    service: String,
+    paid: { type: Boolean, default: false },
+    payPerUsePrice: { type: Number, default: 0 },
+    stripePaymentIntentId: { type: String, default: null }
   }],
   
   // Nowe pola dla pakietów providerów
@@ -272,6 +275,8 @@ const userSchema = new mongoose.Schema({
   twoFactorEnabled: { type: Boolean, default: false }, // Dwuskładnikowa autoryzacja
   twoFactorSecret: { type: String, select: false }, // Sekret TOTP (zaszyfrowany)
   twoFactorBackupCodes: { type: [String], select: false, default: [] }, // Kody zapasowe (zaszyfrowane)
+  // Zapobiega ponownemu naliczeniu addytywnych efektów tego samego źródła Stripe.
+  stripeAppliedEffects: { type: [String], default: [] },
   // Statusy promocji (czasowe)
   promo: {
     highlightUntil: { type: Date, default: null },      // fioletowa obwódka

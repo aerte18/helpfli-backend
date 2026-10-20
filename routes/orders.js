@@ -30,6 +30,179 @@ const {
   userCanAccessOrderSensitive,
   getOrderPartySide,
 } = require("../utils/orderAccess");
+const { settleMainOrderPaymentForRelease } = require("../utils/releaseOrderEscrow");
+
+const PAYMENT_PREFERENCE_EDITABLE_STATUSES = new Set([
+  'draft',
+  'open',
+  'collecting_offers',
+  'quote',
+]);
+
+function resolveServerInitialOrderStatus(matchMode) {
+  return matchMode === 'open' ? 'collecting_offers' : 'open';
+}
+
+function isOrderOwnerOrAdmin(order, user) {
+  const userId = user?._id || user?.id;
+  const clientId = order?.client?._id || order?.client;
+  const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
+  return Boolean(isAdmin || (userId && clientId && String(userId) === String(clientId)));
+}
+
+function getPaymentPreferenceChangeBlockReason(order) {
+  if (!order || !PAYMENT_PREFERENCE_EDITABLE_STATUSES.has(order.status)) {
+    return 'Metodę płatności można zmienić tylko przed zaakceptowaniem oferty';
+  }
+  if (order.acceptedOfferId) {
+    return 'Nie można zmienić metody płatności po zaakceptowaniu oferty';
+  }
+  if (
+    order.paymentId ||
+    ['processing', 'succeeded'].includes(order.paymentStatus) ||
+    order.payment?.intentId
+  ) {
+    return 'Nie można zmienić metody płatności po rozpoczęciu płatności';
+  }
+  return null;
+}
+
+function applyProviderCompletionState(order, completedAt = new Date()) {
+  order.completedAt = completedAt;
+  // Niezależnie od sposobu płatności wykonawca jedynie zgłasza zakończenie.
+  // Dopiero klient może domknąć zlecenie przez confirm-receipt.
+  order.status = 'completed';
+  order.clientCompletionStatus = 'pending';
+  order.clientCompletionAcceptedAt = null;
+}
+
+function canConfirmReceipt(order) {
+  return order?.status === 'completed';
+}
+
+function releaseFailureHttpStatus(reason) {
+  if (reason === 'stripe_unavailable') return 503;
+  if (
+    [
+      'missing_main_payment',
+      'missing_main_payment_intent',
+      'ambiguous_payment_reference',
+      'payment_order_mismatch',
+      'main_payment_not_escrow',
+      'payment_intent_mismatch',
+      'payment_amount_mismatch',
+      'payment_currency_mismatch',
+    ].includes(reason)
+  ) {
+    return 400;
+  }
+  if (reason === 'payment_refunded') return 409;
+  if (reason === 'stripe_payment_not_succeeded') return 409;
+  return 502;
+}
+
+function getStartWorkBlock(order, userId) {
+  const providerId = order?.provider?._id || order?.provider;
+  if (!providerId) {
+    return { status: 409, message: 'Zlecenie nie ma przypisanego wykonawcy' };
+  }
+  if (!userId || String(providerId) !== String(userId)) {
+    return { status: 403, message: 'Tylko przypisany wykonawca może rozpocząć pracę' };
+  }
+
+  const external = isExternalOrderPayment(order);
+  if (external) {
+    if (order.status !== 'accepted') {
+      return { status: 400, message: 'Zlecenie musi mieć zaakceptowaną ofertę przed rozpoczęciem pracy' };
+    }
+    if (
+      order.orderMode === 'offers_only' &&
+      !['succeeded', 'waived'].includes(order.contactUnlockStatus)
+    ) {
+      return {
+        status: 409,
+        message: 'Najpierw klient musi odblokować kontakt do wybranego wykonawcy',
+      };
+    }
+    const platformFee = Number(order?.pricing?.platformFee || 0);
+    if (platformFee > 0 && order.externalCommissionStatus !== 'succeeded') {
+      return {
+        status: 409,
+        message: 'Zlecenie wymaga opłacenia prowizji platformy przez klienta przed rozpoczęciem pracy',
+      };
+    }
+    return null;
+  }
+
+  // Samo utworzenie PaymentIntent ustawia paymentStatus=processing. Dopiero
+  // zweryfikowane requires_capture/succeeded przeprowadza zlecenie do funded.
+  if (order.status !== 'funded') {
+    return {
+      status: 409,
+      message: 'Środki nie zostały jeszcze potwierdzone i zabezpieczone w Helpfli',
+    };
+  }
+  return null;
+}
+
+async function verifyMainEscrowAuthorization(order, dependencies = {}) {
+  const PaymentModel = dependencies.PaymentModel || Payment;
+  const stripeClient = Object.prototype.hasOwnProperty.call(dependencies, 'stripeClient')
+    ? dependencies.stripeClient
+    : stripe;
+
+  if (isExternalOrderPayment(order)) {
+    return { ok: false, status: 400, reason: 'system_payment_required', message: 'To zlecenie jest rozliczane poza Helpfli' };
+  }
+  if (!stripeClient) {
+    return { ok: false, status: 503, reason: 'stripe_unavailable', message: 'Płatności Stripe są chwilowo niedostępne' };
+  }
+  if (!order?.paymentId) {
+    return { ok: false, status: 400, reason: 'missing_main_payment', message: 'Brak głównej płatności przypisanej do zlecenia' };
+  }
+  if (
+    order.payment?.additionalPaymentId &&
+    String(order.payment.additionalPaymentId) === String(order.paymentId)
+  ) {
+    return { ok: false, status: 409, reason: 'ambiguous_payment_reference', message: 'Główna płatność i dopłata wskazują ten sam rekord' };
+  }
+
+  const payment = await PaymentModel.findById(order.paymentId);
+  const paymentOrderId = payment?.order?._id || payment?.order;
+  const paymentType = payment?.metadata?.type || payment?.metadata?.subtype;
+  if (!payment?.stripePaymentIntentId) {
+    return { ok: false, status: 400, reason: 'missing_main_payment_intent', message: 'Brak głównego PaymentIntent Stripe' };
+  }
+  if (!paymentOrderId || String(paymentOrderId) !== String(order._id)) {
+    return { ok: false, status: 409, reason: 'payment_order_mismatch', message: 'Płatność nie należy do tego zlecenia' };
+  }
+  if (
+    payment.purpose !== 'order' ||
+    paymentType !== 'order_escrow'
+  ) {
+    return { ok: false, status: 409, reason: 'main_payment_not_escrow', message: 'Wskazana płatność nie jest głównym escrow zlecenia' };
+  }
+
+  const intent = await stripeClient.paymentIntents.retrieve(payment.stripePaymentIntentId);
+  const intentOrderId = intent?.metadata?.orderId;
+  const intentType = intent?.metadata?.type;
+  if (
+    !intentOrderId ||
+    String(intentOrderId) !== String(order._id) ||
+    intentType !== 'order_escrow'
+  ) {
+    return { ok: false, status: 409, reason: 'payment_intent_mismatch', message: 'PaymentIntent nie odpowiada głównemu escrow zlecenia' };
+  }
+  if (!['requires_capture', 'succeeded'].includes(intent?.status)) {
+    return {
+      ok: false,
+      status: 409,
+      reason: 'payment_not_authorized',
+      message: `Środki nie zostały jeszcze zabezpieczone (status: ${intent?.status || 'unknown'})`,
+    };
+  }
+  return { ok: true, payment, intent };
+}
 
 // Post-Order Agent (lazy load dla optymalizacji)
 let runPostOrderAgent = null;
@@ -480,8 +653,7 @@ router.post("/", auth, async (req, res) => {
       service,
       serviceDetails,
       description,
-      location, 
-      status = "open", 
+      location,
       type = "open",
       providerId,
       budget, // Legacy
@@ -549,6 +721,9 @@ router.post("/", auth, async (req, res) => {
     let normalizedPaymentPreference = paymentPreference || 'system';
     if (normalizedOrderMode === 'offers_only') {
       normalizedPaymentPreference = 'external';
+    }
+    if (!['system', 'external', 'both'].includes(normalizedPaymentPreference)) {
+      return res.status(400).json({ error: 'Nieprawidłowa preferencja płatności' });
     }
 
     const normalizedAiBrief = normalizeAiBrief(aiBrief);
@@ -644,11 +819,9 @@ router.post("/", auth, async (req, res) => {
       locationObj = { ...locationObj, address: location || "Do ustalenia" };
     }
     
-    // Określ początkowy status
-    let initialStatus = status;
-    if (matchMode === 'open' && initialStatus === 'open') {
-      initialStatus = 'collecting_offers'; // MVP: automatycznie przejdź do zbierania ofert
-    }
+    // Status cyklu życia jest wyznaczany wyłącznie po stronie serwera.
+    // Wartość `status` przesłana przez klienta jest celowo ignorowana.
+    const initialStatus = resolveServerInitialOrderStatus(matchMode);
     
     // Oblicz czas wygaśnięcia na podstawie urgency
     const expiresAt = calculateOrderExpiration(finalUrgency);
@@ -1170,7 +1343,7 @@ router.get('/open', auth, async (req, res) => {
     const prefetchLimit = hasServiceFilter ? 200 : 1000;
 
     let orders = await Order.find(query)
-      .populate('client', 'name email phone level providerLevel')
+      .populate('client', 'name level providerLevel')
       .sort({ 
         createdAt: -1 
       })
@@ -1484,7 +1657,12 @@ router.get('/my', auth, async (req, res) => {
       if (status === 'open') filter.status = { $in: ['open', 'collecting_offers'] };
       else filter.status = status;
     }
-    const orders = await Order.find(filter).populate('client', 'name email').populate('provider', 'name email').sort({ createdAt: -1 }).skip(skip).limit(limitNum);
+    const orders = await Order.find(filter)
+      .populate('client', 'name')
+      .populate('provider', 'name')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum);
     const total = await Order.countDocuments(filter);
     res.json({ orders, pagination: { page: pageNum, limit: limitNum, total, pages: Math.ceil(total / limitNum) } });
   } catch (error) {
@@ -1701,11 +1879,44 @@ router.patch('/:id/payment-method', auth, async (req, res) => {
       return res.status(404).json({ message: 'Zlecenie nie zostało znalezione' });
     }
 
-    // "system/external" steruje flow i trafia do paymentPreference.
-    order.paymentPreference = paymentMethod;
-    await order.save();
+    if (!isOrderOwnerOrAdmin(order, req.user)) {
+      return res.status(403).json({ message: 'Tylko klient będący właścicielem zlecenia lub administrator może zmienić metodę płatności' });
+    }
 
-    res.json({ message: 'Metoda płatności zaktualizowana', order });
+    if (order.orderMode === 'offers_only' && paymentMethod !== 'external') {
+      return res.status(400).json({ message: 'Zlecenie tylko z ofertami może być rozliczane wyłącznie poza systemem' });
+    }
+
+    const blockReason = getPaymentPreferenceChangeBlockReason(order);
+    if (blockReason) {
+      return res.status(409).json({ message: blockReason });
+    }
+
+    // Zmiana jest warunkowa, aby równoległa akceptacja oferty/płatność nie
+    // mogła przejść pomiędzy sprawdzeniem a zapisem (TOCTOU).
+    const update = { paymentPreference: paymentMethod };
+    if (paymentMethod === 'external') {
+      update.requestInvoice = false;
+    }
+    const updatedOrder = await Order.findOneAndUpdate(
+      {
+        _id: order._id,
+        status: { $in: Array.from(PAYMENT_PREFERENCE_EDITABLE_STATUSES) },
+        acceptedOfferId: null,
+        paymentId: null,
+        paymentStatus: { $nin: ['processing', 'succeeded'] },
+        'payment.intentId': null,
+      },
+      { $set: update },
+      { new: true, runValidators: true }
+    );
+    if (!updatedOrder) {
+      return res.status(409).json({
+        message: 'Stan zlecenia zmienił się w trakcie operacji. Odśwież stronę i spróbuj ponownie.',
+      });
+    }
+
+    res.json({ message: 'Metoda płatności zaktualizowana', order: updatedOrder });
   } catch (err) {
     console.error('UPDATE_PAYMENT_METHOD_ERROR:', err);
     res.status(500).json({ message: 'Błąd aktualizacji metody płatności' });
@@ -1790,8 +2001,8 @@ router.get('/:id/ai-followup', auth, loadOrderById, async (req, res) => {
 router.get('/:id/timeline', auth, async (req, res) => {
   try {
     const order = await Order.findById(req.params.id)
-      .populate('client', 'name email')
-      .populate('provider', 'name email');
+      .populate('client', 'name')
+      .populate('provider', 'name');
     
     if (!order) {
       return res.status(404).json({ message: 'Zlecenie nie znalezione' });
@@ -1831,7 +2042,7 @@ router.get('/:id/timeline', auth, async (req, res) => {
         type: 'created',
         label: 'Zlecenie utworzone',
         date: order.createdAt,
-        user: order.client.name || order.client.email
+        user: order.client.name || 'Klient'
       });
     }
 
@@ -2062,6 +2273,49 @@ function disputeTimelineOpenForActions(order) {
   return ["reported", "refund_requested"].includes(order.disputeStatus);
 }
 
+function buildSettlementOfferClaimFilter(order) {
+  return {
+    _id: order._id,
+    disputeEscalatedAt: null,
+    disputeStatus: { $nin: ["resolved", "closed"] },
+    $and: [
+      {
+        $or: [
+          { status: "disputed" },
+          { disputeStatus: { $in: ["reported", "refund_requested"] } },
+        ],
+      },
+      {
+        $or: [
+          { "disputeSettlement.status": { $exists: false } },
+          { "disputeSettlement.status": null },
+          { "disputeSettlement.status": { $in: ["none", "declined"] } },
+        ],
+      },
+      {
+        $or: [
+          { "disputeSettlement.refundExecutionKey": { $exists: false } },
+          { "disputeSettlement.refundExecutionKey": null },
+        ],
+      },
+    ],
+    ...(order.disputeReportedAt ? { disputeReportedAt: order.disputeReportedAt } : {}),
+  };
+}
+
+function buildSettlementDeclineClaimFilter(order, settlement) {
+  return {
+    _id: order._id,
+    "disputeSettlement.status": "pending",
+    "disputeSettlement.offeredBy": settlement.offeredBy,
+    "disputeSettlement.createdAt": settlement.createdAt,
+    $or: [
+      { "disputeSettlement.refundExecutionKey": { $exists: false } },
+      { "disputeSettlement.refundExecutionKey": null },
+    ],
+  };
+}
+
 async function disputeNotifyRecipientUserId(order, actorUser) {
   const cid = order.client._id || order.client;
   const pid = order.provider._id || order.provider;
@@ -2202,8 +2456,20 @@ router.post("/:id/dispute-case/settlement-offer", auth, loadOrderById, async (re
       });
     }
     const st = order.disputeSettlement || {};
+    if (st.refundExecutionKey && !st.refundProcessedAt) {
+      return res.status(409).json({
+        message:
+          "Poprzednie wykonanie zwrotu jest nadal uzgadniane. Odśwież sprawę lub skontaktuj się z pomocą Helpfli przed nową ugodą.",
+      });
+    }
     if (st.status === "pending") {
       return res.status(400).json({ message: "Oczekuje na decyzję drugiej strony w sprawie obecnej propozycji." });
+    }
+    if (st.status && !["none", "declined"].includes(st.status)) {
+      return res.status(409).json({
+        code: "SETTLEMENT_OFFER_CONFLICT",
+        message: "Stan ugody zmienił się. Odśwież zlecenie przed wysłaniem nowej propozycji.",
+      });
     }
     const amount = Number(req.body?.amountPln);
     if (!Number.isFinite(amount) || amount < 0) {
@@ -2224,36 +2490,58 @@ router.post("/:id/dispute-case/settlement-offer", auth, loadOrderById, async (re
     }
 
     const msg = String(req.body?.message || "").trim().slice(0, 4000);
-    order.disputeSettlement = {
-      status: "pending",
-      offeredBy: req.user._id,
-      amountPln: rounded,
-      message: msg,
-      createdAt: new Date(),
-      respondedAt: null,
-      respondedBy: null,
-    };
-    order.disputeMessages = order.disputeMessages || [];
+    const createdAt = new Date();
     const offerLabel =
       rounded < 0.005
         ? "Propozycja ugody: brak zwrotu dla klienta (0 PLN) — druga strona może zaakceptować lub odrzucić."
         : `Propozycja ugody: zwrot ${rounded.toFixed(2)} PLN dla klienta — druga strona może zaakceptować lub odrzucić.`;
-    order.disputeMessages.push({
-      kind: "system",
-      body: offerLabel,
-      createdAt: new Date(),
-    });
-    await order.save();
+    const updatedOrder = await Order.findOneAndUpdate(
+      buildSettlementOfferClaimFilter(order),
+      {
+        $set: {
+          "disputeSettlement.status": "pending",
+          "disputeSettlement.offeredBy": req.user._id,
+          "disputeSettlement.amountPln": rounded,
+          "disputeSettlement.message": msg,
+          "disputeSettlement.createdAt": createdAt,
+          "disputeSettlement.respondedAt": null,
+          "disputeSettlement.respondedBy": null,
+          "disputeSettlement.refundProcessedAt": null,
+          "disputeSettlement.refundAmountGrosze": null,
+          "disputeSettlement.refundStripeRef": null,
+          "disputeSettlement.refundMethod": null,
+          "disputeSettlement.refundExecutionKey": null,
+          "disputeSettlement.refundExecutionStartedAt": null,
+          "disputeSettlement.adminForced": false,
+          "disputeSettlement.adminForcedBy": null,
+        },
+        $push: {
+          disputeMessages: {
+            kind: "system",
+            body: offerLabel,
+            createdAt,
+          },
+        },
+      },
+      { new: true, runValidators: true }
+    );
+    if (!updatedOrder) {
+      return res.status(409).json({
+        code: "SETTLEMENT_OFFER_CONFLICT",
+        message:
+          "Stan sporu lub ugody zmienił się w trakcie zapisu. Odśwież zlecenie przed ponowną próbą.",
+      });
+    }
     try {
-      const cid = order.client._id || order.client;
-      const pid = order.provider._id || order.provider;
+      const cid = updatedOrder.client._id || updatedOrder.client;
+      const pid = updatedOrder.provider._id || updatedOrder.provider;
       const offerer = String(req.user._id);
       const recipientId = String(cid) === offerer ? pid : cid;
       if (recipientId) {
         await NotificationService.notifyDisputeSettlementOffer({
-          orderId: String(order._id),
+          orderId: String(updatedOrder._id),
           recipientId,
-          service: order.service,
+          service: updatedOrder.service,
           amountPln: rounded,
         });
       }
@@ -2262,7 +2550,7 @@ router.post("/:id/dispute-case/settlement-offer", auth, loadOrderById, async (re
     }
     res.json({
       message: rounded < 0.005 ? "Wysłano propozycję ugody (0 PLN)" : "Wysłano propozycję ugody",
-      settlement: order.disputeSettlement,
+      settlement: updatedOrder.disputeSettlement,
     });
   } catch (e) {
     console.error("SETTLEMENT_OFFER", e);
@@ -2272,7 +2560,10 @@ router.post("/:id/dispute-case/settlement-offer", auth, loadOrderById, async (re
 
 router.post("/:id/dispute-case/settlement-respond", auth, loadOrderById, async (req, res) => {
   try {
-    const { applyDisputeSettlementRefund } = require("../utils/disputeSettlementRefund");
+    const {
+      applyDisputeSettlementRefund,
+      buildDisputeSettlementExecutionScope,
+    } = require("../utils/disputeSettlementRefund");
     const order = req.order;
     const party = await disputeCasePartyAsync(order, req.user);
     if (!party.ok) return res.status(403).json({ message: "Brak dostępu" });
@@ -2292,6 +2583,49 @@ router.post("/:id/dispute-case/settlement-respond", auth, loadOrderById, async (
     }
     const accept = !!req.body?.accept;
 
+    if (!accept) {
+      const declinedSettlement = await Order.findOneAndUpdate(
+        buildSettlementDeclineClaimFilter(order, st),
+        {
+          $set: {
+            'disputeSettlement.status': 'none',
+            'disputeSettlement.offeredBy': null,
+            'disputeSettlement.amountPln': null,
+            'disputeSettlement.message': '',
+            'disputeSettlement.createdAt': null,
+            'disputeSettlement.respondedAt': null,
+            'disputeSettlement.respondedBy': null,
+            'disputeSettlement.refundProcessedAt': null,
+            'disputeSettlement.refundAmountGrosze': null,
+            'disputeSettlement.refundStripeRef': null,
+            'disputeSettlement.refundMethod': null,
+            'disputeSettlement.refundExecutionKey': null,
+            'disputeSettlement.refundExecutionStartedAt': null,
+          },
+          $push: {
+            disputeMessages: {
+              kind: 'system',
+              body: 'Ugoda odrzucona. Możecie złożyć nową propozycję lub przekazać sprawę do Helpfli.',
+              createdAt: new Date(),
+            },
+          },
+        },
+        { new: true, runValidators: true }
+      );
+      if (!declinedSettlement) {
+        return res.status(409).json({
+          code: 'SETTLEMENT_RESPONSE_CONFLICT',
+          message:
+            'Stan ugody zmienił się lub rozpoczęto już zwrot. Odśwież zlecenie — tej ugody nie można teraz odrzucić.',
+        });
+      }
+      return res.json({
+        message: 'Zapisano odpowiedź',
+        settlement: declinedSettlement.disputeSettlement,
+        refund: null,
+      });
+    }
+
     let refundSummary = null;
     if (accept) {
       if (st.refundProcessedAt) {
@@ -2302,7 +2636,11 @@ router.post("/:id/dispute-case/settlement-respond", auth, loadOrderById, async (
         });
       }
       refundSummary = await applyDisputeSettlementRefund(order, Number(st.amountPln), {
-        idempotencyScope: String(order._id),
+        idempotencyScope: buildDisputeSettlementExecutionScope(
+          order,
+          "party",
+          Number(st.amountPln)
+        ),
       });
       if (!refundSummary.ok) {
         return res.status(400).json({ message: refundSummary.message, code: refundSummary.code });
@@ -2393,28 +2731,6 @@ router.post("/:id/dispute-case/settlement-respond", auth, loadOrderById, async (
           : `Spór zamknięty ugodą. Status zlecenia: ${labelPl}. Centrum sprawy pozostaje do wglądu w archiwum.`,
         createdAt: new Date(),
       });
-    } else {
-      order.disputeMessages.push({
-        kind: "system",
-        body: "Ugoda odrzucona. Możecie złożyć nową propozycję lub przekazać sprawę do Helpfli.",
-        createdAt: new Date(),
-      });
-    }
-
-    if (!accept) {
-      order.disputeSettlement = {
-        status: "none",
-        offeredBy: null,
-        amountPln: null,
-        message: "",
-        createdAt: null,
-        respondedAt: null,
-        respondedBy: null,
-        refundProcessedAt: null,
-        refundAmountGrosze: null,
-        refundStripeRef: null,
-        refundMethod: null,
-      };
     }
     await order.save();
     const io = req.app.get("io");
@@ -2512,8 +2828,8 @@ router.get("/:id/ratings", auth, async (req, res) => {
       return res.status(400).json({ message: "Nieprawidłowy identyfikator zlecenia" });
     }
     const order = await Order.findById(orderId)
-      .populate("client", "name email phone")
-      .populate("provider", "name email phone")
+      .populate("client", "name")
+      .populate("provider", "name")
       .lean();
     if (!order) {
       return res.status(404).json({ message: "Zlecenie nie zostało znalezione" });
@@ -2668,7 +2984,12 @@ router.get('/:id', auth, async (req, res) => {
       .select("from to orderId rating comment createdAt")
       .lean();
 
-    const { applyContactMasking, isContactUnlocked, getContactUnlockFeePln } = require('../utils/offersOnlyMonetization');
+    const {
+      applyContactMasking,
+      isContactUnlocked,
+      getContactUnlockFeePln,
+      maskNonAcceptedOfferContacts,
+    } = require('../utils/offersOnlyMonetization');
     const UserSubscription = require('../models/UserSubscription');
     let clientPlanKey = null;
     if (isOwner) {
@@ -2685,6 +3006,10 @@ router.get('/:id', auth, async (req, res) => {
       : 0;
     if (order.orderMode === 'offers_only' && !isContactUnlocked(order)) {
       applyContactMasking(order, { viewerId: req.user._id, isOwner, isAssignedProvider });
+    } else if (order.orderMode === 'offers_only' && (isOwner || isCompanyView)) {
+      // Opłata odblokowuje kontakt wyłącznie do zaakceptowanego wykonawcy.
+      // Dane pozostałych oferentów muszą pozostać zamaskowane.
+      maskNonAcceptedOfferContacts(order);
     } else if (
       req.user.role === 'provider' &&
       !isOwner &&
@@ -2771,8 +3096,13 @@ router.post('/:id/accept', auth, requireKycVerified, loadOrderById, async (req, 
   try {
     const order = req.order;
     
-    // Sprawdź czy użytkownik to provider
-    if (order.provider && String(order.provider) !== String(req.user._id)) {
+    // Endpoint dotyczy wyłącznie wcześniej przypisanego wykonawcy. Brak
+    // przypisania nie może oznaczać, że dowolny zweryfikowany provider przejmie
+    // otwarte zlecenie samym wywołaniem API.
+    if (!order.provider) {
+      return res.status(409).json({ message: 'Zlecenie nie ma przypisanego wykonawcy' });
+    }
+    if (String(order.provider?._id || order.provider) !== String(req.user._id)) {
       return res.status(403).json({ message: 'Tylko przypisany wykonawca może zaakceptować zlecenie' });
     }
     
@@ -2813,82 +3143,58 @@ router.post('/:id/fund', auth, loadOrderById, async (req, res) => {
     if (order.status !== 'accepted') {
       return res.status(400).json({ message: 'Zlecenie musi być zaakceptowane przed zabezpieczeniem środków' });
     }
-    let authorizedIntentId = null;
-    if (order.paymentPreference === 'system') {
-      const payments = await Payment.find({ order: order._id }).sort({ createdAt: -1 }).limit(20);
-      if (!payments.length) {
-        return res.status(400).json({ message: 'Brak płatności Stripe powiązanej z tym zleceniem' });
-      }
-      if (stripe) {
-        const allowedIntentStatuses = ['requires_capture', 'processing', 'succeeded'];
-        let found = false;
-        for (const payment of payments) {
-          if (!payment.stripePaymentIntentId) continue;
-          try {
-            const intent = await stripe.paymentIntents.retrieve(payment.stripePaymentIntentId);
-            if (allowedIntentStatuses.includes(intent.status)) {
-              found = true;
-              authorizedIntentId = intent.id;
-              break;
-            }
-          } catch (retrieveErr) {
-            console.warn('fund retrieve PI:', payment.stripePaymentIntentId, retrieveErr.message);
-          }
-        }
-        if (!found) {
-          return res.status(400).json({
-            message: 'Płatność nie jest gotowa do zabezpieczenia środków. Odśwież stronę lub skontaktuj się z pomocą.',
-          });
-        }
-        if (authorizedIntentId) {
-          for (const payment of payments) {
-            if (!payment.stripePaymentIntentId || payment.stripePaymentIntentId === authorizedIntentId) continue;
-            try {
-              const intent = await stripe.paymentIntents.retrieve(payment.stripePaymentIntentId);
-              if (intent.status === 'requires_capture') {
-                await stripe.paymentIntents.cancel(payment.stripePaymentIntentId);
-                payment.status = 'canceled';
-                await payment.save();
-              }
-            } catch (cancelErr) {
-              console.warn('fund cancel duplicate:', payment.stripePaymentIntentId, cancelErr.message);
-            }
-          }
-        }
-      }
+
+    const funding = await verifyMainEscrowAuthorization(order);
+    if (!funding.ok) {
+      return res.status(funding.status).json({ message: funding.message, code: funding.reason });
     }
-    // status przejściowy
-    order.status = 'funded';
-    // Enum paymentStatus nie zawiera "requires_capture"; używamy stanu przejściowego "processing".
-    order.paymentStatus = 'processing';
-    await order.save();
+
+    funding.payment.status = funding.intent.status === 'succeeded' ? 'succeeded' : 'processing';
+    await funding.payment.save();
+
+    const fundedOrder = await Order.findOneAndUpdate(
+      {
+        _id: order._id,
+        client: req.user._id,
+        status: 'accepted',
+        paymentId: funding.payment._id,
+      },
+      {
+        $set: {
+          status: 'funded',
+          paymentStatus: funding.intent.status === 'succeeded' ? 'succeeded' : 'processing',
+          paidInSystem: funding.intent.status === 'succeeded',
+          'payment.intentId': funding.intent.id,
+          'payment.status': funding.intent.status === 'succeeded' ? 'paid' : 'requires_payment',
+        },
+      },
+      { new: true, runValidators: true }
+    );
+    if (!fundedOrder) {
+      const current = await Order.findById(order._id);
+      if (current?.status === 'funded') {
+        return res.json({ message: 'Środki są już zabezpieczone', order: current });
+      }
+      return res.status(409).json({ message: 'Stan zlecenia zmienił się podczas potwierdzania płatności' });
+    }
 
     // Emit Socket.IO event do pokoju order
     const io = req.app.get("io");
     if (io) {
-      io.to(`order:${order._id}`).emit("order:status_changed", { 
-        orderId: order._id, 
+      io.to(`order:${fundedOrder._id}`).emit("order:status_changed", {
+        orderId: fundedOrder._id,
         status: 'funded',
         action: 'funded'
       });
     }
 
-    await Revenue.create({
-      orderId: order._id,
-      clientId: req.user._id,
-      type: 'escrow',
-      amount: order.budget ? Number(order.budget) * 100 : 0,
-      description: `Escrow for order ${order.service}`,
-      status: 'pending',
-    });
-
     try {
-      await NotificationService.notifyOrderFunded(order._id);
+      await NotificationService.notifyOrderFunded(fundedOrder._id);
     } catch (notifyErr) {
       console.error('FUND_NOTIFY_ERROR:', notifyErr);
     }
 
-    res.json({ message: 'Środki zostały zabezpieczone (escrow)', order });
+    res.json({ message: 'Środki zostały zabezpieczone (escrow)', order: fundedOrder });
   } catch (e) {
     console.error('FUND_ERROR:', e);
     res.status(500).json({ message: 'Błąd zabezpieczenia środków' });
@@ -2902,7 +3208,7 @@ router.post('/:id/accept-completion', auth, loadOrderById, async (req, res) => {
     if (String(order.client) !== String(req.user._id)) {
       return res.status(403).json({ message: 'Tylko klient może zaakceptować zakończenie' });
     }
-    if (order.status !== 'completed') {
+    if (!canConfirmReceipt(order)) {
       return res.status(400).json({ message: 'Zlecenie nie zostało jeszcze zakończone przez wykonawcę' });
     }
     if (isExternalOrderPayment(order)) {
@@ -2922,13 +3228,31 @@ router.post('/:id/accept-completion', auth, loadOrderById, async (req, res) => {
       });
     }
     const clientNotes = req.body?.clientNotes ?? req.body?.clientCompletionNotes;
+    const completionSet = {
+      clientCompletionStatus: 'accepted',
+      clientCompletionAcceptedAt: new Date(),
+    };
     if (clientNotes != null && String(clientNotes).trim()) {
-      order.clientCompletionNotes = String(clientNotes).trim().slice(0, 8000);
+      completionSet.clientCompletionNotes = String(clientNotes).trim().slice(0, 8000);
     }
-    order.clientCompletionStatus = 'accepted';
-    order.clientCompletionAcceptedAt = new Date();
-    await order.save();
-    res.json({ message: 'Zaakceptowano zakończenie zlecenia', order });
+    const acceptedOrder = await Order.findOneAndUpdate(
+      {
+        _id: order._id,
+        client: req.user._id,
+        status: 'completed',
+        clientCompletionStatus: { $ne: 'rejected' },
+        disputeStatus: { $nin: ['reported', 'refund_requested'] },
+      },
+      { $set: completionSet },
+      { new: true, runValidators: true }
+    );
+    if (!acceptedOrder) {
+      return res.status(409).json({
+        message: 'Stan zlecenia zmienił się podczas akceptacji zakończenia. Odśwież stronę.',
+        code: 'ORDER_COMPLETION_ACCEPT_CONFLICT',
+      });
+    }
+    res.json({ message: 'Zaakceptowano zakończenie zlecenia', order: acceptedOrder });
   } catch (e) {
     console.error('accept-completion error:', e);
     res.status(500).json({ message: 'Błąd akceptacji zakończenia' });
@@ -2937,12 +3261,43 @@ router.post('/:id/accept-completion', auth, loadOrderById, async (req, res) => {
 
 // Potwierdzenie odbioru przez klienta → uwolnienie środków
 router.post('/:id/confirm-receipt', auth, loadOrderById, async (req, res) => {
+  let releaseClaimed = false;
   try {
-    const order = req.order;
+    let order = req.order;
     if (String(order.client) !== String(req.user._id)) {
       return res.status(403).json({ message: 'Tylko klient może potwierdzić odbiór' });
     }
-    if (!['completed', 'funded'].includes(order.status)) {
+    if (order.status === 'released' || order.status === 'rated') {
+      return res.json({
+        message: 'Odbiór tego zlecenia został już potwierdzony',
+        order,
+        alreadyReleased: true,
+        growthGrants: [],
+      });
+    }
+    if (order.status !== 'completed') {
+      if (order.status === 'releasing') {
+        const staleBefore = new Date(Date.now() - 10 * 60 * 1000);
+        if (order.releaseStartedAt && order.releaseStartedAt <= staleBefore) {
+          const recovered = await Order.findOneAndUpdate(
+            { _id: order._id, status: 'releasing', releaseStartedAt: { $lte: staleBefore } },
+            {
+              $set: { status: 'completed', releaseStartedAt: null, releasePreviousStatus: null },
+            },
+            { new: true, runValidators: true }
+          );
+          if (recovered) {
+            return res.status(409).json({
+              message: 'Przywrócono przerwane rozliczenie. Spróbuj potwierdzić odbiór ponownie.',
+              code: 'ORDER_RELEASE_RECOVERED',
+            });
+          }
+        }
+        return res.status(409).json({
+          message: 'Rozliczenie tego zlecenia już trwa. Odśwież stronę za chwilę.',
+          code: 'ORDER_RELEASE_IN_PROGRESS',
+        });
+      }
       return res.status(400).json({ message: 'Potwierdzenie odbioru jest dostępne po zakończeniu zlecenia' });
     }
     const isExternalPayment = isExternalOrderPayment(order);
@@ -2967,63 +3322,126 @@ router.post('/:id/confirm-receipt', auth, loadOrderById, async (req, res) => {
     ) {
       order.clientCompletionStatus = 'accepted';
       order.clientCompletionAcceptedAt = order.clientCompletionAcceptedAt || new Date();
-      await order.save();
     }
-    if (order.paymentPreference === 'system') {
-      const paymentForOrder = await Payment.findOne({ order: order._id }).sort({ createdAt: -1 });
-      if (!paymentForOrder || !paymentForOrder.stripePaymentIntentId) {
-        return res.status(400).json({ message: 'Brak płatności Stripe do rozliczenia tego zlecenia' });
+    if (order.completionType === 'with_payment' && !isExternalPayment) {
+      const additionalPaymentId = order.payment?.additionalPaymentId;
+      if (!additionalPaymentId) {
+        return res.status(400).json({ message: 'Brak osobnej płatności dopłaty przypisanej do zlecenia' });
+      }
+      if (order.paymentId && String(order.paymentId) === String(additionalPaymentId)) {
+        return res.status(400).json({ message: 'Główna płatność i dopłata nie mogą wskazywać tego samego rekordu' });
+      }
+      const additionalPayment = await Payment.findById(additionalPaymentId);
+      const additionalPaymentType =
+        additionalPayment?.metadata?.type || additionalPayment?.metadata?.subtype;
+      if (
+        !additionalPayment ||
+        String(additionalPayment.order?._id || additionalPayment.order || '') !== String(order._id) ||
+        additionalPayment.status !== 'succeeded' ||
+        (additionalPaymentType && additionalPaymentType !== 'additional_payment')
+      ) {
+        return res.status(409).json({ message: 'Dopłata nie została potwierdzona jako opłacona' });
       }
     }
 
-    // 1) Jeśli mamy płatność Stripe powiązaną ze zleceniem – wykonaj capture (prawdziwy escrow)
-    if (stripe) {
-      try {
-        const payment = await Payment.findOne({ order: order._id }).sort({ createdAt: -1 });
-        if (payment && payment.stripePaymentIntentId) {
-          try {
-            const intent = await stripe.paymentIntents.retrieve(payment.stripePaymentIntentId);
-            const disallowedIntentStatuses = ['canceled', 'requires_payment_method', 'requires_action'];
-            if (disallowedIntentStatuses.includes(intent.status)) {
-              return res.status(400).json({
-                message: `Płatność nie może zostać rozliczona (status: ${intent.status})`,
-              });
-            }
-            if (intent.status === "requires_capture") {
-              const captured = await stripe.paymentIntents.capture(payment.stripePaymentIntentId);
-              if (captured.status === "succeeded") {
-                payment.status = "succeeded";
-                await payment.save();
-                order.paymentStatus = "succeeded";
-                order.paidInSystem = true;
-                order.protectionEligible = true;
-                order.protectionStatus = "active";
-                order.protectionExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-              }
-            }
-          } catch (captureErr) {
-            // Jeśli PaymentIntent jest już skapturowany, zignoruj błąd stanu
-            if (captureErr?.code !== "payment_intent_unexpected_state") {
-              console.error("Stripe capture error in confirm-receipt:", captureErr);
-            }
-          }
-        }
-      } catch (e) {
-        console.error("Order confirm-receipt payment lookup error:", e);
-      }
-    }
-
-    // 2) Aktualizuj status zlecenia i revenue (logiczny „release”)
-    order.status = 'released';
-    if (order.paymentStatus === 'unpaid' || !order.paymentStatus) {
-      order.paymentStatus = 'succeeded';
-    }
-    await order.save();
-
-    await Revenue.updateMany(
-      { orderId: order._id, type: 'escrow', status: 'pending' },
-      { $set: { status: 'paid', releasedAt: new Date() } }
+    // Najpierw atomowo rezerwujemy finalizację. Dzięki temu równoległy spór
+    // albo drugie potwierdzenie nie może wejść pomiędzy capture Stripe i zapis.
+    const releaseClaim = await Order.findOneAndUpdate(
+      { _id: order._id, status: 'completed' },
+      {
+        $set: {
+          status: 'releasing',
+          releaseStartedAt: new Date(),
+          releasePreviousStatus: 'completed',
+        },
+      },
+      { new: true, runValidators: true }
     );
+    if (!releaseClaim) {
+      const currentOrder = await Order.findById(order._id);
+      if (currentOrder && ['released', 'rated'].includes(currentOrder.status)) {
+        return res.json({
+          message: 'Odbiór tego zlecenia został już potwierdzony',
+          order: currentOrder,
+          alreadyReleased: true,
+          growthGrants: [],
+        });
+      }
+      return res.status(409).json({
+        message: 'Stan zlecenia zmienił się przed rozpoczęciem rozliczenia. Odśwież stronę.',
+        code: 'ORDER_RELEASE_CONFLICT',
+      });
+    }
+    order = releaseClaim;
+    releaseClaimed = true;
+
+    // Główne escrow jest zawsze rozliczane wyłącznie przez order.paymentId.
+    // Dopłata ma własny order.payment.additionalPaymentId i nigdy nie może zastąpić escrow.
+    const settlement = await settleMainOrderPaymentForRelease(order);
+    if (!settlement.ok) {
+      await Order.updateOne(
+        { _id: order._id, status: 'releasing' },
+        { $set: { status: 'completed', releaseStartedAt: null, releasePreviousStatus: null } }
+      );
+      releaseClaimed = false;
+      return res.status(releaseFailureHttpStatus(settlement.reason)).json({
+        message: settlement.message || 'Nie udało się bezpiecznie rozliczyć płatności',
+        code: settlement.reason,
+      });
+    }
+
+    const releasedAt = new Date();
+    const releaseSet = {
+      status: 'released',
+      clientCompletionStatus: 'accepted',
+      clientCompletionAcceptedAt: order.clientCompletionAcceptedAt || releasedAt,
+      paymentStatus: order.paymentStatus,
+      paidInSystem: order.paidInSystem,
+      protectionEligible: order.protectionEligible,
+      protectionStatus: order.protectionStatus,
+      protectionExpiresAt: order.protectionExpiresAt || null,
+      releaseStartedAt: null,
+      releasePreviousStatus: null,
+    };
+    if (order.payment?.status != null) releaseSet['payment.status'] = order.payment.status;
+    if (order.payment?.intentId) releaseSet['payment.intentId'] = order.payment.intentId;
+    if (isExternalPayment) {
+      // Potwierdzamy wykonanie usługi, a nie płatność poza platformą.
+      releaseSet.paidInSystem = false;
+      releaseSet.protectionEligible = false;
+      releaseSet.protectionStatus = 'inactive';
+      releaseSet.protectionExpiresAt = null;
+    }
+
+    // Tylko jeden równoległy request może przejąć finalizację. Capture Stripe
+    // jest idempotentny, ale nagrody i powiadomienia nie mogą wykonać się dwa razy.
+    const releasedOrder = await Order.findOneAndUpdate(
+      { _id: order._id, status: 'releasing' },
+      { $set: releaseSet },
+      { new: true, runValidators: true }
+    );
+    if (!releasedOrder) {
+      const currentOrder = await Order.findById(order._id);
+      if (currentOrder && ['released', 'rated'].includes(currentOrder.status)) {
+        releaseClaimed = false;
+        return res.json({
+          message: 'Odbiór tego zlecenia został już potwierdzony',
+          order: currentOrder,
+          alreadyReleased: true,
+          growthGrants: [],
+        });
+      }
+      await Order.updateOne(
+        { _id: order._id, status: 'releasing' },
+        { $set: { status: 'completed', releaseStartedAt: null, releasePreviousStatus: null } }
+      );
+      releaseClaimed = false;
+      return res.status(409).json({
+        message: 'Stan zlecenia zmienił się podczas rozliczania. Odśwież stronę.',
+        code: 'ORDER_RELEASE_CONFLICT',
+      });
+    }
+    releaseClaimed = false;
     
     // Emit Socket.IO event do pokoju order
     const io = req.app.get("io");
@@ -3035,24 +3453,42 @@ router.post('/:id/confirm-receipt', auth, loadOrderById, async (req, res) => {
       });
     }
     
-    // Wyślij powiadomienie o wypłacie do providera
-    try {
-      await NotificationService.notifyPaymentReceived(order._id);
-    } catch (error) {
-      console.error('Notification error:', error);
+    // Nie nazywamy zewnętrznego rozliczenia "wypłatą" — platforma go nie obsługuje.
+    if (!isExternalPayment) {
+      try {
+        await NotificationService.notifyPaymentReceived(order._id);
+      } catch (error) {
+        console.error('Notification error:', error);
+      }
     }
 
     let growthGrants = [];
     try {
       const { processOrderGrowthRewards } = require('../utils/growthRewards');
-      const growthResult = await processOrderGrowthRewards(order);
+      const growthResult = await processOrderGrowthRewards(releasedOrder);
       growthGrants = growthResult?.grants || [];
     } catch (growthErr) {
       console.error('[growth] confirm-receipt rewards:', growthErr?.message);
     }
     
-    res.json({ message: 'Środki wypłacone wykonawcy', order, growthGrants });
+    res.json({
+      message: isExternalPayment
+        ? 'Odbiór usługi został potwierdzony'
+        : 'Środki zostały rozliczone po potwierdzeniu odbioru',
+      order: releasedOrder,
+      growthGrants,
+    });
   } catch (e) {
+    if (releaseClaimed && req.order?._id) {
+      try {
+        await Order.updateOne(
+          { _id: req.order._id, status: 'releasing' },
+          { $set: { status: 'completed', releaseStartedAt: null, releasePreviousStatus: null } }
+        );
+      } catch (revertError) {
+        console.error('CONFIRM_RECEIPT_REVERT_ERROR:', revertError);
+      }
+    }
     console.error('CONFIRM_RECEIPT_ERROR:', e);
     res.status(500).json({ message: 'Błąd potwierdzania odbioru' });
   }
@@ -3062,43 +3498,42 @@ router.post('/:id/confirm-receipt', auth, loadOrderById, async (req, res) => {
 router.post('/:id/start', auth, loadOrderById, async (req, res) => {
   try {
     const order = req.order;
-    
-    // Sprawdź czy użytkownik to provider
-    if (order.provider && String(order.provider) !== String(req.user._id)) {
-      return res.status(403).json({ message: 'Tylko przypisany wykonawca może rozpocząć pracę' });
-    }
-    
-    // Po opłacie escrow status to funded (nie accepted)
-    if (!['accepted', 'funded'].includes(order.status)) {
-      return res.status(400).json({
-        message: 'Zlecenie musi być opłacone (lub zaakceptowane z płatnością) przed rozpoczęciem pracy',
-      });
+
+    const startBlock = getStartWorkBlock(order, req.user?._id);
+    if (startBlock) {
+      return res.status(startBlock.status).json({ message: startBlock.message });
     }
 
-    // Dla płatności przez system — funded / processing (escrow) / succeeded liczą się jako opłacone
-    if (order.paymentPreference === 'system') {
-      const escrowPaid =
-        order.status === 'funded' ||
-        order.paymentStatus === 'succeeded' ||
-        order.paymentStatus === 'processing' ||
-        order.paidInSystem;
-      if (!escrowPaid) {
-        return res.status(400).json({
-          message: 'Zlecenie musi być opłacone przed rozpoczęciem pracy (płatność przez Helpfli)',
+    // Status `funded` w bazie nie jest wystarczajacym dowodem dla platnosci
+    // systemowej: autoryzacja manual-capture moze pozniej wygasnac lub zostac
+    // anulowana. Przed rozpoczeciem pracy ponownie pytamy Stripe o kanoniczny
+    // PaymentIntent tego zlecenia.
+    if (!isExternalOrderPayment(order)) {
+      const funding = await verifyMainEscrowAuthorization(order);
+      if (!funding.ok) {
+        return res.status(funding.status).json({
+          message: funding.message,
+          code: funding.reason,
         });
       }
     }
-    if (order.paymentPreference === 'external') {
-      const platformFee = Number(order?.pricing?.platformFee || 0);
-      const externalCommissionPaid = order.externalCommissionStatus === 'succeeded';
-      if (platformFee > 0 && !externalCommissionPaid) {
-        return res.status(400).json({ message: 'Zlecenie wymaga opłacenia prowizji platformy przez klienta przed rozpoczęciem pracy' });
-      }
-    }
     
-    order.status = 'in_progress';
-    order.startedAt = new Date();
-    await order.save();
+    const startFromStatus = isExternalOrderPayment(order) ? 'accepted' : 'funded';
+    const startedOrder = await Order.findOneAndUpdate(
+      {
+        _id: order._id,
+        provider: req.user._id,
+        status: startFromStatus,
+      },
+      { $set: { status: 'in_progress', startedAt: new Date() } },
+      { new: true, runValidators: true }
+    );
+    if (!startedOrder) {
+      return res.status(409).json({
+        message: 'Stan zlecenia zmienił się podczas rozpoczynania pracy. Odśwież stronę.',
+        code: 'ORDER_START_CONFLICT',
+      });
+    }
 
     try {
       const TelemetryService = require('../services/TelemetryService');
@@ -3118,7 +3553,7 @@ router.post('/:id/start', auth, loadOrderById, async (req, res) => {
       });
     }
     
-    res.json({ message: 'Praca rozpoczęta', order });
+    res.json({ message: 'Praca rozpoczęta', order: startedOrder });
   } catch (e) {
     console.error('Start work error:', e);
     res.status(500).json({ message: 'Błąd rozpoczęcia pracy' });
@@ -3179,7 +3614,7 @@ router.post('/:id/extend', auth, loadOrderById, async (req, res) => {
 // Zakończenie zlecenia — KYC wymagane tylko przy płatności w systemie (spójnie z możliwością startu pracy bez KYC przy external)
 router.post('/:id/complete', auth, loadOrderById, requireKycForOrderComplete, async (req, res) => {
   try {
-    const order = req.order;
+    let order = req.order;
     
     // Sprawdź czy użytkownik to provider
     const assignedProviderId = order.provider?._id
@@ -3224,9 +3659,7 @@ router.post('/:id/complete', auth, loadOrderById, requireKycForOrderComplete, as
     }
     
     const completedAt = new Date();
-    const isExternalPayment = isExternalOrderPayment(order);
-    order.completedAt = completedAt;
-    order.status = isExternalPayment ? 'released' : 'completed';
+    applyProviderCompletionState(order, completedAt);
     
     // Zapisz dane zakończenia
     if (completionType) {
@@ -3267,15 +3700,33 @@ router.post('/:id/complete', auth, loadOrderById, requireKycForOrderComplete, as
       order.deliveredOnTime = null;
     }
     
-    if (!isExternalPayment) {
-      order.clientCompletionStatus = 'pending';
-      order.clientCompletionAcceptedAt = null;
-    } else {
-      order.clientCompletionStatus = null;
-      order.clientCompletionAcceptedAt = null;
+    const completionSet = {
+      status: order.status,
+      completedAt: order.completedAt,
+      clientCompletionStatus: order.clientCompletionStatus,
+      clientCompletionAcceptedAt: order.clientCompletionAcceptedAt,
+      completionType: order.completionType,
+      completionNotes: order.completionNotes,
+      additionalAmount: order.additionalAmount,
+      paymentReason: order.paymentReason,
+      deliveredOnTime: order.deliveredOnTime,
+    };
+    const completedOrder = await Order.findOneAndUpdate(
+      {
+        _id: order._id,
+        provider: req.user._id,
+        status: 'in_progress',
+      },
+      { $set: completionSet },
+      { new: true, runValidators: true }
+    );
+    if (!completedOrder) {
+      return res.status(409).json({
+        message: 'Stan zlecenia zmienił się podczas kończenia pracy. Odśwież stronę.',
+        code: 'ORDER_COMPLETE_CONFLICT',
+      });
     }
-
-    await order.save();
+    order = completedOrder;
     
     try {
       const TelemetryService = require('../services/TelemetryService');
@@ -3302,15 +3753,6 @@ router.post('/:id/complete', auth, loadOrderById, requireKycForOrderComplete, as
       console.error('Notification error:', error);
     }
     
-    if (isExternalPayment) {
-      try {
-        const { processOrderGrowthRewards } = require('../utils/growthRewards');
-        await processOrderGrowthRewards(order);
-      } catch (growthErr) {
-        console.error('[growth] complete external rewards:', growthErr?.message);
-      }
-    }
-
     // Wywołaj Post-Order Agent dla personalizacji follow-up
     let postOrderResult = null;
     try {
@@ -4054,8 +4496,8 @@ router.get('/my', auth, async (req, res) => {
     }
 
     const orders = await Order.find(filter)
-      .populate('client', 'name email')
-      .populate('provider', 'name email')
+      .populate('client', 'name')
+      .populate('provider', 'name')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limitNum);
@@ -4157,6 +4599,8 @@ router.post('/:id/dispute', auth, loadOrderById, async (req, res) => {
       createdAt: null,
       respondedAt: null,
       respondedBy: null,
+      refundExecutionKey: null,
+      refundExecutionStartedAt: null,
     };
 
     await order.save();
@@ -4398,5 +4842,18 @@ router.post('/manage-expiration', async (req, res) => {
     });
   }
 });
+
+router.__testables = {
+  resolveServerInitialOrderStatus,
+  isOrderOwnerOrAdmin,
+  getPaymentPreferenceChangeBlockReason,
+  applyProviderCompletionState,
+  canConfirmReceipt,
+  releaseFailureHttpStatus,
+  getStartWorkBlock,
+  verifyMainEscrowAuthorization,
+  buildSettlementOfferClaimFilter,
+  buildSettlementDeclineClaimFilter,
+};
 
 module.exports = router;

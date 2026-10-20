@@ -45,7 +45,6 @@ const PaymentErrorLogSchema = new mongoose.Schema({
 
 // Indeksy dla szybkiego wyszukiwania
 PaymentErrorLogSchema.index({ errorType: 1, status: 1, createdAt: -1 });
-PaymentErrorLogSchema.index({ stripePaymentIntentId: 1 });
 PaymentErrorLogSchema.index({ userId: 1, createdAt: -1 });
 PaymentErrorLogSchema.index({ status: 1, retryable: 1 });
 

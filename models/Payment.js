@@ -26,13 +26,16 @@ const PaymentSchema = new mongoose.Schema({
   providerName: String,
   clientName: String,
 
-  stripePaymentIntentId: { type: String, index: true },
+  stripePaymentIntentId: { type: String },
   /** Gdy płatność idzie przez Stripe Checkout (mode payment/subscription). */
   stripeCheckoutSessionId: { type: String, default: null, index: true, sparse: true },
   stripeSubscriptionId: { type: String, index: true }, // Dla Stripe Subscriptions
   stripeCustomerId: { type: String, index: true }, // Customer ID w Stripe
   stripeChargeId: { type: String },
   stripeInvoiceId: { type: String }, // Invoice ID dla subskrypcji
+  stripeBusinessKey: { type: String, default: null },
+  // Klucze efektów biznesowych Stripe zastosowanych atomowo na tym rekordzie.
+  stripeAppliedEffects: { type: [String], default: [] },
 
   amount: { type: Number, required: true }, // grosze
   currency: { type: String, default: 'pln' },
@@ -70,6 +73,14 @@ PaymentSchema.index({ order: 1 });
 PaymentSchema.index({ client: 1, createdAt: -1 });
 PaymentSchema.index({ provider: 1, createdAt: -1 });
 PaymentSchema.index({ purpose: 1, status: 1 });
+PaymentSchema.index(
+  { stripePaymentIntentId: 1 },
+  { unique: true, partialFilterExpression: { stripePaymentIntentId: { $type: 'string' } } }
+);
+PaymentSchema.index(
+  { stripeBusinessKey: 1 },
+  { unique: true, partialFilterExpression: { stripeBusinessKey: { $type: 'string' } } }
+);
 
 module.exports = mongoose.model('Payment', PaymentSchema);
 

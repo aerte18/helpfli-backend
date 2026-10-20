@@ -1,4 +1,5 @@
 const Company = require('../models/Company');
+const { applyStripeEffectOnce } = require('./stripeWebhookIdempotency');
 const User = require('../models/User');
 const UserSubscription = require('../models/UserSubscription');
 
@@ -169,7 +170,7 @@ async function getCompanyResourcePoolStats(companyId) {
  * @param {String} companyId - ID firmy
  * @param {String} planKey - Klucz planu (BUSINESS_FREE, BUSINESS_STANDARD, BUSINESS_PRO)
  */
-async function initializeCompanyResourcePool(companyId, planKey) {
+async function initializeCompanyResourcePool(companyId, planKey, options = {}) {
   try {
     const company = await Company.findById(companyId);
     if (!company) {
@@ -207,6 +208,31 @@ async function initializeCompanyResourcePool(companyId, planKey) {
     };
     
     const planLimits = limits[planKey] || limits.BUSINESS_FREE;
+
+    if (options.effectKey) {
+      const occurredAt = options.occurredAt ? new Date(options.occurredAt) : new Date();
+      const resetDate = new Date(occurredAt.getFullYear(), occurredAt.getMonth(), 1);
+      await applyStripeEffectOnce(
+        Company,
+        { _id: companyId },
+        options.effectKey,
+        {
+          $set: {
+            'resourcePool.aiQueriesLimit': planLimits.aiQueriesLimit,
+            'resourcePool.aiQueriesUsed': 0,
+            'resourcePool.aiQueriesResetDate': resetDate,
+            'resourcePool.fastTrackLimit': planLimits.fastTrackLimit,
+            'resourcePool.fastTrackUsed': 0,
+            'resourcePool.fastTrackResetDate': resetDate,
+            'resourcePool.providerResponsesLimit': planLimits.providerResponsesLimit,
+            'resourcePool.providerResponsesUsed': 0,
+            'resourcePool.providerResponsesResetDate': resetDate,
+            'onboardingSteps.planSelected': true,
+          },
+        }
+      );
+      return { success: true, message: 'Resource pool zainicjalizowany' };
+    }
     
     if (!company.resourcePool) {
       company.resourcePool = {};

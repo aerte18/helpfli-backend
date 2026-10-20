@@ -10,6 +10,7 @@ const CouponSchema = new mongoose.Schema({
   products: [String], // np. ["highlight_24h","top_7d"] lub puste = wszystkie
   maxUses: { type: Number, default: 0 }, // 0 = bez limitu
   used: { type: Number, default: 0 },
+  stripeAppliedEffects: { type: [String], default: [] },
 }, {
   timestamps: true
 });

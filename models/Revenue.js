@@ -44,6 +44,7 @@ const RevenueSchema = new mongoose.Schema({
   // Płatność
   paymentId: String,     // ID płatności z Stripe
   paymentMethod: String, // metoda płatności
+  stripeSourceId: { type: String, default: null },
   
   // Refund
   refundedAt: { type: Date },
@@ -58,6 +59,10 @@ RevenueSchema.index({ providerId: 1 });
 RevenueSchema.index({ type: 1 });
 RevenueSchema.index({ status: 1 });
 RevenueSchema.index({ createdAt: -1 });
+RevenueSchema.index(
+  { stripeSourceId: 1, type: 1 },
+  { unique: true, partialFilterExpression: { stripeSourceId: { $type: 'string' } } }
+);
 
 module.exports = mongoose.model("Revenue", RevenueSchema);
 

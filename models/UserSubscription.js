@@ -26,6 +26,9 @@ const UserSubscriptionSchema = new mongoose.Schema({
 	// Loyalty rewards
 	loyaltyMonths: { type: Number, default: 0 }, // Liczba miesięcy ciągłej subskrypcji
 	loyaltyDiscount: { type: Number, default: 0 }, // Procent zniżki z lojalności (np. 5, 10, 15)
+	performanceDiscount: { type: Number, default: 0 },
+	performanceDiscountOrders: { type: Number, default: 0 },
+	performanceDiscountTier: { type: String, default: 'none' },
 	// Referral
 	referredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
 	referralCodeUsed: { type: String, default: null },
@@ -77,6 +80,8 @@ const UserSubscriptionSchema = new mongoose.Schema({
 	/** PRO z programu Pierwszy wykonawca (60 dni) — po wygaśnięciu cofnięcie na FREE */
 	foundingProGrant: { type: Boolean, default: false },
 	foundingProPreviousPlanKey: { type: String, default: null },
+	// Idempotencja skutków biznesowych webhooków (kluczowana invoice/PI, nie eventem).
+	stripeAppliedEffects: { type: [String], default: [] },
 }, { timestamps: true });
 
 // Indexes for performance

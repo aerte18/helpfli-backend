@@ -21,22 +21,41 @@ function calculateBulkDiscount(quantity) {
   return 0;
 }
 
-async function activateBoostItems(userId, codes) {
+async function activateBoostItems(userId, codes, options = {}) {
   const items = codes.map((code) => BOOST_BY_CODE[code]).filter(Boolean);
   if (items.length !== codes.length) {
     throw new Error('Nieprawidłowe kody boostów');
   }
-  const startsAt = dayjs();
+  const startsAt = dayjs(options.startsAt || undefined);
   const created = [];
-  for (const item of items) {
+  for (const [itemIndex, item] of items.entries()) {
     const endsAt = item.durationDays > 0 ? startsAt.add(item.durationDays, 'day') : null;
-    const boost = await Boost.create({
-      user: userId,
-      code: item.code,
-      title: item.title,
-      startsAt: startsAt.toDate(),
-      endsAt: endsAt ? endsAt.toDate() : null,
-    });
+    const boost = options.stripePaymentIntentId
+      ? await Boost.findOneAndUpdate(
+          {
+            stripePaymentIntentId: options.stripePaymentIntentId,
+            stripeItemIndex: itemIndex,
+          },
+          {
+            $setOnInsert: {
+              user: userId,
+              code: item.code,
+              title: item.title,
+              startsAt: startsAt.toDate(),
+              endsAt: endsAt ? endsAt.toDate() : null,
+              stripePaymentIntentId: options.stripePaymentIntentId,
+              stripeItemIndex: itemIndex,
+            },
+          },
+          { upsert: true, new: true }
+        )
+      : await Boost.create({
+          user: userId,
+          code: item.code,
+          title: item.title,
+          startsAt: startsAt.toDate(),
+          endsAt: endsAt ? endsAt.toDate() : null,
+        });
     created.push(boost);
   }
   return created;
@@ -55,7 +74,13 @@ async function fulfillBoostPaymentFromWebhook(intent, payment) {
       : [];
   if (!userId || !codes.length) return false;
 
-  await activateBoostItems(userId, codes);
+  const startsAt = Number(intent.created) > 0
+    ? new Date(Number(intent.created) * 1000)
+    : new Date();
+  await activateBoostItems(userId, codes, {
+    stripePaymentIntentId: intent.id,
+    startsAt,
+  });
   if (payment) {
     payment.status = 'succeeded';
     payment.method = intent.payment_method_types?.[0] || payment.method;

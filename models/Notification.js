@@ -65,7 +65,8 @@ const NotificationSchema = new mongoose.Schema({
   metadata: {
     type: mongoose.Schema.Types.Mixed,
     default: {}
-  }
+  },
+  dedupeKey: { type: String, default: null },
 }, {
   timestamps: true
 });
@@ -73,6 +74,10 @@ const NotificationSchema = new mongoose.Schema({
 // Indexy dla wydajności
 NotificationSchema.index({ user: 1, read: 1, createdAt: -1 });
 NotificationSchema.index({ user: 1, createdAt: -1 });
+NotificationSchema.index(
+  { dedupeKey: 1 },
+  { unique: true, partialFilterExpression: { dedupeKey: { $type: 'string' } } }
+);
 
 module.exports = mongoose.model('Notification', NotificationSchema);
 

@@ -42,12 +42,14 @@ const orderSchema = new mongoose.Schema({
       'rated', // Ocenione
       'cancelled', // Anulowane
       // Legacy statusy (zachowane dla kompatybilności)
-      'awaiting_payment', 'paid', 'matched', 'quote', 'funded', 'released', 'disputed'
+      'awaiting_payment', 'paid', 'matched', 'quote', 'funded', 'releasing', 'released', 'disputed'
     ], 
     default: 'draft',
     index: true
   },
   completedAt: { type: Date }, // Data zakończenia zlecenia
+  releaseStartedAt: { type: Date, default: null },
+  releasePreviousStatus: { type: String, default: null },
   deliveredOnTime: { type: Boolean, default: null }, // Czy zlecenie zostało ukończone na czas (null = nie określono)
   reviewReminderSent: { type: Boolean, default: false }, // Czy wysłano prośbę o recenzję
   // Pola zakończenia zlecenia
@@ -90,6 +92,7 @@ const orderSchema = new mongoose.Schema({
     default: 'none',
   },
   listingAddonsPaidAt: { type: Date, default: null },
+  listingAddonsPaymentIntentId: { type: String, default: null },
   requestInvoice: { type: Boolean, default: false }, // Klient prosił o fakturę przy płatności
   priority: { type: String, enum: ['normal', 'priority'], default: 'normal' }, // Nowe pole - priorytet zlecenia
   priorityFee: { type: Number, default: 0 }, // Dopłata za priorytet (w groszach)
@@ -218,7 +221,16 @@ const orderSchema = new mongoose.Schema({
       premiumProvider: { type: Boolean, default: false }
     },
     extrasCost: { type: Number, default: 0 },
+    /** Opłata za ochronę transakcji, w PLN. */
+    guaranteeFee: { type: Number, default: 0 },
     platformFee: { type: Number, default: 0 },
+    commissionChargedPln: { type: Number, default: 0 },
+    platformFeeBeforeDiscount: { type: Number, default: 0 },
+    platformFeePercent: { type: Number, default: 0 },
+    foundingDiscountApplied: { type: Boolean, default: false },
+    feeExplanation: { type: String, default: null },
+    /** Serwerowy snapshot wyboru gwarancji dla zaakceptowanej oferty. */
+    includeGuarantee: { type: Boolean, default: false },
     discountPromo: { type: Number, default: 0 },
     discountTier: { type: Number, default: 0 },
     discountPoints: { type: Number, default: 0 }, // Zniżka z punktów - pokrywana przez platformę
@@ -297,7 +309,7 @@ const orderSchema = new mongoose.Schema({
       {
         user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
         body: { type: String, trim: true, maxlength: 8000 },
-        kind: { type: String, enum: ['message', 'system'], default: 'message' },
+        kind: { type: String, enum: ['message', 'system', 'admin'], default: 'message' },
         createdAt: { type: Date, default: Date.now },
       },
     ],
@@ -319,6 +331,13 @@ const orderSchema = new mongoose.Schema({
     refundAmountGrosze: { type: Number, default: null },
     refundStripeRef: { type: String, default: null },
     refundMethod: { type: String, default: null },
+    // Atomowy claim jednego wykonania zwrotu dla bieżącej ugody/sporu.
+    // Klucz pozostaje zapisany również po błędzie procesu, aby inny caller nie
+    // mógł równolegle utworzyć drugiego planu i zwrócić środków ponownie.
+    refundExecutionKey: { type: String, default: null },
+    refundExecutionStartedAt: { type: Date, default: null },
+    adminForced: { type: Boolean, default: false },
+    adminForcedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   },
   refundRequested: { type: Boolean, default: false },
   refundRequestedAt: { type: Date },

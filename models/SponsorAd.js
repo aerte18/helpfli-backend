@@ -181,7 +181,9 @@ const SponsorAdSchema = new mongoose.Schema({
     amount: Number, // w groszach
     currency: { type: String, default: 'pln' },
     paidAt: Date,
-    status: { type: String, enum: ['pending', 'succeeded', 'failed'], default: 'pending' }
+    status: { type: String, enum: ['pending', 'succeeded', 'failed'], default: 'pending' },
+    lastRenewalPaymentIntentId: { type: String, default: null },
+    lastRenewalEmailPaymentIntentId: { type: String, default: null }
   },
   
   // Statystyki

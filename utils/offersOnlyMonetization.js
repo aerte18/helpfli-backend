@@ -61,6 +61,38 @@ function maskEmail(email) {
   return `${u}@${domain}`;
 }
 
+function maskNonAcceptedOfferContacts(order) {
+  if (!order || !Array.isArray(order.offers)) return order;
+
+  const acceptedOfferId = order.acceptedOfferId && typeof order.acceptedOfferId === 'object'
+    ? order.acceptedOfferId._id
+    : order.acceptedOfferId;
+  const acceptedId = acceptedOfferId ? String(acceptedOfferId) : null;
+
+  const maskUser = (user) => {
+    if (!user || typeof user !== 'object') return user;
+    return {
+      ...user,
+      phone: maskPhone(user.phone),
+      email: maskEmail(user.email),
+      phoneLocked: true,
+      emailLocked: true,
+    };
+  };
+
+  order.offers = order.offers.map((offer) => {
+    const offerId = offer?._id ? String(offer._id) : null;
+    if (acceptedId && offerId === acceptedId) return offer;
+
+    return {
+      ...offer,
+      providerId: maskUser(offer?.providerId),
+    };
+  });
+
+  return order;
+}
+
 /**
  * Ukrywa dane kontaktowe do czasu opłaty (lub PRO klienta).
  */
@@ -110,5 +142,6 @@ module.exports = {
   applyContactMasking,
   maskPhone,
   maskEmail,
+  maskNonAcceptedOfferContacts,
   pricing,
 };

@@ -3,6 +3,7 @@ const router = express.Router();
 const { authMiddleware } = require("../middleware/authMiddleware");
 const User = require("../models/User");
 const { isActive } = require("../utils/promo");
+const { applyStripeEffectOnce } = require('../utils/stripeWebhookIdempotency');
 
 // Helper functions
 function addDays(from, n) { 
@@ -11,11 +12,53 @@ function addDays(from, n) {
   return d; 
 }
 
-async function activatePromo(userId, productKey) {
+async function activatePromo(userId, productKey, options = {}) {
   const p = PRICES[productKey];
   if (!p) throw new Error("Nieznany pakiet");
   const me = await User.findById(userId);
   if (!me) throw new Error("User not found");
+
+  if (options.effectKey) {
+    const startsAt = options.startsAt ? new Date(options.startsAt) : new Date();
+    const addFromCurrentOrStart = (current, days) => {
+      const currentDate = current ? new Date(current) : null;
+      const base = currentDate && currentDate > startsAt ? currentDate : startsAt;
+      return addDays(base, days);
+    };
+    const set = {
+      'promo.rankBoostPoints': Math.max(me.promo?.rankBoostPoints || 0, p.rank),
+      'promo.rankBoostUntil': addFromCurrentOrStart(me.promo?.rankBoostUntil, p.days),
+    };
+    if (p.highlight) {
+      set['promo.highlightUntil'] = addFromCurrentOrStart(me.promo?.highlightUntil, p.days);
+    }
+    if (p.top) {
+      set['promo.topBadgeUntil'] = addFromCurrentOrStart(me.promo?.topBadgeUntil, p.days);
+    }
+    if (productKey === 'top_14d') {
+      set['promo.aiTopTagUntil'] = addFromCurrentOrStart(me.promo?.aiTopTagUntil, 7);
+    }
+    if (productKey === 'top_31d') {
+      set['promo.aiTopTagUntil'] = addFromCurrentOrStart(me.promo?.aiTopTagUntil, 31);
+    }
+    if (!me.promo?.rankBoostUntil || new Date(me.promo.rankBoostUntil) < startsAt) {
+      set['promo.metricsAtStart'] = {
+        impressions: me.metrics?.impressions || 0,
+        clicks: me.metrics?.clicks || 0,
+        quoteRequests: me.metrics?.quoteRequests || 0,
+        chatsStarted: me.metrics?.chatsStarted || 0,
+        ordersWon: me.metrics?.ordersWon || 0,
+        at: startsAt,
+      };
+    }
+    await applyStripeEffectOnce(
+      User,
+      { _id: userId },
+      options.effectKey,
+      { $set: set }
+    );
+    return (await User.findById(userId).select('promo')).promo;
+  }
 
   // ustaw efekty
   if (p.highlight) me.promo.highlightUntil = addDays(me.promo?.highlightUntil, p.days);

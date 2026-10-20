@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const PromotionPurchaseSchema = new mongoose.Schema({
   provider: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   plan: { type: mongoose.Schema.Types.ObjectId, ref: 'PromotionPlan', required: true },
-  stripePaymentIntentId: { type: String, index: true },
+  stripePaymentIntentId: { type: String },
   status: { type: String, enum: ['pending','active','expired','canceled','failed','refunded'], default: 'pending' },
 
   startsAt: { type: Date, default: null },
@@ -11,7 +11,13 @@ const PromotionPurchaseSchema = new mongoose.Schema({
 
   amount: { type: Number, required: true }, // grosze
   currency: { type: String, default: 'pln' },
+  stripeAppliedEffects: { type: [String], default: [] },
 }, { timestamps: true });
+
+PromotionPurchaseSchema.index(
+  { stripePaymentIntentId: 1 },
+  { unique: true, partialFilterExpression: { stripePaymentIntentId: { $type: 'string' } } }
+);
 
 module.exports = mongoose.model('PromotionPurchase', PromotionPurchaseSchema);
 

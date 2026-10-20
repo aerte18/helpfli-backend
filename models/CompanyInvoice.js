@@ -90,7 +90,6 @@ const CompanyInvoiceSchema = new mongoose.Schema({
 
 // Indeksy
 CompanyInvoiceSchema.index({ company: 1, createdAt: -1 });
-CompanyInvoiceSchema.index({ invoiceNumber: 1 });
 CompanyInvoiceSchema.index({ status: 1 });
 CompanyInvoiceSchema.index({ 'period.startDate': 1, 'period.endDate': 1 });
 

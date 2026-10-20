@@ -34,7 +34,7 @@ async function fulfillSponsorAdPaymentFromWebhook(intent) {
     paymentIntentId: intent.id,
     amount: intent.amount,
     currency: intent.currency,
-    paidAt: new Date(),
+    paidAt: Number(intent.created) > 0 ? new Date(Number(intent.created) * 1000) : new Date(),
     status: 'succeeded',
   };
   await ad.save();
@@ -53,17 +53,22 @@ async function createSponsorAdRenewalPaymentIntent(ad) {
     throw new Error('Brak budżetu kampanii do przedłużenia');
   }
 
-  return stripe.paymentIntents.create({
-    amount,
-    currency: ad.payment?.currency || 'pln',
-    payment_method_types: ['card', 'p24', 'blik'],
-    metadata: {
-      type: 'sponsor_ad_renewal',
-      adId: String(ad._id),
-      advertiserEmail: ad.advertiser?.email || '',
+  return stripe.paymentIntents.create(
+    {
+      amount,
+      currency: ad.payment?.currency || 'pln',
+      payment_method_types: ['card', 'p24', 'blik'],
+      metadata: {
+        type: 'sponsor_ad_renewal',
+        adId: String(ad._id),
+        advertiserEmail: ad.advertiser?.email || '',
+      },
+      description: `Przedłużenie kampanii reklamowej: ${ad.title}`,
     },
-    description: `Przedłużenie kampanii reklamowej: ${ad.title}`,
-  });
+    {
+      idempotencyKey: `sponsor-ad:${ad._id}:renew:${ad.campaign?.endDate?.toISOString?.() || 'period'}`,
+    }
+  );
 }
 
 /**
@@ -80,30 +85,39 @@ async function fulfillSponsorAdRenewalFromWebhook(intent) {
   if (!ad) return false;
 
   if (ad.payment?.lastRenewalPaymentIntentId === intent.id) {
-    return true;
+    return false;
   }
   if (intent.amount < (ad.campaign?.budget || 0)) return false;
 
   const renewalPeriod = ad.campaign?.renewalPeriod || 30;
-  const baseMs = Math.max(Date.now(), ad.campaign.endDate?.getTime() || Date.now());
-  ad.campaign.endDate = new Date(baseMs + renewalPeriod * 24 * 60 * 60 * 1000);
-  ad.campaign.spent = 0;
-  ad.campaign.renewalCount = (ad.campaign.renewalCount || 0) + 1;
-  ad.campaign.notificationSent = false;
-  ad.campaign.renewalPendingPaymentIntentId = null;
-  ad.campaign.renewalPaymentOfferSent = false;
-  ad.status = 'active';
-  ad.payment = {
-    ...(ad.payment || {}),
-    paymentIntentId: intent.id,
-    amount: intent.amount,
-    currency: intent.currency,
-    paidAt: new Date(),
-    status: 'succeeded',
-    lastRenewalPaymentIntentId: intent.id,
-  };
-  await ad.save();
-  return true;
+  const paidAt = Number(intent.created) > 0
+    ? new Date(Number(intent.created) * 1000)
+    : new Date();
+  const baseMs = Math.max(paidAt.getTime(), ad.campaign.endDate?.getTime() || paidAt.getTime());
+  const result = await SponsorAd.updateOne(
+    {
+      _id: ad._id,
+      'payment.lastRenewalPaymentIntentId': { $ne: intent.id },
+    },
+    {
+      $set: {
+        'campaign.endDate': new Date(baseMs + renewalPeriod * 24 * 60 * 60 * 1000),
+        'campaign.spent': 0,
+        'campaign.notificationSent': false,
+        'campaign.renewalPendingPaymentIntentId': null,
+        'campaign.renewalPaymentOfferSent': false,
+        status: 'active',
+        'payment.paymentIntentId': intent.id,
+        'payment.amount': intent.amount,
+        'payment.currency': intent.currency,
+        'payment.paidAt': paidAt,
+        'payment.status': 'succeeded',
+        'payment.lastRenewalPaymentIntentId': intent.id,
+      },
+      $inc: { 'campaign.renewalCount': 1 },
+    }
+  );
+  return (result?.modifiedCount ?? result?.nModified ?? 0) > 0;
 }
 
 module.exports = {

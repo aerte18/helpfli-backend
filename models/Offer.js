@@ -50,7 +50,7 @@ const OfferSchema = new mongoose.Schema({
   // Status (ujednolicony z planem MVP)
   status: {
     type: String,
-    enum: ["sent", "accepted", "rejected", "expired"],
+    enum: ["submitted", "sent", "accepting", "accepted", "rejected", "expired", "withdrawn"],
     default: "sent",
     index: true
   },
@@ -60,6 +60,11 @@ const OfferSchema = new mongoose.Schema({
   expiresAt: { type: Date, index: true }, // Oferta wygasa po X godzinach (domyślnie 24h)
   acceptedAt: { type: Date },
   rejectedAt: { type: Date },
+  // Krótki lease używany podczas akceptacji. Dzięki niemu edycja/wycofanie
+  // nie może wygrać wyścigu po wycenie, ale przed atomowym claimem Order.
+  acceptanceToken: { type: String, default: null },
+  acceptanceReservedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+  acceptanceReservedAt: { type: Date, default: null },
   
   // Legacy fields (zachowane dla kompatybilności)
   amount: { type: Number }, // Alias dla price

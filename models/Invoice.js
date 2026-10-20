@@ -97,8 +97,6 @@ const InvoiceSchema = new mongoose.Schema({
 
 // Indeksy
 InvoiceSchema.index({ ownerType: 1, owner: 1, createdAt: -1 });
-InvoiceSchema.index({ invoiceNumber: 1 });
-
 // Pre-save – generowanie numeru faktury i podsumowania
 InvoiceSchema.pre('save', async function(next) {
   if (!this.invoiceNumber) {

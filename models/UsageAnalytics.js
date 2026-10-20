@@ -49,6 +49,7 @@ const UsageAnalyticsSchema = new mongoose.Schema({
   
   // Platform fee paid
   platformFeePaid: { type: Number, default: 0 }, // w groszach
+  stripeAppliedEffects: { type: [String], default: [] },
 }, { timestamps: true });
 
 // Index dla szybkiego wyszukiwania

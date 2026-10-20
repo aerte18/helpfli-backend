@@ -110,13 +110,13 @@ const companySchema = new mongoose.Schema({
   // Metadane
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
-  isActive: { type: Boolean, default: true }
+  isActive: { type: Boolean, default: true },
+  stripeAppliedEffects: { type: [String], default: [] }
 }, {
   timestamps: true
 });
 
 // Indeksy dla wydajności
-companySchema.index({ nip: 1 });
 companySchema.index({ owner: 1 });
 companySchema.index({ status: 1 });
 companySchema.index({ verified: 1 });

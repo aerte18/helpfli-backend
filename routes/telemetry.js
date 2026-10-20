@@ -20,6 +20,7 @@ const FUNNEL_SEQUENCE = [
   'offer_form_start',
   'offer_form_submit',
   'order_accepted',
+  'checkout_started',
   'payment_succeeded'
 ];
 

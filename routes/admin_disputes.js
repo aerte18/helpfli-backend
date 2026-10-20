@@ -289,7 +289,10 @@ router.post("/:orderId/close", async (req, res) => {
  */
 router.post("/:orderId/force-refund", async (req, res) => {
   try {
-    const { applyDisputeSettlementRefund } = require("../utils/disputeSettlementRefund");
+    const {
+      applyDisputeSettlementRefund,
+      buildDisputeSettlementExecutionScope,
+    } = require("../utils/disputeSettlementRefund");
     const amountPln = Number(req.body?.amountPln);
     if (!Number.isFinite(amountPln) || amountPln < 0) {
       return res.status(400).json({ ok: false, message: "Nieprawidłowa kwota" });
@@ -304,23 +307,27 @@ router.post("/:orderId/force-refund", async (req, res) => {
     }
 
     const refundSummary = await applyDisputeSettlementRefund(order, amountPln, {
-      idempotencyScope: `admin_${order._id}`,
+      idempotencyScope: buildDisputeSettlementExecutionScope(
+        order,
+        "admin",
+        amountPln
+      ),
     });
     if (!refundSummary.ok) {
       return res.status(400).json({ ok: false, message: refundSummary.message, code: refundSummary.code });
     }
 
-    order.disputeSettlement = {
-      ...st,
-      status: "accepted",
-      amountPln,
-      refundProcessedAt: new Date(),
-      refundAmountGrosze: refundSummary.amountGrosze,
-      refundStripeRef: refundSummary.stripeRef || null,
-      refundMethod: refundSummary.method,
-      adminForced: true,
-      adminForcedBy: req.user._id,
-    };
+    // Mutacja istniejącego nested object zachowuje atomowy refundExecutionKey
+    // ustawiony przez helper. Spread starego `st` mógłby go wyczyścić przy save.
+    order.disputeSettlement = order.disputeSettlement || {};
+    order.disputeSettlement.status = "accepted";
+    order.disputeSettlement.amountPln = amountPln;
+    order.disputeSettlement.refundProcessedAt = new Date();
+    order.disputeSettlement.refundAmountGrosze = refundSummary.amountGrosze;
+    order.disputeSettlement.refundStripeRef = refundSummary.stripeRef || null;
+    order.disputeSettlement.refundMethod = refundSummary.method;
+    order.disputeSettlement.adminForced = true;
+    order.disputeSettlement.adminForcedBy = req.user._id;
     order.paymentStatus = refundSummary.orderPaymentStatus;
     if (refundSummary.orderPaymentSubStatus) {
       order.payment = order.payment || {};

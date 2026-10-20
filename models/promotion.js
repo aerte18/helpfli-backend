@@ -8,9 +8,14 @@ const promotionSchema = new mongoose.Schema({
   activeTo: Date,
   status: { type: String, enum: ['active','expired','pending_payment','cancelled'], default: 'pending_payment' },
   stripeCheckoutSessionId: String,
+  stripeAppliedEffects: { type: [String], default: [] },
 }, { timestamps: true });
 
 promotionSchema.index({ user: 1, activeTo: -1 });
+promotionSchema.index(
+  { stripeCheckoutSessionId: 1 },
+  { unique: true, partialFilterExpression: { stripeCheckoutSessionId: { $type: 'string' } } }
+);
 
 module.exports = mongoose.model('Promotion', promotionSchema);
 

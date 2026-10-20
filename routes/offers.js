@@ -1,18 +1,185 @@
 const express = require("express");
 const mongoose = require("mongoose");
+const { randomUUID } = require('crypto');
 const { authMiddleware: auth } = require("../middleware/authMiddleware");
 const { requireKycVerified } = require("../middleware/kyc");
 const Offer = require("../models/Offer");
 const Order = require("../models/Order");
 const User = require("../models/User");
+const UserSubscription = require('../models/UserSubscription');
 const Revenue = require("../models/Revenue");
 const { computePricingBands } = require("../utils/pricing");
 const { notifyOfferNew, notifyOfferAccepted } = require("../utils/notifier");
 const logger = require("../utils/logger");
 const { evaluateOfferPreflight, normalizeOfferQuality } = require("../ai/utils/preflightQualityEvaluator");
+const {
+  AcceptanceValidationError,
+  acceptedOfferProviderMatches,
+  buildAcceptanceLockFilter,
+  buildAcceptancePricing,
+  buildOfferReservationFilter,
+  buildOfferReservationRefresh,
+  buildOfferReservationRelease,
+  buildOfferReservationUpdate,
+  contactUnlockIsSettled,
+  offerAcceptanceReservationIsStale,
+  resolveAcceptancePaymentFlow,
+} = require('../utils/offerAcceptance');
+const { computeOrderPlatformFee } = require('../utils/foundingProvider');
 
 /** Poniżej progu: wysyłka wymaga potwierdzenia „Wyślij mimo to” (tak samo weryfikowane na serwerze). */
 const OFFER_AI_HARD_THRESHOLD = 45;
+const ENABLE_STRIPE_CONNECT = process.env.ENABLE_STRIPE_CONNECT === 'true';
+
+async function getAcceptanceQuote({ order, offer, userId, paymentMethod, includeGuarantee }) {
+  const isOffersOnlyOrder = order.orderMode === 'offers_only';
+  const effectivePaymentFlow = resolveAcceptancePaymentFlow({
+    orderPreference: order.paymentPreference,
+    requestedPaymentMethod: paymentMethod,
+    isOffersOnlyOrder,
+  });
+
+  const [activeSubscription, providerUser] = await Promise.all([
+    UserSubscription.findOne({ user: userId, validUntil: { $gt: new Date() } }),
+    User.findById(offer.providerId).select(
+      'foundingProvider foundingProviderExpiresAt commissionDiscountPercent foundingProviderActivatedAt stripeAccountId stripeConnectStatus isB2B b2b'
+    ),
+  ]);
+
+  if (!providerUser) {
+    throw new AcceptanceValidationError('Wykonawca nie istnieje.', 'PROVIDER_NOT_FOUND', 404);
+  }
+
+  if (effectivePaymentFlow === 'system') {
+    if (!ENABLE_STRIPE_CONNECT) {
+      throw new AcceptanceValidationError(
+        'Płatności przez Helpfli są tymczasowo niedostępne. Wybierz płatność poza serwisem.',
+        'SYSTEM_PAYMENTS_DISABLED',
+        503
+      );
+    }
+    if (
+      !providerUser.stripeAccountId ||
+      !providerUser.stripeConnectStatus?.chargesEnabled ||
+      !providerUser.stripeConnectStatus?.payoutsEnabled
+    ) {
+      throw new AcceptanceValidationError(
+        'Ten wykonawca nie ma jeszcze w pełni aktywnych płatności i wypłat Stripe. Wybierz płatność poza systemem.',
+        'PROVIDER_PAYOUTS_UNAVAILABLE',
+        409
+      );
+    }
+  }
+
+  const baseAmount = Number(offer.amount ?? offer.price);
+  const clientPlanKey = activeSubscription?.planKey || null;
+  const feeCalc = computeOrderPlatformFee({
+    baseAmount,
+    clientPlanKey,
+    providerUser,
+    defaultPercent: 5,
+    offersOnly: isOffersOnlyOrder,
+  });
+  const pricing = buildAcceptancePricing({
+    baseAmount,
+    platformFee: feeCalc.platformFee,
+    platformFeeBeforeDiscount: feeCalc.platformFeeBeforeDiscount,
+    platformFeePercent: feeCalc.platformFeePercent,
+    foundingDiscountApplied: feeCalc.foundingDiscountApplied,
+    feeExplanation: feeCalc.feeExplanation,
+    paymentFlow: effectivePaymentFlow,
+    includeGuarantee,
+  });
+  const commissionChargedPln =
+    effectivePaymentFlow === 'external' && pricing.platformFee > 0
+      ? Math.max(pricing.platformFee, 2)
+      : 0;
+  pricing.commissionChargedPln = commissionChargedPln;
+
+  return {
+    activeSubscription,
+    clientPlanKey,
+    effectivePaymentFlow,
+    feeCalc,
+    isOffersOnlyOrder,
+    pricing,
+    paymentDueNow: effectivePaymentFlow === 'external' ? commissionChargedPln : pricing.total,
+    providerUser,
+  };
+}
+
+function sendAcceptanceError(res, error) {
+  if (error instanceof AcceptanceValidationError) {
+    return res.status(error.status || 400).json({ message: error.message, code: error.code });
+  }
+  throw error;
+}
+
+async function releaseOfferAcceptanceReservation({
+  offerId,
+  token,
+  status = 'sent',
+  expectedReservedAt,
+}) {
+  if (!offerId || !token) return;
+  const transition = buildOfferReservationRelease({
+    offerId,
+    token,
+    status,
+    expectedReservedAt,
+  });
+  return Offer.updateOne(transition.filter, transition.update);
+}
+
+async function reconcileAcceptedOfferStatuses(
+  orderId,
+  acceptedOfferId,
+  { acceptanceToken = null, allowRepair = false } = {}
+) {
+  const rejectedOffers = await Offer.find({
+    orderId,
+    _id: { $ne: acceptedOfferId },
+    status: { $in: ['sent', 'accepting'] },
+  }).select('_id providerId');
+
+  const acceptedAt = new Date();
+  const acceptedStates = [{ status: 'accepted' }];
+  if (acceptanceToken) {
+    acceptedStates.push({ status: 'accepting', acceptanceToken });
+  }
+  if (allowRepair) {
+    acceptedStates.push({ status: 'sent' }, { status: 'accepting' });
+  }
+  const acceptedResult = await Offer.updateOne(
+    { _id: acceptedOfferId, orderId, $or: acceptedStates },
+    {
+      $set: { status: 'accepted', acceptedAt },
+      $unset: {
+        rejectedAt: 1,
+        acceptanceToken: 1,
+        acceptanceReservedBy: 1,
+        acceptanceReservedAt: 1,
+      },
+    }
+  );
+  if (!(acceptedResult.matchedCount ?? acceptedResult.n)) {
+    throw new Error('Accepted offer could not be reconciled');
+  }
+
+  await Offer.updateMany(
+    { orderId, _id: { $ne: acceptedOfferId }, status: { $in: ['sent', 'accepting'] } },
+    {
+      $set: { status: 'rejected', rejectedAt: acceptedAt },
+      $unset: {
+        acceptanceToken: 1,
+        acceptanceReservedBy: 1,
+        acceptanceReservedAt: 1,
+      },
+    }
+  );
+
+  return rejectedOffers;
+}
 
 // Helper function: Calculate distance between two coordinates (Haversine formula)
 function calculateDistance(coord1, coord2) {
@@ -433,7 +600,7 @@ router.post("/", auth, async (req, res) => {
     const existingOffer = await Offer.findOne({
       orderId,
       providerId: req.user._id,
-      status: 'sent'
+      status: { $in: ['sent', 'accepting'] }
     }).select('_id');
     if (existingOffer) {
       return res.status(409).json({
@@ -952,6 +1119,16 @@ router.get("/of-order", auth, async (req, res) => {
             foundingProvider: "$provider.foundingProvider",
             foundingProviderExpiresAt: "$provider.foundingProviderExpiresAt",
             commissionDiscountPercent: "$provider.commissionDiscountPercent",
+            isB2B: "$provider.isB2B",
+            b2b: "$provider.b2b",
+            stripeChargesEnabled: { $ifNull: ["$provider.stripeConnectStatus.chargesEnabled", false] },
+            stripePayoutsEnabled: { $ifNull: ["$provider.stripeConnectStatus.payoutsEnabled", false] },
+            stripeAccountConfigured: {
+              $gt: [
+                { $strLenCP: { $ifNull: ["$provider.stripeAccountId", ""] } },
+                0,
+              ],
+            },
           },
         }
       },
@@ -960,8 +1137,8 @@ router.get("/of-order", auth, async (req, res) => {
 
     const { isFoundingProviderActive, getFoundingCommissionDiscountPercent } = require('../utils/foundingProvider');
     const enriched = items.map((o) => {
-      const p = o.provider;
-      const foundingActive = p && isFoundingProviderActive(p);
+      const p = o.providerMeta || {};
+      const foundingActive = isFoundingProviderActive(p);
       const issuesInvoice = !!(o.issuesInvoice || p?.isB2B || p?.b2b);
       return {
         ...o,
@@ -972,6 +1149,17 @@ router.get("/of-order", auth, async (req, res) => {
           foundingProviderActive: !!foundingActive,
           foundingCommissionWaived: foundingActive && getFoundingCommissionDiscountPercent(p) >= 100,
           foundingExpiresAt: foundingActive ? p.foundingProviderExpiresAt : null,
+          systemPaymentAvailable: Boolean(
+            ENABLE_STRIPE_CONNECT &&
+            p.stripeAccountConfigured &&
+            p.stripeChargesEnabled &&
+            p.stripePayoutsEnabled
+          ),
+          systemPaymentUnavailableReason: !ENABLE_STRIPE_CONNECT
+            ? 'Płatności przez Helpfli są tymczasowo niedostępne. Wybierz płatność poza serwisem.'
+            : (!p.stripeAccountConfigured || !p.stripeChargesEnabled || !p.stripePayoutsEnabled)
+              ? 'Ten wykonawca nie ma jeszcze w pełni aktywnych płatności i wypłat Stripe.'
+              : null,
         },
       };
     });
@@ -987,26 +1175,89 @@ router.get("/of-order", auth, async (req, res) => {
   }
 });
 
+// Serwer jest jedynym źródłem prawdy dla ceny widocznej przed akceptacją.
+router.post("/:id/acceptance-quote", auth, async (req, res) => {
+  try {
+    const offer = await Offer.findById(req.params.id).populate('orderId');
+    if (!offer) return res.status(404).json({ message: 'Oferta nie istnieje' });
+
+    const order = offer.orderId;
+    if (!order) return res.status(404).json({ message: 'Powiązane zlecenie nie istnieje' });
+    if (String(order.client) !== String(req.user._id)) {
+      return res.status(403).json({ message: 'Tylko właściciel zlecenia może pobrać wycenę' });
+    }
+    if (order.acceptedOfferId && String(order.acceptedOfferId) !== String(offer._id)) {
+      return res.status(409).json({ message: 'Zlecenie ma już zaakceptowaną ofertę' });
+    }
+    if (offer.expiresAt && offer.expiresAt < new Date()) {
+      return res.status(400).json({ message: 'Oferta wygasła', code: 'OFFER_EXPIRED' });
+    }
+    if (!['sent', 'accepted'].includes(offer.status)) {
+      return res.status(409).json({ message: 'Ta oferta nie jest już dostępna', code: 'OFFER_NOT_AVAILABLE' });
+    }
+
+    let quote;
+    try {
+      quote = await getAcceptanceQuote({
+        order,
+        offer,
+        userId: req.user._id,
+        paymentMethod: req.body?.paymentMethod,
+        includeGuarantee: req.body?.includeGuarantee === true,
+      });
+    } catch (error) {
+      return sendAcceptanceError(res, error);
+    }
+
+    return res.json({
+      offerId: offer._id,
+      orderId: order._id,
+      paymentMethod: quote.effectivePaymentFlow,
+      pricing: quote.pricing,
+      paymentDueNow: quote.paymentDueNow,
+      amountTotal: Math.round(quote.pricing.total * 100),
+      platformFeeAmount: Math.round(quote.pricing.platformFee * 100),
+      protectionEligible: quote.pricing.includeGuarantee,
+      clientPlanKey: quote.clientPlanKey,
+      feeMeta: {
+        platformFeePercent: quote.feeCalc.platformFeePercent,
+        foundingDiscountApplied: quote.feeCalc.foundingDiscountApplied,
+        platformFeeBeforeDiscount: quote.feeCalc.platformFeeBeforeDiscount,
+        feeExplanation: quote.feeCalc.feeExplanation,
+        foundingExpiresAt: quote.feeCalc.foundingExpiresAt,
+      },
+    });
+  } catch (error) {
+    logger.error('ACCEPTANCE_QUOTE_ERROR:', {
+      message: error.message,
+      stack: error.stack,
+      offerId: req.params?.id,
+      userId: req.user?._id,
+    });
+    return res.status(500).json({ message: 'Błąd przygotowania wyceny oferty' });
+  }
+});
+
 // Akceptacja oferty przez klienta – bez requireKycVerified (KYC wymagane dla wykonawcy przy start/complete)
 router.post("/:id/accept", auth, async (req, res) => {
+  let acceptanceReservation = null;
+  let orderClaimed = false;
   try {
     const { id } = req.params;
     const {
-      paymentMethod = 'system',
+      paymentMethod,
       includeGuarantee = true, 
       requestInvoice = false,
-      totalAmount, 
-      breakdown,
       // Teleporada - dane konsultacji
       scheduledDateTime,
       consultationType, // 'video' lub 'phone'
       consultationDuration
     } = req.body;
 
-    const offer = await Offer.findById(id).populate('orderId');
+    let offer = await Offer.findById(id).populate('orderId');
     if (!offer) return res.status(404).json({ message: "Oferta nie istnieje" });
 
-    const order = offer.orderId;
+    let order = offer.orderId;
     if (!order) return res.status(404).json({ message: "Powiązane zlecenie nie istnieje" });
 
     // Sprawdź uprawnienia: tylko właściciel order może zaakceptować
@@ -1014,13 +1265,28 @@ router.post("/:id/accept", auth, async (req, res) => {
       return res.status(403).json({ message: "Tylko właściciel zlecenia może zaakceptować ofertę" });
     }
     
-    // Zlecenie już zaakceptowane — idempotentnie zwróć sukces dla tej samej oferty (podwójne kliknięcie / retry)
+    // Retry po zdobyciu atomowego locka Order może bezpiecznie dokończyć wyłącznie
+    // tę samą ofertę i tego samego wykonawcę. Nie wskrzeszamy ofert wycofanych ani wygasłych.
     if (order.acceptedOfferId) {
       if (String(order.acceptedOfferId) === String(offer._id) && order.status === "accepted") {
+        if (!acceptedOfferProviderMatches(order, offer)) {
+          return res.status(409).json({
+            message: 'Zaakceptowana oferta nie zgadza się z przypisanym wykonawcą.',
+            code: 'ACCEPTED_PROVIDER_MISMATCH',
+          });
+        }
+        if (!['sent', 'accepting', 'accepted'].includes(offer.status)) {
+          return res.status(409).json({
+            message: 'Nie można dokończyć akceptacji wycofanej lub wygasłej oferty.',
+            code: 'OFFER_FINALIZATION_CONFLICT',
+          });
+        }
+        await reconcileAcceptedOfferStatuses(order._id, offer._id, { allowRepair: true });
         return res.json({
           ok: true,
           orderId: order._id,
           offerId: offer._id,
+          orderMode: order.orderMode || 'standard',
           paymentMethod: order.paymentPreference || paymentMethod,
           includeGuarantee: !!order.protectionEligible,
           totalAmount: order.pricing?.total ?? offer.amount,
@@ -1028,97 +1294,175 @@ router.post("/:id/accept", auth, async (req, res) => {
           alreadyAccepted: true,
         });
       }
-      return res.status(400).json({ message: "Zlecenie ma już zaakceptowaną ofertę" });
-    }
-    
-    // Sprawdź czy oferta nie wygasła
-    if (offer.expiresAt && offer.expiresAt < new Date()) {
-      offer.status = 'expired';
-      await offer.save();
-      return res.status(400).json({ message: "Oferta wygasła" });
+      return res.status(409).json({ message: "Zlecenie ma już zaakceptowaną ofertę", code: 'ORDER_ALREADY_ACCEPTED' });
     }
 
-    // Akceptuj ofertę
-    offer.status = "accepted";
-    offer.acceptedAt = new Date();
-    await offer.save();
-
-    // Odrzuć pozostałe oferty dla tego zlecenia
-    const rejectedOffers = await Offer.find({ 
-      orderId: order._id, 
-      _id: { $ne: offer._id },
-      status: { $ne: 'rejected' } // Nie aktualizuj już odrzuconych
-    });
-    
-    await Offer.updateMany(
-      { orderId: order._id, _id: { $ne: offer._id } },
-      { 
-        $set: { 
-          status: "rejected",
-          rejectedAt: new Date()
-        } 
+    if (offer.status === 'accepting') {
+      if (offerAcceptanceReservationIsStale(offer) && offer.acceptanceToken) {
+        await releaseOfferAcceptanceReservation({
+          offerId: offer._id,
+          token: offer.acceptanceToken,
+          expectedReservedAt: offer.acceptanceReservedAt,
+        });
+        offer = await Offer.findById(id).populate('orderId');
+        order = offer?.orderId;
       }
+      if (!offer || offer.status === 'accepting') {
+        return res.status(409).json({
+          message: 'Akceptacja tej oferty jest już przetwarzana. Spróbuj ponownie za chwilę.',
+          code: 'OFFER_ACCEPTANCE_IN_PROGRESS',
+        });
+      }
+      if (!order) {
+        return res.status(404).json({ message: 'Powiązane zlecenie nie istnieje' });
+      }
+      if (String(order.client) !== String(req.user._id)) {
+        return res.status(403).json({ message: 'Tylko właściciel zlecenia może zaakceptować ofertę' });
+      }
+    }
+
+    const reservationTime = new Date();
+    if (offer.expiresAt && new Date(offer.expiresAt) <= reservationTime) {
+      await Offer.updateOne(
+        { _id: offer._id, status: 'sent', expiresAt: { $lte: reservationTime } },
+        {
+          $set: { status: 'expired' },
+          $unset: {
+            acceptanceToken: 1,
+            acceptanceReservedBy: 1,
+            acceptanceReservedAt: 1,
+          },
+        }
+      );
+      return res.status(400).json({ message: "Oferta wygasła", code: 'OFFER_EXPIRED' });
+    }
+    if (offer.status !== 'sent') {
+      return res.status(409).json({ message: 'Ta oferta nie jest już dostępna', code: 'OFFER_NOT_AVAILABLE' });
+    }
+
+    const acceptanceToken = randomUUID();
+    const reservedOffer = await Offer.findOneAndUpdate(
+      buildOfferReservationFilter({
+        offerId: offer._id,
+        orderId: order._id,
+        now: reservationTime,
+      }),
+      buildOfferReservationUpdate({
+        token: acceptanceToken,
+        clientId: req.user._id,
+        now: reservationTime,
+      }),
+      { new: true, runValidators: true }
     );
-    
-    // Wyślij powiadomienia do odrzuconych providerów
-    const { notifyOfferRejected } = require("../utils/notifier");
-    for (const rejectedOffer of rejectedOffers) {
-      await notifyOfferRejected({ 
-        app: req.app, 
-        orderId: order._id, 
-        offerId: rejectedOffer._id,
-        providerId: rejectedOffer.providerId
+
+    if (!reservedOffer) {
+      const [currentOffer, currentOrder] = await Promise.all([
+        Offer.findById(id),
+        Order.findById(order._id)
+          .select('acceptedOfferId status provider paymentPreference protectionEligible pricing orderMode'),
+      ]);
+      if (
+        currentOffer &&
+        currentOrder &&
+        String(currentOrder.acceptedOfferId || '') === String(currentOffer._id) &&
+        currentOrder.status === 'accepted' &&
+        acceptedOfferProviderMatches(currentOrder, currentOffer) &&
+        ['sent', 'accepting', 'accepted'].includes(currentOffer.status)
+      ) {
+        await reconcileAcceptedOfferStatuses(currentOrder._id, currentOffer._id, { allowRepair: true });
+        return res.json({
+          ok: true,
+          orderId: currentOrder._id,
+          offerId: currentOffer._id,
+          orderMode: currentOrder.orderMode || 'standard',
+          paymentMethod: currentOrder.paymentPreference,
+          includeGuarantee: !!currentOrder.protectionEligible,
+          totalAmount: currentOrder.pricing?.total ?? currentOffer.amount,
+          breakdown: currentOrder.pricing,
+          alreadyAccepted: true,
+        });
+      }
+      return res.status(409).json({
+        message: 'Oferta została zmieniona, wycofana albo jej akceptacja jest już przetwarzana.',
+        code: 'OFFER_ACCEPTANCE_CONFLICT',
       });
     }
 
-    // Wyznacz finalny flow płatności dla tej akceptacji.
-    // Gdy klient dopuścił "both", priorytet ma wybór providera zapisany w ofercie.
-    const validFlow = (v) => ["system", "external"].includes(v);
-    const providerFlow = validFlow(offer.paymentMethod) ? offer.paymentMethod : null;
-    const requestFlow = validFlow(paymentMethod) ? paymentMethod : null;
-    const orderFlow = validFlow(order.paymentPreference) ? order.paymentPreference : null;
-    const isOffersOnlyOrder = order.orderMode === 'offers_only';
+    offer = reservedOffer;
+    acceptanceReservation = { offerId: offer._id, token: acceptanceToken };
 
-    let effectivePaymentFlow =
-      order.paymentPreference === "both"
-        ? (providerFlow || requestFlow || "system")
-        : (orderFlow || requestFlow || "system");
-
-    if (isOffersOnlyOrder) {
-      effectivePaymentFlow = 'external';
+    // Pobieramy Order ponownie dopiero po rezerwacji. Wycena i zapis korzystają dzięki
+    // temu z jednego, niezmiennego snapshotu oferty.
+    order = await Order.findById(offer.orderId);
+    if (!order) {
+      await releaseOfferAcceptanceReservation(acceptanceReservation);
+      acceptanceReservation = null;
+      return res.status(404).json({ message: 'Powiązane zlecenie nie istnieje' });
+    }
+    if (String(order.client) !== String(req.user._id)) {
+      await releaseOfferAcceptanceReservation(acceptanceReservation);
+      acceptanceReservation = null;
+      return res.status(403).json({ message: 'Tylko właściciel zlecenia może zaakceptować ofertę' });
+    }
+    if (order.acceptedOfferId) {
+      const acceptedSameOffer = String(order.acceptedOfferId) === String(offer._id);
+      if (acceptedSameOffer) {
+        if (order.status === 'accepted' && acceptedOfferProviderMatches(order, offer)) {
+          orderClaimed = true;
+          await reconcileAcceptedOfferStatuses(order._id, offer._id, { acceptanceToken });
+          acceptanceReservation = null;
+          return res.json({
+            ok: true,
+            orderId: order._id,
+            offerId: offer._id,
+            orderMode: order.orderMode || 'standard',
+            paymentMethod: order.paymentPreference,
+            includeGuarantee: !!order.protectionEligible,
+            totalAmount: order.pricing?.total ?? offer.amount,
+            breakdown: order.pricing,
+            alreadyAccepted: true,
+          });
+        }
+        await releaseOfferAcceptanceReservation(acceptanceReservation);
+        acceptanceReservation = null;
+        return res.status(409).json({
+          message: 'Zaakceptowana oferta nie zgadza się z przypisanym wykonawcą lub statusem zlecenia.',
+          code: 'ACCEPTED_PROVIDER_MISMATCH',
+        });
+      }
+      await releaseOfferAcceptanceReservation({ ...acceptanceReservation, status: 'rejected' });
+      acceptanceReservation = null;
+      return res.status(409).json({
+        message: 'Zlecenie ma już zaakceptowaną ofertę.',
+        code: 'ORDER_ALREADY_ACCEPTED',
+      });
     }
 
-    // Oblicz opłaty (bazując na aktualnej subskrypcji klienta, a nie danych z frontu)
-    const baseAmount = offer.amount;
-    
-    // Subskrypcja klienta (pakiet PRO może mieć 0% prowizji od tej transakcji)
-    const UserSubscription = require('../models/UserSubscription');
-    const activeSubscription = await UserSubscription.findOne({
-      user: req.user._id,
-      validUntil: { $gt: new Date() }
-    });
-    
-    const clientPlanKey = activeSubscription?.planKey || null;
-    const providerUser = await User.findById(offer.providerId).select(
-      'foundingProvider foundingProviderExpiresAt commissionDiscountPercent foundingProviderActivatedAt'
-    );
-    const { computeOrderPlatformFee } = require('../utils/foundingProvider');
-    const feeCalc = computeOrderPlatformFee({
-      baseAmount,
+    let quote;
+    try {
+      quote = await getAcceptanceQuote({
+        order,
+        offer,
+        userId: req.user._id,
+        paymentMethod,
+        includeGuarantee: includeGuarantee === true,
+      });
+    } catch (error) {
+      await releaseOfferAcceptanceReservation(acceptanceReservation);
+      acceptanceReservation = null;
+      return sendAcceptanceError(res, error);
+    }
+
+    const {
       clientPlanKey,
-      providerUser,
-      defaultPercent: 5,
-      offersOnly: isOffersOnlyOrder,
-    });
-    const platformFee = feeCalc.platformFee;
+      effectivePaymentFlow,
+      feeCalc,
+      isOffersOnlyOrder,
+      pricing,
+    } = quote;
+    const { baseAmount, platformFee, total } = pricing;
     const platformFeePercent = feeCalc.platformFeePercent;
     order.platformFeePercent = platformFeePercent;
-    
-    const guaranteeFee = (effectivePaymentFlow === 'system' && includeGuarantee)
-      ? Math.round(baseAmount * 0.07)
-      : 0;
-    
-    const total = baseAmount + platformFee + guaranteeFee;
 
     // Kwoty w groszach (Stripe / create-intent) — bez tego amountTotal zostaje 0 i płatność kończy się 500
     order.amountTotal = Math.round(Number(total) * 100);
@@ -1146,38 +1490,36 @@ router.post("/:id/accept", auth, async (req, res) => {
 
     let requiresContactUnlock = false;
     let contactUnlockFeePln = 0;
+    let contactUnlockAlreadySettled = isOffersOnlyOrder && contactUnlockIsSettled(order);
 
     if (isOffersOnlyOrder) {
-      const fee = getContactUnlockFeePln(clientPlanKey);
-      if (clientHasFreeContactUnlock(clientPlanKey) || fee <= 0) {
-        order.contactUnlockStatus = 'waived';
-        order.contactUnlockFeePln = 0;
-        order.contactUnlockedAt = new Date();
+      if (contactUnlockAlreadySettled) {
+        // Nie cofaj opłaconego/zwolnionego odblokowania przy późniejszej akceptacji oferty.
+        contactUnlockFeePln = Number(order.contactUnlockFeePln) || 0;
       } else {
-        order.contactUnlockStatus = 'unpaid';
-        order.contactUnlockFeePln = fee;
-        order.contactUnlockedAt = null;
-        requiresContactUnlock = true;
-        contactUnlockFeePln = fee;
+        const fee = getContactUnlockFeePln(clientPlanKey);
+        if (clientHasFreeContactUnlock(clientPlanKey) || fee <= 0) {
+          order.contactUnlockStatus = 'waived';
+          order.contactUnlockFeePln = 0;
+          order.contactUnlockedAt = new Date();
+        } else {
+          order.contactUnlockStatus = 'unpaid';
+          order.contactUnlockFeePln = fee;
+          order.contactUnlockedAt = null;
+          requiresContactUnlock = true;
+          contactUnlockFeePln = fee;
+        }
       }
     }
     
     // Ustaw ceny i opłaty
-    order.pricing = {
-      baseAmount,
-      guaranteeFee,
-      platformFee,
-      platformFeeBeforeDiscount: feeCalc.platformFeeBeforeDiscount || platformFee,
-      foundingDiscountApplied: !!feeCalc.foundingDiscountApplied,
-      feeExplanation: feeCalc.feeExplanation || null,
-      total,
-      currency: 'PLN',
-      includeGuarantee: includeGuarantee && effectivePaymentFlow === 'system',
-    };
+    order.pricing = pricing;
     
     // Ustaw gwarancję
-    order.protectionEligible = includeGuarantee && effectivePaymentFlow === 'system';
-    order.protectionStatus = includeGuarantee && effectivePaymentFlow === 'system' ? 'active' : 'inactive';
+    order.protectionEligible = pricing.includeGuarantee;
+    // Sam wybór ochrony nie oznacza jeszcze aktywnej ochrony. Status aktywuje
+    // dopiero potwierdzona przez Stripe płatność/autoryzacja.
+    order.protectionStatus = 'inactive';
     
     // Sprawdź czy to teleporada (na podstawie kategorii usługi)
     const isTeleconsultation = order.service && (
@@ -1224,7 +1566,151 @@ router.post("/:id/accept", auth, async (req, res) => {
       // Chat jest już zintegrowany, więc nie wymaga dodatkowej konfiguracji
     }
     
-    await order.save();
+    const orderSet = {
+      provider: offer.providerId,
+      status: 'accepted',
+      paymentPreference: effectivePaymentFlow,
+      paymentStatus: 'unpaid',
+      paidInSystem: false,
+      externalCommissionStatus: 'unpaid',
+      acceptedOfferId: offer._id,
+      acceptedAt: order.acceptedAt,
+      requestInvoice: requestInvoice === true,
+      amountTotal: order.amountTotal,
+      platformFeeAmount: order.platformFeeAmount,
+      platformFeePercent,
+      pricing,
+      protectionEligible: pricing.includeGuarantee,
+      protectionStatus: 'inactive',
+    };
+
+    if (isOffersOnlyOrder && !contactUnlockAlreadySettled) {
+      orderSet.contactUnlockStatus = order.contactUnlockStatus;
+      orderSet.contactUnlockFeePln = order.contactUnlockFeePln;
+      orderSet.contactUnlockedAt = order.contactUnlockedAt;
+    }
+
+    if (isTeleconsultation || scheduledDateTime) {
+      orderSet.isTeleconsultation = true;
+      if (order.scheduledDateTime) orderSet.scheduledDateTime = order.scheduledDateTime;
+      if (order.consultationType) orderSet.consultationType = order.consultationType;
+      if (order.consultationDuration) orderSet.consultationDuration = order.consultationDuration;
+      if (order.consultationLink) orderSet.consultationLink = order.consultationLink;
+      if (consultationType === 'phone') orderSet.consultationPhone = null;
+    }
+
+    // Odświeżenie lease jest fencing checkiem tuż przed punktem bez powrotu.
+    // Worker, który utracił token, nie może zapisać Order ze starym snapshotem ceny.
+    const leaseRefresh = buildOfferReservationRefresh({
+      offerId: offer._id,
+      token: acceptanceToken,
+      now: new Date(),
+    });
+    const refreshedReservation = await Offer.updateOne(leaseRefresh.filter, leaseRefresh.update);
+    if (!(refreshedReservation.matchedCount ?? refreshedReservation.n)) {
+      acceptanceReservation = null;
+      return res.status(409).json({
+        message: 'Rezerwacja oferty wygasła lub została przejęta. Spróbuj ponownie.',
+        code: 'OFFER_ACCEPTANCE_LEASE_LOST',
+      });
+    }
+
+    const acceptanceLockFilter = buildAcceptanceLockFilter({
+      orderId: order._id,
+      clientId: req.user._id,
+      preserveSettledContactUnlock: isOffersOnlyOrder && !contactUnlockAlreadySettled,
+    });
+    let acceptedOrder = await Order.findOneAndUpdate(
+      acceptanceLockFilter,
+      { $set: orderSet },
+      { new: true, runValidators: true }
+    );
+
+    // Jeśli webhook zdążył odblokować kontakt po naszym odczycie, pierwszy claim
+    // celowo nie pasuje. Powtarzamy go bez pól kontaktowych, aby zachować bieżący stan.
+    if (!acceptedOrder && isOffersOnlyOrder && !contactUnlockAlreadySettled) {
+      const orderSetWithoutContactUnlock = { ...orderSet };
+      delete orderSetWithoutContactUnlock.contactUnlockStatus;
+      delete orderSetWithoutContactUnlock.contactUnlockFeePln;
+      delete orderSetWithoutContactUnlock.contactUnlockedAt;
+      acceptedOrder = await Order.findOneAndUpdate(
+        buildAcceptanceLockFilter({ orderId: order._id, clientId: req.user._id }),
+        { $set: orderSetWithoutContactUnlock },
+        { new: true, runValidators: true }
+      );
+      if (acceptedOrder && contactUnlockIsSettled(acceptedOrder)) {
+        contactUnlockAlreadySettled = true;
+        requiresContactUnlock = false;
+        contactUnlockFeePln = Number(acceptedOrder.contactUnlockFeePln) || 0;
+      }
+    }
+
+    if (!acceptedOrder) {
+      const currentOrder = await Order.findById(order._id)
+        .select('acceptedOfferId status provider paymentPreference protectionEligible pricing orderMode');
+      if (
+        currentOrder &&
+        String(currentOrder.acceptedOfferId || '') === String(offer._id) &&
+        currentOrder.status === 'accepted' &&
+        acceptedOfferProviderMatches(currentOrder, offer)
+      ) {
+        orderClaimed = true;
+        await reconcileAcceptedOfferStatuses(order._id, offer._id, { acceptanceToken });
+        acceptanceReservation = null;
+        return res.json({
+          ok: true,
+          orderId: currentOrder._id,
+          offerId: offer._id,
+          orderMode: currentOrder.orderMode || 'standard',
+          paymentMethod: currentOrder.paymentPreference,
+          includeGuarantee: !!currentOrder.protectionEligible,
+          totalAmount: currentOrder.pricing?.total ?? baseAmount,
+          breakdown: currentOrder.pricing,
+          alreadyAccepted: true,
+        });
+      }
+      const lostToAnotherOffer = Boolean(
+        currentOrder?.acceptedOfferId &&
+        String(currentOrder.acceptedOfferId) !== String(offer._id)
+      );
+      await releaseOfferAcceptanceReservation({
+        ...acceptanceReservation,
+        status: lostToAnotherOffer ? 'rejected' : 'sent',
+      });
+      acceptanceReservation = null;
+      return res.status(409).json({
+        message: 'Zlecenie zostało już zaakceptowane albo nie jest już dostępne.',
+        code: 'ORDER_ACCEPTANCE_CONFLICT',
+      });
+    }
+
+    orderClaimed = true;
+    if (!acceptedOfferProviderMatches(acceptedOrder, offer)) {
+      throw new Error('Accepted order provider does not match reserved offer provider');
+    }
+    const rejectedOffers = await reconcileAcceptedOfferStatuses(order._id, offer._id, {
+      acceptanceToken,
+    });
+    acceptanceReservation = null;
+
+    // Powiadomienia są skutkiem ubocznym po nabyciu atomowego locka. Ich błąd nie cofa transakcji.
+    const { notifyOfferRejected } = require('../utils/notifier');
+    for (const rejectedOffer of rejectedOffers) {
+      try {
+        await notifyOfferRejected({
+          app: req.app,
+          orderId: order._id,
+          offerId: rejectedOffer._id,
+          providerId: rejectedOffer.providerId,
+        });
+      } catch (notifyError) {
+        logger.warn('OFFER_REJECTED_NOTIFY_ERROR:', {
+          message: notifyError.message,
+          orderId: String(order._id),
+          offerId: String(rejectedOffer._id),
+        });
+      }
+    }
 
     // Sesje Daily.co tylko po opłaceniu — POST /api/video/sessions/create (Stripe PI)
     try {
@@ -1252,7 +1738,15 @@ router.post("/:id/accept", auth, async (req, res) => {
     }
 
     // Wyślij powiadomienia email + push
-    await notifyOfferAccepted({ app: req.app, orderId: order._id, offerId: offer._id });
+    try {
+      await notifyOfferAccepted({ app: req.app, orderId: order._id, offerId: offer._id });
+    } catch (notifyError) {
+      logger.warn('OFFER_ACCEPTED_NOTIFY_ERROR:', {
+        message: notifyError.message,
+        orderId: String(order._id),
+        offerId: String(offer._id),
+      });
+    }
 
     res.json({
       ok: true,
@@ -1260,9 +1754,10 @@ router.post("/:id/accept", auth, async (req, res) => {
       offerId: offer._id,
       orderMode: order.orderMode || 'standard',
       paymentMethod: effectivePaymentFlow,
-      includeGuarantee,
-      totalAmount,
-      breakdown: order.pricing,
+      includeGuarantee: pricing.includeGuarantee,
+      totalAmount: pricing.total,
+      paymentDueNow: quote.paymentDueNow,
+      breakdown: pricing,
       feeMeta: {
         platformFee,
         platformFeePercent,
@@ -1275,10 +1770,21 @@ router.post("/:id/accept", auth, async (req, res) => {
       providerId: offer.providerId,
       requiresContactUnlock,
       contactUnlockFeePln,
-      contactUnlockWaived: isOffersOnlyOrder && !requiresContactUnlock,
+      contactUnlockWaived:
+        isOffersOnlyOrder && acceptedOrder.contactUnlockStatus === 'waived',
       clientPlanKey,
     });
   } catch (e) {
+    if (acceptanceReservation && !orderClaimed) {
+      try {
+        await releaseOfferAcceptanceReservation(acceptanceReservation);
+      } catch (rollbackError) {
+        logger.error('OFFER_ACCEPTANCE_ROLLBACK_ERROR:', {
+          message: rollbackError.message,
+          offerId: String(acceptanceReservation.offerId),
+        });
+      }
+    }
     logger.error("ACCEPT_OFFER_ERROR:", {
       message: e.message,
       stack: e.stack,
@@ -1293,39 +1799,61 @@ router.post("/:id/accept", auth, async (req, res) => {
 router.patch("/:id", auth, async (req, res) => {
   try {
     const { id } = req.params;
-    const offer = await Offer.findById(id);
-    if (!offer) return res.status(404).json({ message: "Oferta nie istnieje" });
-    if (String(offer.providerId) !== String(req.user._id)) {
+    const currentOffer = await Offer.findById(id).select('providerId status expiresAt');
+    if (!currentOffer) return res.status(404).json({ message: "Oferta nie istnieje" });
+    if (String(currentOffer.providerId) !== String(req.user._id)) {
       return res.status(403).json({ message: "Brak uprawnień do edycji tej oferty" });
-    }
-    const allowedStatuses = ["sent", "submitted"];
-    if (!allowedStatuses.includes(offer.status)) {
-      return res.status(400).json({
-        message: `Nie można edytować oferty ze statusem: ${offer.status}. Można edytować tylko oferty oczekujące.`
-      });
-    }
-    const order = await Order.findById(offer.orderId);
-    if (order && order.status === "accepted" && String(order.acceptedOfferId) === String(offer._id)) {
-      return res.status(400).json({ message: "Nie można edytować zaakceptowanej oferty" });
     }
 
     const { amount, price, message, notes, completionDate, paymentMethod } = req.body;
+    const offerSet = {};
     if (typeof amount !== "undefined" || typeof price !== "undefined") {
       const val = amount !== undefined ? Number(amount) : Number(price);
       if (!Number.isFinite(val) || val < 0) return res.status(400).json({ message: "Nieprawidłowa kwota" });
-      offer.price = val;
-      offer.amount = val;
+      offerSet.price = val;
+      offerSet.amount = val;
     }
-    if (typeof message !== "undefined") { offer.notes = message; offer.message = message; }
-    if (typeof notes !== "undefined") { offer.notes = notes; offer.message = notes; }
+    if (typeof message !== "undefined") { offerSet.notes = message; offerSet.message = message; }
+    if (typeof notes !== "undefined") { offerSet.notes = notes; offerSet.message = notes; }
     if (typeof completionDate !== "undefined") {
-      offer.completionDate = completionDate ? new Date(completionDate) : null;
+      const parsedCompletionDate = completionDate ? new Date(completionDate) : null;
+      if (parsedCompletionDate && Number.isNaN(parsedCompletionDate.getTime())) {
+        return res.status(400).json({ message: 'Nieprawidłowy termin realizacji' });
+      }
+      offerSet.completionDate = parsedCompletionDate;
     }
     if (typeof paymentMethod !== "undefined" && ["system", "external"].includes(paymentMethod)) {
-      offer.paymentMethod = paymentMethod;
+      offerSet.paymentMethod = paymentMethod;
     }
 
-    await offer.save();
+    const now = new Date();
+    const offer = await Offer.findOneAndUpdate(
+      {
+        _id: id,
+        providerId: req.user._id,
+        status: { $in: ['sent', 'submitted'] },
+        $or: [
+          { expiresAt: { $gt: now } },
+          { expiresAt: null },
+          { expiresAt: { $exists: false } },
+        ],
+      },
+      { $set: offerSet },
+      { new: true, runValidators: true }
+    );
+
+    if (!offer) {
+      await Offer.updateOne(
+        { _id: id, providerId: req.user._id, status: 'sent', expiresAt: { $lte: now } },
+        { $set: { status: 'expired' } }
+      );
+      const latestOffer = await Offer.findById(id).select('status');
+      return res.status(409).json({
+        message: `Nie można edytować oferty ze statusem: ${latestOffer?.status || currentOffer.status}. Można edytować tylko aktywne oferty oczekujące.`,
+        code: 'OFFER_EDIT_CONFLICT',
+      });
+    }
+
     res.json({ message: "Oferta zaktualizowana", offer });
   } catch (e) {
     logger.error("PATCH_OFFER_ERROR:", { message: e.message, offerId: req.params?.id });
@@ -1337,33 +1865,43 @@ router.patch("/:id", auth, async (req, res) => {
 router.delete("/:id", auth, async (req, res) => {
   try {
     const { id } = req.params;
-    const offer = await Offer.findById(id);
+    const currentOffer = await Offer.findById(id).select('providerId status');
     
-    if (!offer) {
+    if (!currentOffer) {
       return res.status(404).json({ message: "Oferta nie istnieje" });
     }
     
     // Sprawdź czy to oferta tego providera
-    if (String(offer.providerId) !== String(req.user._id)) {
+    if (String(currentOffer.providerId) !== String(req.user._id)) {
       return res.status(403).json({ message: "Brak uprawnień do anulowania tej oferty" });
     }
-    
-    // Sprawdź czy oferta może być anulowana (tylko jeśli status = "submitted" lub "sent")
-    if (offer.status !== "submitted" && offer.status !== "sent") {
-      return res.status(400).json({ 
-        message: `Nie można anulować oferty ze statusem: ${offer.status}. Można anulować tylko oferty oczekujące.` 
+
+    // Status jest częścią filtra zapisu: wycofanie i rezerwacja akceptacji nie
+    // mogą jednocześnie wygrać na podstawie wcześniejszego odczytu.
+    const offer = await Offer.findOneAndUpdate(
+      {
+        _id: id,
+        providerId: req.user._id,
+        status: { $in: ['submitted', 'sent'] },
+      },
+      {
+        $set: { status: 'withdrawn' },
+        $unset: {
+          acceptanceToken: 1,
+          acceptanceReservedBy: 1,
+          acceptanceReservedAt: 1,
+        },
+      },
+      { new: true, runValidators: true }
+    );
+
+    if (!offer) {
+      const latestOffer = await Offer.findById(id).select('status');
+      return res.status(409).json({
+        message: `Nie można anulować oferty ze statusem: ${latestOffer?.status || currentOffer.status}. Można anulować tylko oferty oczekujące.`,
+        code: 'OFFER_WITHDRAW_CONFLICT',
       });
     }
-    
-    // Sprawdź czy zlecenie nie zostało już zaakceptowane
-    const order = await Order.findById(offer.orderId);
-    if (order && order.status === "accepted" && String(order.acceptedOfferId) === String(offer._id)) {
-      return res.status(400).json({ message: "Nie można anulować zaakceptowanej oferty" });
-    }
-    
-    // Oznacz ofertę jako anulowaną
-    offer.status = "withdrawn";
-    await offer.save();
     
     // Powiadom klienta o anulowaniu oferty (opcjonalnie)
     const io = req.app.get("io");

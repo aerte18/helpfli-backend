@@ -59,6 +59,9 @@ class TelemetryService {
       PAYMENT_INTENT_CREATED: 'payment_intent_created',
       PAYMENT_SUCCEEDED: 'payment_succeeded',
       PAYMENT_FAILED: 'payment_failed',
+      CHECKOUT_STARTED: 'checkout_started',
+      CHECKOUT_ABANDONED: 'checkout_abandoned',
+      PAYMENT_FUNDED: 'payment_funded',
       
       // User engagement
       LOGIN: 'login',

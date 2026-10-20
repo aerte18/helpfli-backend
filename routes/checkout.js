@@ -45,6 +45,15 @@ router.post('/preview', auth, async (req, res) => {
 });
 
 router.post('/finalize', auth, async (req, res) => {
+  // Legacy mock endpoint przyjmował cenę i identyfikator zlecenia z klienta,
+  // a następnie zmieniał saldo punktów jeszcze przed realną płatnością.
+  // Produkcyjny checkout odbywa się wyłącznie przez /api/payments/*.
+  return res.status(410).json({
+    code: 'LEGACY_CHECKOUT_DISABLED',
+    message: 'Ten stary checkout został wyłączony. Użyj bezpiecznej płatności na stronie zaakceptowanej oferty.',
+  });
+
+  /* istanbul ignore next -- kod historyczny pozostawiony tymczasowo do migracji danych */
   try {
     const { orderId, baseAmount, extras, promoCode, pointsToUse = 0 } = req.body || {};
     const user = await User.findById(req.user._id);
