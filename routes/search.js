@@ -14,6 +14,7 @@ const { calculateDistance, estimateETA } = require("../utils/geo");
 const { resolveServicesForSearchFilter } = require("../utils/resolveServiceSearch");
 const ApiRequestLog = require("../models/ApiRequestLog");
 const { withListableProviders } = require("../utils/listableProviderQuery");
+const { getPublicProviderName } = require("../utils/publicProviderName");
 const { appendSearchPriceFields, providerMatchesBudgetAnyService, providerMatchesBudgetForServices } = require("../utils/providerPriceRange");
 
 const router = express.Router();
@@ -423,9 +424,11 @@ router.get("/", validateSearch, async (req, res) => {
           etaRange = estimateETA(providerLevel);
         }
         
+        const publicName = getPublicProviderName(p);
         const providerData = {
           _id: p._id,
-          name: p.name,
+          name: publicName,
+          displayName: publicName,
           serviceIds: (p.services || []).map((id) => String(id)),
           level: providerLevel,
           lat: p.locationCoords?.lat || (baseLat + latOffset),
@@ -670,7 +673,8 @@ router.get("/top", async (req, res) => {
         { verified: true, providerTier: { $in: ["standard", "basic"] } }
       ]
     }))
-      .select("name level location locationCoords price priceMin priceMax priceNote servicePrices time services provider_status promo badges kyc rankingPoints verified service providerTier isTopProvider hasHelpfliGuarantee avatar bio headline")
+      .select("name level location locationCoords price priceMin priceMax priceNote servicePrices time services provider_status promo badges kyc rankingPoints verified service providerTier isTopProvider hasHelpfliGuarantee avatar bio headline company")
+      .populate('company', 'name logo')
       .limit(parseInt(limit) * 5) // Pobierz więcej kandydatów (nowy system ma ostre filtry)
       .lean();
 
@@ -719,9 +723,11 @@ router.get("/top", async (req, res) => {
         
         const isOnline = p.provider_status?.isOnline === true;
         
+        const publicName = getPublicProviderName(p);
         const topData = {
           _id: p._id,
-          name: p.name,
+          name: publicName,
+          displayName: publicName,
           level: p.level || "basic",
           lat: p.locationCoords?.lat || (baseLat + latOffset),
           lng: p.locationCoords?.lng || (baseLng + lngOffset),
@@ -910,7 +916,8 @@ router.get("/providers", async (req, res) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
     let providers = await User.find(match)
-      .select("name level location locationCoords price priceMin priceMax priceNote servicePrices time services provider_status promo badges kyc rankingPoints providerTier isTopProvider hasHelpfliGuarantee b2b isB2B instantChat vatInvoice bio headline avatar foundingProvider foundingProviderExpiresAt priorityScoreBoost")
+      .select("name level location locationCoords price priceMin priceMax priceNote servicePrices time services provider_status promo badges kyc rankingPoints providerTier isTopProvider hasHelpfliGuarantee b2b isB2B instantChat vatInvoice bio headline avatar foundingProvider foundingProviderExpiresAt priorityScoreBoost company")
+      .populate('company', 'name logo')
       .skip(skip)
       .limit(parseInt(limit))
       .lean();
@@ -951,10 +958,12 @@ router.get("/providers", async (req, res) => {
         
         const isOnline = p.provider_status?.isOnline === true;
         
+        const publicName = getPublicProviderName(p);
         const providerData = {
           _id: p._id,
           id: p._id,
-          name: p.name,
+          name: publicName,
+          displayName: publicName,
           level: p.level || "basic",
           lat: p.locationCoords?.lat || (baseLat + latOffset),
           lng: p.locationCoords?.lng || (baseLng + lngOffset),
@@ -986,6 +995,11 @@ router.get("/providers", async (req, res) => {
           instantChat: p.instantChat || false,
           vatInvoice: p.vatInvoice || false,
           bio: p.bio || '',
+          company: p.company ? {
+            _id: p.company._id,
+            name: p.company.name,
+            logo: p.company.logo
+          } : null,
           allServices: (p.services || []).map(id => allNamesById[String(id)]).filter(Boolean),
         };
         appendSearchPriceFields(providerData, p, estimatePrice(p.level), catalogMatchedServiceIds);

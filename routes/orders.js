@@ -31,6 +31,7 @@ const {
   getOrderPartySide,
 } = require("../utils/orderAccess");
 const { settleMainOrderPaymentForRelease } = require("../utils/releaseOrderEscrow");
+const { isProviderRole, withPublicProviderName } = require("../utils/publicProviderName");
 
 const PAYMENT_PREFERENCE_EDITABLE_STATUSES = new Set([
   'draft',
@@ -1646,7 +1647,7 @@ router.get('/my', auth, async (req, res) => {
     const limitNum = parseInt(limit, 10) || 20;
     const skip = (pageNum - 1) * limitNum;
     const filter = { $or: [{ client: userId }, { provider: userId }] };
-    if (req.user?.role === 'provider') {
+    if (isProviderRole(req.user?.role)) {
       try {
         const Offer = require('../models/Offer');
         const offerOrderIds = await Offer.distinct('orderId', { providerId: userId });
@@ -1659,12 +1660,21 @@ router.get('/my', auth, async (req, res) => {
     }
     const orders = await Order.find(filter)
       .populate('client', 'name')
-      .populate('provider', 'name')
+      .populate({
+        path: 'provider',
+        select: 'name company',
+        populate: { path: 'company', select: 'name logo' },
+      })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limitNum);
     const total = await Order.countDocuments(filter);
-    res.json({ orders, pagination: { page: pageNum, limit: limitNum, total, pages: Math.ceil(total / limitNum) } });
+    const publicOrders = orders.map((orderDoc) => {
+      const order = orderDoc.toObject();
+      if (order.provider) order.provider = withPublicProviderName(order.provider);
+      return order;
+    });
+    res.json({ orders: publicOrders, pagination: { page: pageNum, limit: limitNum, total, pages: Math.ceil(total / limitNum) } });
   } catch (error) {
     console.error('My orders error:', error);
     res.status(500).json({ message: 'Błąd pobierania zleceń' });
@@ -2878,7 +2888,11 @@ router.get('/:id', auth, async (req, res) => {
     
     const order = await Order.findById(orderId)
       .populate('client', 'name email phone')
-      .populate('provider', 'name email phone')
+      .populate({
+        path: 'provider',
+        select: 'name email phone company',
+        populate: { path: 'company', select: 'name logo' },
+      })
       .populate('acceptedOfferId')
       .lean();
     
@@ -2944,7 +2958,11 @@ router.get('/:id', auth, async (req, res) => {
     if (isOwner || isCompanyView) {
       // Klient lub firma (podgląd) widzi wszystkie oferty
       offers = await Offer.find({ orderId: order._id })
-        .populate('providerId', 'name email phone avatar level providerLevel badges')
+        .populate({
+          path: 'providerId',
+          select: 'name email phone avatar level providerLevel badges company',
+          populate: { path: 'company', select: 'name logo' },
+        })
         .sort({ createdAt: -1 })
         .lean();
     } else if (isAssignedProvider || hasOfferOnOrder) {
@@ -2953,13 +2971,20 @@ router.get('/:id', auth, async (req, res) => {
         orderId: order._id, 
         providerId: req.user._id 
       })
-        .populate('providerId', 'name email phone avatar level providerLevel badges')
+        .populate({
+          path: 'providerId',
+          select: 'name email phone avatar level providerLevel badges company',
+          populate: { path: 'company', select: 'name logo' },
+        })
         .sort({ createdAt: -1 })
         .lean();
     }
     
-    // Dodaj oferty do order object
-    order.offers = offers;
+    if (order.provider) order.provider = withPublicProviderName(order.provider);
+    order.offers = offers.map((offer) => ({
+      ...offer,
+      providerId: offer.providerId ? withPublicProviderName(offer.providerId) : offer.providerId,
+    }));
     
     // Sprawdź eligibility gwarancji (jeśli provider jest przypisany)
     if (order.provider) {

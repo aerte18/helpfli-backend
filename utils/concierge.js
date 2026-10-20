@@ -368,6 +368,7 @@ async function recommendProviders(serviceCode, lat, lon, limit = 3, urgency = 'n
     const Order = require('../models/Order');
     const Rating = require('../models/Rating');
     const { withListableProviders } = require('./listableProviderQuery');
+    const { getPublicProviderName } = require('./publicProviderName');
 
     const serviceIds =
       serviceCode && !relaxServiceFilter ? await resolveProviderServiceIds(serviceCode) : [];
@@ -384,7 +385,9 @@ async function recommendProviders(serviceCode, lat, lon, limit = 3, urgency = 'n
     }
     
     const base = await User.find(query)
-      .select('_id name level providerLevel providerTier provider_status verified badges rankingPoints promo locationLat locationLon services avatar').lean();
+      .select('_id name level providerLevel providerTier provider_status verified badges rankingPoints promo locationLat locationLon services avatar company')
+      .populate('company', 'name logo')
+      .lean();
 
     // Pobierz oceny dla wszystkich providerów
     const providerIds = base.map(p => p._id);
@@ -487,7 +490,8 @@ async function recommendProviders(serviceCode, lat, lon, limit = 3, urgency = 'n
       return { 
         _id: p._id,
         id: p._id,
-        name: p.name,
+        name: getPublicProviderName(p),
+        displayName: getPublicProviderName(p),
         avatar: p.avatar,
         level: tier,
         providerTier: tier,

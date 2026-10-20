@@ -6,6 +6,7 @@ const bcrypt = require('bcryptjs');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const { getPublicProviderName, isProviderRole } = require('../utils/publicProviderName');
 const router = express.Router();
 
 // Konfiguracja multer dla zdjęć profilowych
@@ -583,7 +584,7 @@ router.get("/:id", async (req, res) => {
 
     // Pobierz boosty (tylko dla providerów)
     let boosts = [];
-    if (user.role === 'provider') {
+    if (isProviderRole(user.role)) {
       const Boost = require('../models/Boost');
       boosts = await Boost.find({
         provider: user._id,
@@ -596,7 +597,7 @@ router.get("/:id", async (req, res) => {
     
     // Pobierz ostatnie recenzje (tylko dla providerów)
     let lastReviews = [];
-    if (user.role === 'provider') {
+    if (isProviderRole(user.role)) {
       const Rating = require('../models/Rating');
       const reviews = await Rating.find({ to: user._id, status: 'active' })
         .populate('from', 'name avatar')
@@ -616,7 +617,7 @@ router.get("/:id", async (req, res) => {
     
     // Sprawdź rolę w firmie i typ firmy (tylko dla providerów z firmą)
     let companyInfo = null;
-    if (user.company && user.role === 'provider') {
+    if (user.company && isProviderRole(user.role)) {
       const Company = require('../models/Company');
       const company = await Company.findById(user.company._id).lean();
       if (company) {
@@ -639,13 +640,20 @@ router.get("/:id", async (req, res) => {
       }
     }
     
+    const publicCompany = companyInfo || (user.company ? {
+      _id: user.company._id,
+      name: user.company.name,
+      logo: user.company.logo
+    } : null);
+    const publicName = isProviderRole(user.role)
+      ? getPublicProviderName({ ...user, company: publicCompany })
+      : user.name;
+
     const userObj = {
       ...user,
-      company: companyInfo || (user.company ? {
-        _id: user.company._id,
-        name: user.company.name,
-        logo: user.company.logo
-      } : null),
+      name: publicName,
+      displayName: publicName,
+      company: publicCompany,
       subscriptionPlan: planKey,
       planKey: planKey,
       boosts: boosts.map(b => ({

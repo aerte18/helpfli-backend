@@ -1071,6 +1071,15 @@ router.get("/of-order", auth, async (req, res) => {
         }
       },
       { $unwind: { path: "$provider", preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: "companies",
+          localField: "provider.company",
+          foreignField: "_id",
+          as: "providerCompany",
+        }
+      },
+      { $unwind: { path: "$providerCompany", preserveNullAndEmptyArrays: true } },
       // dociągamy ratingi
       {
         $lookup: {
@@ -1110,7 +1119,23 @@ router.get("/of-order", auth, async (req, res) => {
           status: 1,
           pricing: 1,
           providerMeta: {
-            name: { $ifNull: ["$provider.name", "$provider.displayName"] },
+            name: {
+              $ifNull: [
+                "$providerCompany.name",
+                { $ifNull: ["$provider.name", "$provider.displayName"] }
+              ]
+            },
+            company: {
+              $cond: [
+                { $ifNull: ["$providerCompany._id", false] },
+                {
+                  _id: "$providerCompany._id",
+                  name: "$providerCompany.name",
+                  logo: "$providerCompany.logo",
+                },
+                null,
+              ]
+            },
             avatar: "$provider.avatar",
             badges: "$provider.badges",
             level: { $ifNull: ["$provider.providerLevel", "standard"] },

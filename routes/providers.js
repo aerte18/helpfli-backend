@@ -3,6 +3,7 @@ const User = require('../models/User');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const { withListableProviders } = require('../utils/listableProviderQuery');
 const { PUBLIC_USER_PROFILE_SELECT } = require('../utils/publicUserFields');
+const { getPublicProviderName, withPublicProviderName } = require('../utils/publicProviderName');
 const { recommendProviders } = require('../utils/concierge');
 const router = express.Router();
 
@@ -84,8 +85,11 @@ router.get('/', async (req, res) => {
 
     let providers = await User.find(query)
       .select(PUBLIC_USER_PROFILE_SELECT)
+      .populate('company', 'name logo')
       .limit(bboxParsed ? hardLimit : 0)
       .lean();
+
+    providers = providers.map((provider) => withPublicProviderName(provider));
 
     // Fallback: promień od użytkownika (Haversine) – tylko jeśli bbox nie podany
     if (!bboxParsed && lat && lng && maxDistance) {
@@ -400,7 +404,8 @@ router.get('/:id/mini', async (req, res) => {
 
     res.json({
       _id: String(user._id),
-      name: user.name || user.email || 'Wykonawca',
+      name: getPublicProviderName(user, user.email || 'Wykonawca'),
+      displayName: getPublicProviderName(user, user.email || 'Wykonawca'),
       avatar: user.avatar || null,
       level, availability, badges,
       ratingAvg, ratingCount,

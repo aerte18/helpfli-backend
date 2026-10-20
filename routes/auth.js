@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const User = require('../models/User');
 const { withListableProviders } = require('../utils/listableProviderQuery');
 const { PUBLIC_USER_PROFILE_SELECT } = require('../utils/publicUserFields');
+const { isProviderRole, withPublicProviderName } = require('../utils/publicProviderName');
 const logger = require('../utils/logger');
 const { sendMail } = require('../utils/mailer');
 const { getFrontendUrl } = require('../utils/publicUrl');
@@ -708,8 +709,9 @@ router.get('/providers', async (req, res) => {
   try {
     const providers = await User.find(withListableProviders({ role: 'provider' }))
       .select(PUBLIC_USER_PROFILE_SELECT)
+      .populate('company', 'name logo')
       .lean();
-    res.json(providers);
+    res.json(providers.map((provider) => withPublicProviderName(provider)));
   } catch (err) {
     res.status(500).json({ message: 'Błąd pobierania dostawców' });
   }
@@ -720,6 +722,7 @@ router.get('/users/:id', async (req, res) => {
   try {
     const user = await User.findById(req.params.id)
       .select(PUBLIC_USER_PROFILE_SELECT)
+      .populate('company', 'name logo')
       .lean();
     if (!user) {
       return res.status(404).json({ message: 'Użytkownik nie został znaleziony' });
@@ -727,7 +730,7 @@ router.get('/users/:id', async (req, res) => {
     if (user.anonymized || user.deletedAt || user.isActive === false) {
       return res.status(404).json({ message: 'Użytkownik nie został znaleziony' });
     }
-    res.json(user);
+    res.json(isProviderRole(user.role) ? withPublicProviderName(user) : user);
   } catch (err) {
     res.status(500).json({ message: 'Błąd pobierania użytkownika' });
   }
@@ -738,12 +741,13 @@ router.get('/providers/:id', async (req, res) => {
   try {
     const provider = await User.findOne(withListableProviders({ _id: req.params.id, role: 'provider' }))
       .select(PUBLIC_USER_PROFILE_SELECT)
+      .populate('company', 'name logo')
       .lean();
     
     if (!provider) {
       return res.status(404).json({ message: 'Provider nie został znaleziony' });
     }
-    res.json(provider);
+    res.json(withPublicProviderName(provider));
   } catch (err) {
     res.status(500).json({ message: 'Błąd pobierania providera' });
   }
