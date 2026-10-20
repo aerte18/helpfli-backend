@@ -8,8 +8,12 @@ const { validateTelemetry } = require('../middleware/inputValidator');
 const Notification = require('../models/Notification');
 const User = require('../models/User');
 
-const FUNNEL_SEQUENCE = [
+const CLIENT_FUNNEL_SEQUENCE = [
   'page_view',
+  'map_open',
+  'provider_view',
+  'provider_contact',
+  'quote_request',
   'order_cta_click',
   'order_form_start',
   'order_auth_required',
@@ -17,18 +21,29 @@ const FUNNEL_SEQUENCE = [
   'registration_success',
   'email_verification_success',
   'order_form_success',
-  'offer_form_start',
-  'offer_form_submit',
   'order_accepted',
   'checkout_started',
   'payment_succeeded'
 ];
 
-function getWorstFunnelDrop(items = []) {
+const PROVIDER_FUNNEL_SEQUENCE = [
+  'registration_start',
+  'registration_success',
+  'email_verification_success',
+  'onboarding_completed',
+  'provider_profile_completed',
+  'provider_services_updated',
+  'offer_form_start',
+  'provider_offer_created',
+  'order_accepted'
+];
+
+function getWorstFunnelDrop(items = [], roleLabel = 'overall') {
+  const sequence = roleLabel === 'provider' ? PROVIDER_FUNNEL_SEQUENCE : CLIENT_FUNNEL_SEQUENCE;
   const byType = Object.fromEntries((items || []).map((i) => [i._id, i.count || 0]));
   let prev = null;
   let worst = null;
-  for (const key of FUNNEL_SEQUENCE) {
+  for (const key of sequence) {
     const current = byType[key] || 0;
     if (prev !== null && prev > 0) {
       const dropPct = ((prev - current) / prev) * 100;
@@ -51,6 +66,7 @@ const PUBLIC_BATCH_TYPES = new Set([
   'provider_view',
   'provider_contact',
   'provider_compare',
+  'map_open',
   'quote_request',
   'order_view',
   'filter_applied',
@@ -131,6 +147,11 @@ function sanitizePublicProperties(eventType, raw) {
       providerId: sanitizeId(p.providerId),
       viewType: typeof p.viewType === 'string' ? p.viewType.slice(0, 32) : undefined,
       contactType: typeof p.contactType === 'string' ? p.contactType.slice(0, 32) : undefined,
+      source: typeof p.source === 'string' ? p.source.slice(0, 32) : undefined
+    };
+  }
+  if (eventType === 'map_open') {
+    return {
       source: typeof p.source === 'string' ? p.source.slice(0, 32) : undefined
     };
   }
@@ -234,7 +255,7 @@ router.post('/public/page-hit', async (req, res) => {
 });
 
 async function maybeCreateFunnelRegressionAlert({ startDate, endDate, roleLabel, funnelData, threshold = 35 }) {
-  const worst = getWorstFunnelDrop(funnelData);
+  const worst = getWorstFunnelDrop(funnelData, roleLabel);
   if (!worst || worst.dropPct < threshold) return;
 
   const alertKey = `funnel_regression:${roleLabel}:${startDate.toISOString()}:${endDate.toISOString()}:${worst.step}`;

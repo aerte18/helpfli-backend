@@ -123,6 +123,203 @@ router.get('/summary', authMiddleware, requireRole('admin'), async (req, res) =>
     { $limit: 500 }
   ]);
 
+  const marketplaceAgg = await Order.aggregate([
+    { $match: { createdAt: { $gte: start, $lte: end } } },
+    {
+      $lookup: {
+        from: 'offers',
+        let: { orderId: '$_id' },
+        pipeline: [
+          { $match: { $expr: { $eq: ['$orderId', '$$orderId'] } } },
+          { $project: { createdAt: 1 } },
+          { $sort: { createdAt: 1 } }
+        ],
+        as: 'marketOffers'
+      }
+    },
+    {
+      $project: {
+        service: { $ifNull: ['$service', 'Inne'] },
+        city: {
+          $let: {
+            vars: {
+              rawCity: {
+                $cond: [
+                  { $gt: [{ $strLenCP: { $ifNull: ['$city', ''] } }, 0] },
+                  '$city',
+                  { $ifNull: ['$location.address', ''] }
+                ]
+              }
+            },
+            in: {
+              $cond: [
+                { $gt: [{ $strLenCP: { $ifNull: ['$$rawCity', ''] } }, 0] },
+                '$$rawCity',
+                'Brak miasta'
+              ]
+            }
+          }
+        },
+        paid: { $and: ['$paidInSystem', { $eq: ['$paymentStatus', 'succeeded'] }] },
+        offerCount: { $size: '$marketOffers' },
+        firstOfferHours: {
+          $cond: [
+            { $gt: [{ $size: '$marketOffers' }, 0] },
+            {
+              $divide: [
+                { $subtract: [{ $arrayElemAt: ['$marketOffers.createdAt', 0] }, '$createdAt'] },
+                3600000
+              ]
+            },
+            null
+          ]
+        }
+      }
+    },
+    {
+      $facet: {
+        overall: [
+          {
+            $group: {
+              _id: null,
+              orders: { $sum: 1 },
+              ordersWithOffers: { $sum: { $cond: [{ $gt: ['$offerCount', 0] }, 1, 0] } },
+              ordersWithoutOffers: { $sum: { $cond: [{ $eq: ['$offerCount', 0] }, 1, 0] } },
+              paidOrders: { $sum: { $cond: ['$paid', 1, 0] } },
+              offers: { $sum: '$offerCount' },
+              avgFirstOfferHours: { $avg: '$firstOfferHours' }
+            }
+          },
+          { $project: { _id: 0 } }
+        ],
+        markets: [
+          {
+            $group: {
+              _id: { service: '$service', city: '$city' },
+              orders: { $sum: 1 },
+              ordersWithOffers: { $sum: { $cond: [{ $gt: ['$offerCount', 0] }, 1, 0] } },
+              paidOrders: { $sum: { $cond: ['$paid', 1, 0] } },
+              avgFirstOfferHours: { $avg: '$firstOfferHours' }
+            }
+          },
+          { $sort: { orders: -1 } },
+          { $limit: 50 },
+          {
+            $project: {
+              _id: 0,
+              service: '$_id.service',
+              city: '$_id.city',
+              orders: 1,
+              ordersWithOffers: 1,
+              paidOrders: 1,
+              avgFirstOfferHours: { $round: ['$avgFirstOfferHours', 2] }
+            }
+          }
+        ]
+      }
+    }
+  ]);
+
+  const providerSupplyAgg = await User.aggregate([
+    {
+      $match: {
+        role: 'provider',
+        isActive: { $ne: false },
+        location: { $type: 'string', $ne: '' },
+        'services.0': { $exists: true }
+      }
+    },
+    { $unwind: '$services' },
+    {
+      $lookup: {
+        from: 'services',
+        localField: 'services',
+        foreignField: '_id',
+        as: 'marketService'
+      }
+    },
+    { $unwind: '$marketService' },
+    {
+      $project: {
+        city: {
+          $trim: {
+            input: { $arrayElemAt: [{ $split: ['$location', ','] }, 0] }
+          }
+        },
+        serviceSlug: '$marketService.slug',
+        serviceName: '$marketService.name_pl'
+      }
+    },
+    {
+      $group: {
+        _id: {
+          city: { $toLower: '$city' },
+          serviceSlug: { $toLower: '$serviceSlug' },
+          serviceName: { $toLower: '$serviceName' }
+        },
+        providers: { $sum: 1 },
+        city: { $first: '$city' },
+        service: { $first: '$serviceName' }
+      }
+    },
+    { $sort: { providers: -1, city: 1, service: 1 } },
+    { $limit: 500 },
+    {
+      $project: {
+        _id: 0,
+        city: 1,
+        service: 1,
+        serviceSlug: '$_id.serviceSlug',
+        cityKey: '$_id.city',
+        serviceNameKey: '$_id.serviceName',
+        providers: 1
+      }
+    }
+  ]);
+
+  const marketplaceOverall = marketplaceAgg[0]?.overall?.[0] || {
+    orders: 0,
+    ordersWithOffers: 0,
+    ordersWithoutOffers: 0,
+    paidOrders: 0,
+    offers: 0,
+    avgFirstOfferHours: null
+  };
+  const normalizeMarketKey = (value) => String(value || '').trim().toLocaleLowerCase('pl-PL');
+  const providerSupplyMap = new Map();
+  for (const row of providerSupplyAgg) {
+    const cityKey = normalizeMarketKey(row.cityKey || row.city);
+    const count = Number(row.providers || 0);
+    providerSupplyMap.set(`${cityKey}|${normalizeMarketKey(row.serviceSlug)}`, count);
+    providerSupplyMap.set(`${cityKey}|${normalizeMarketKey(row.serviceNameKey || row.service)}`, count);
+  }
+  const marketplaceRows = (marketplaceAgg[0]?.markets || []).map((row) => {
+    const cityKey = normalizeMarketKey(String(row.city || '').split(',')[0]);
+    const serviceKey = normalizeMarketKey(row.service);
+    const providersAvailable = providerSupplyMap.get(`${cityKey}|${serviceKey}`) || 0;
+    return {
+      ...row,
+      providersAvailable,
+      hasProviderSupply: providersAvailable > 0
+    };
+  });
+
+  const marketplace = {
+    ...marketplaceOverall,
+    avgFirstOfferHours: marketplaceOverall.avgFirstOfferHours == null
+      ? null
+      : Number(marketplaceOverall.avgFirstOfferHours.toFixed(2)),
+    offerCoverageRate: marketplaceOverall.orders
+      ? marketplaceOverall.ordersWithOffers / marketplaceOverall.orders
+      : 0,
+    platformPaymentRate: marketplaceOverall.orders
+      ? marketplaceOverall.paidOrders / marketplaceOverall.orders
+      : 0,
+    marketsWithoutProviderSupply: marketplaceRows.filter((row) => !row.hasProviderSupply).length,
+    markets: marketplaceRows,
+    providerSupply: providerSupplyAgg
+  };
+
   res.json({
     range: { from: dateOnly(start), to: dateOnly(end) },
     compareRange: { from: dateOnly(prevStart), to: dateOnly(prevEnd) },
@@ -142,7 +339,8 @@ router.get('/summary', authMiddleware, requireRole('admin'), async (req, res) =>
     },
     daily,
     topServices,
-    heatmap: heatRaw
+    heatmap: heatRaw,
+    marketplace
   });
 });
 
@@ -1844,5 +2042,63 @@ router.get('/api-health', authMiddleware, requireRole('admin'), async (req, res)
   } catch (e) {
     console.error('api-health error', e);
     res.status(500).json({ message: 'Błąd metryk API' });
+  }
+});
+
+// GET /api/admin/analytics/ops-health — bez ujawniania sekretów: konfiguracja i świeżość kluczowych procesów.
+router.get('/ops-health', authMiddleware, requireRole('admin'), async (_req, res) => {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const ProcessedStripeEvent = require('../models/ProcessedStripeEvent');
+    const PaymentErrorLog = require('../models/PaymentErrorLog');
+    const backupDir = process.env.BACKUP_DIR || path.join(__dirname, '../backups');
+    const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const staleBefore = new Date(Date.now() - 10 * 60 * 1000);
+
+    const [stripeFailed24h, stripeStaleProcessing, unresolvedPaymentErrors] = await Promise.all([
+      ProcessedStripeEvent.countDocuments({ status: 'failed', failedAt: { $gte: since24h } }),
+      ProcessedStripeEvent.countDocuments({ status: 'processing', lockedAt: { $lt: staleBefore } }),
+      PaymentErrorLog.countDocuments({ status: { $in: ['new', 'retrying', 'failed'] } })
+    ]);
+
+    let latestBackupAt = null;
+    let latestBackupAgeHours = null;
+    try {
+      const latest = fs.readdirSync(backupDir)
+        .filter((name) => name.startsWith('helpfli-backup-'))
+        .map((name) => fs.statSync(path.join(backupDir, name)).mtime)
+        .sort((a, b) => b.getTime() - a.getTime())[0];
+      if (latest) {
+        latestBackupAt = latest.toISOString();
+        latestBackupAgeHours = Number(((Date.now() - latest.getTime()) / 36e5).toFixed(2));
+      }
+    } catch {
+      // Katalog może nie istnieć, gdy backup trafia wyłącznie do usługi zewnętrznej.
+    }
+
+    res.json({
+      checkedAt: new Date().toISOString(),
+      configuration: {
+        sentry: Boolean(process.env.SENTRY_DSN),
+        stripeWebhook: Boolean(process.env.STRIPE_WEBHOOK_SECRET),
+        emailProvider: process.env.RESEND_API_KEY ? 'resend' : (process.env.SMTP_HOST ? 'smtp' : 'missing'),
+        backupSchedule: process.env.BACKUP_SCHEDULE || null,
+        backupOffsite: Boolean(process.env.AWS_S3_BACKUP_BUCKET)
+      },
+      stripe: {
+        failed24h: stripeFailed24h,
+        staleProcessing: stripeStaleProcessing,
+        unresolvedPaymentErrors
+      },
+      backup: {
+        latestBackupAt,
+        latestBackupAgeHours,
+        fresh: latestBackupAgeHours != null ? latestBackupAgeHours <= 30 : false
+      }
+    });
+  } catch (error) {
+    console.error('ops-health error', error);
+    res.status(500).json({ message: 'Błąd monitoringu operacyjnego' });
   }
 });

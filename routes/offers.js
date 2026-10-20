@@ -26,6 +26,7 @@ const {
   resolveAcceptancePaymentFlow,
 } = require('../utils/offerAcceptance');
 const { computeOrderPlatformFee } = require('../utils/foundingProvider');
+const TelemetryService = require('../services/TelemetryService');
 
 /** Poniżej progu: wysyłka wymaga potwierdzenia „Wyślij mimo to” (tak samo weryfikowane na serwerze). */
 const OFFER_AI_HARD_THRESHOLD = 45;
@@ -703,6 +704,7 @@ router.post("/", auth, async (req, res) => {
         : {})
     });
     
+    const isFirstProviderOffer = !(await Offer.exists({ providerId: req.user._id }));
     const created = await Offer.create({
       orderId,
       providerId: req.user._id,
@@ -733,6 +735,20 @@ router.post("/", auth, async (req, res) => {
         badge,
       },
     });
+
+    // Ten krok lejka oznacza pierwszą ofertę wykonawcy, a nie każdą
+    // kolejną ofertę. Dzięki temu współczynnik aktywacji nie jest zawyżany.
+    if (isFirstProviderOffer) {
+      await TelemetryService.track(TelemetryService.eventTypes.PROVIDER_OFFER_CREATED, {
+        userId: req.user._id,
+        sessionId: req.get('X-Session-ID') || null,
+        properties: {
+          orderId,
+          isFirstOffer: true,
+          source: 'offer_api'
+        }
+      });
+    }
     
     // Zmień status order na collecting_offers jeśli jeszcze open
     if (order.status === 'open' || order.status === 'draft') {

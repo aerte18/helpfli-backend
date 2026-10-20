@@ -63,6 +63,13 @@ const requireCompanyAccess = async (req, res, next) => {
   }
 };
 
+const requireCompanyManagementAccess = (req, res, next) => {
+  if (!req.companyAccess?.canManage) {
+    return res.status(403).json({ message: 'Ta operacja wymaga roli właściciela lub menedżera firmy' });
+  }
+  return next();
+};
+
 // GET /api/companies - Lista firm użytkownika
 router.get('/', auth, async (req, res) => {
   try {
@@ -413,7 +420,7 @@ router.get('/:companyId/resource-pool', auth, requireCompanyAccess, async (req, 
 });
 
 // PUT /api/companies/:companyId/resource-pool/limits
-router.put('/:companyId/resource-pool/limits', auth, requireCompanyAccess, async (req, res) => {
+router.put('/:companyId/resource-pool/limits', auth, requireCompanyAccess, requireCompanyManagementAccess, async (req, res) => {
   try {
     const company = await Company.findById(req.companyId);
     if (!company) {
@@ -448,7 +455,7 @@ router.put('/:companyId/resource-pool/limits', auth, requireCompanyAccess, async
 });
 
 // PUT /api/companies/:companyId/resource-pool/allocation-strategy
-router.put('/:companyId/resource-pool/allocation-strategy', auth, requireCompanyAccess, async (req, res) => {
+router.put('/:companyId/resource-pool/allocation-strategy', auth, requireCompanyAccess, requireCompanyManagementAccess, async (req, res) => {
   try {
     const company = await Company.findById(req.companyId);
     if (!company) {
@@ -603,11 +610,7 @@ router.get('/:companyId/workflow', auth, requireCompanyAccess, async (req, res) 
   console.log('[ROUTE] GET /:companyId/workflow matched!', req.params.companyId);
   try {
     const CompanyWorkflow = require('../models/CompanyWorkflow');
-    let workflow = await CompanyWorkflow.findOne({ company: req.companyId });
-    
-    if (!workflow) {
-      workflow = await CompanyWorkflow.create({ company: req.companyId });
-    }
+    const workflow = await CompanyWorkflow.findOne({ company: req.companyId });
     
     res.json({ success: true, workflow });
   } catch (error) {
@@ -617,7 +620,7 @@ router.get('/:companyId/workflow', auth, requireCompanyAccess, async (req, res) 
 });
 
 // PUT /api/companies/:companyId/workflow
-router.put('/:companyId/workflow', auth, requireCompanyAccess, async (req, res) => {
+router.put('/:companyId/workflow', auth, requireCompanyAccess, requireCompanyManagementAccess, async (req, res) => {
   try {
     const CompanyWorkflow = require('../models/CompanyWorkflow');
     let workflow = await CompanyWorkflow.findOne({ company: req.companyId });
@@ -649,7 +652,7 @@ router.get('/:companyId/workflow/templates', auth, requireCompanyAccess, async (
 });
 
 // POST /api/companies/:companyId/workflow/templates
-router.post('/:companyId/workflow/templates', auth, requireCompanyAccess, async (req, res) => {
+router.post('/:companyId/workflow/templates', auth, requireCompanyAccess, requireCompanyManagementAccess, async (req, res) => {
   try {
     const CompanyWorkflow = require('../models/CompanyWorkflow');
     let workflow = await CompanyWorkflow.findOne({ company: req.companyId });
@@ -667,7 +670,7 @@ router.post('/:companyId/workflow/templates', auth, requireCompanyAccess, async 
 });
 
 // DELETE /api/companies/:companyId/workflow/templates/:templateId
-router.delete('/:companyId/workflow/templates/:templateId', auth, requireCompanyAccess, async (req, res) => {
+router.delete('/:companyId/workflow/templates/:templateId', auth, requireCompanyAccess, requireCompanyManagementAccess, async (req, res) => {
   try {
     const CompanyWorkflow = require('../models/CompanyWorkflow');
     const workflow = await CompanyWorkflow.findOne({ company: req.companyId });
@@ -697,7 +700,7 @@ router.get('/:companyId/workflow/escalations', auth, requireCompanyAccess, async
 });
 
 // POST /api/companies/:companyId/workflow/escalations
-router.post('/:companyId/workflow/escalations', auth, requireCompanyAccess, async (req, res) => {
+router.post('/:companyId/workflow/escalations', auth, requireCompanyAccess, requireCompanyManagementAccess, async (req, res) => {
   try {
     const CompanyWorkflow = require('../models/CompanyWorkflow');
     let workflow = await CompanyWorkflow.findOne({ company: req.companyId });
@@ -715,7 +718,7 @@ router.post('/:companyId/workflow/escalations', auth, requireCompanyAccess, asyn
 });
 
 // DELETE /api/companies/:companyId/workflow/escalations/:escalationId
-router.delete('/:companyId/workflow/escalations/:escalationId', auth, requireCompanyAccess, async (req, res) => {
+router.delete('/:companyId/workflow/escalations/:escalationId', auth, requireCompanyAccess, requireCompanyManagementAccess, async (req, res) => {
   try {
     const CompanyWorkflow = require('../models/CompanyWorkflow');
     const workflow = await CompanyWorkflow.findOne({ company: req.companyId });
@@ -1170,7 +1173,7 @@ router.get('/:companyId/orders/:orderId/sla-status', auth, requireCompanyAccess,
 });
 
 // POST /api/companies/:companyId/orders/:orderId/followup - follow-up do wykonawców ofert
-router.post('/:companyId/orders/:orderId/followup', auth, requireCompanyAccess, async (req, res) => {
+router.post('/:companyId/orders/:orderId/followup', auth, requireCompanyAccess, requireCompanyManagementAccess, async (req, res) => {
   try {
     const companyId = req.companyId || req.params.companyId;
     const { orderId } = req.params;
@@ -1220,7 +1223,7 @@ router.post('/:companyId/orders/:orderId/followup', auth, requireCompanyAccess, 
 });
 
 // POST /api/companies/:companyId/orders/:orderId/followup/auto-check - warunkowy auto follow-up wg SLA/policy
-router.post('/:companyId/orders/:orderId/followup/auto-check', auth, requireCompanyAccess, async (req, res) => {
+router.post('/:companyId/orders/:orderId/followup/auto-check', auth, requireCompanyAccess, requireCompanyManagementAccess, async (req, res) => {
   try {
     const companyId = req.companyId || req.params.companyId;
     const { orderId } = req.params;
@@ -1695,14 +1698,15 @@ router.post('/:companyId/invite', auth, requireCompanyAccess, async (req, res) =
 // POST /api/companies/:companyId/accept-invitation - Zaakceptuj zaproszenie
 router.post('/:companyId/accept-invitation', auth, async (req, res) => {
   try {
+    const companyId = req.params.companyId;
     const user = await User.findById(req.user._id);
-    const company = await Company.findById(req.companyId);
+    const company = await Company.findById(companyId);
 
     if (!company) {
       return res.status(404).json({ message: 'Firma nie została znaleziona' });
     }
 
-    if (!user.companyInvitation || user.companyInvitation.companyId.toString() !== req.companyId) {
+    if (!user.companyInvitation || user.companyInvitation.companyId.toString() !== companyId) {
       return res.status(400).json({ message: 'Brak aktywnego zaproszenia' });
     }
 
@@ -1736,9 +1740,10 @@ router.post('/:companyId/accept-invitation', auth, async (req, res) => {
 // POST /api/companies/:companyId/reject-invitation - Odrzuć zaproszenie
 router.post('/:companyId/reject-invitation', auth, async (req, res) => {
   try {
+    const companyId = req.params.companyId;
     const user = await User.findById(req.user._id);
 
-    if (!user.companyInvitation || user.companyInvitation.companyId.toString() !== req.companyId) {
+    if (!user.companyInvitation || user.companyInvitation.companyId.toString() !== companyId) {
       return res.status(400).json({ message: 'Brak aktywnego zaproszenia' });
     }
 
@@ -1957,7 +1962,7 @@ router.put('/:companyId/members/:userId/custom-role', auth, requireCompanyAccess
 });
 
 // POST /api/companies/:companyId/complete-onboarding - Oznacz onboarding jako ukończony
-router.post('/:companyId/complete-onboarding', auth, requireCompanyAccess, async (req, res) => {
+router.post('/:companyId/complete-onboarding', auth, requireCompanyAccess, requireCompanyManagementAccess, async (req, res) => {
   try {
     const { companyId } = req.params;
     
@@ -2239,7 +2244,7 @@ router.post('/:companyId/join-requests/:requestId/reject', auth, requireCompanyA
 });
 
 // POST /api/companies/:companyId/invoices/generate - Generuj fakturę (alias dla billing/generate-invoice)
-router.post('/:companyId/invoices/generate', auth, requireCompanyAccess, async (req, res) => {
+router.post('/:companyId/invoices/generate', auth, requireCompanyAccess, requireCompanyManagementAccess, async (req, res) => {
   try {
     const CompanyInvoice = require('../models/CompanyInvoice');
     const { companyId } = req.params;

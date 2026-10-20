@@ -1,7 +1,8 @@
 const mongoose = require('mongoose');
 
 const notificationLogSchema = new mongoose.Schema({
-  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  // Wiadomości systemowe (np. reset hasła przed zalogowaniem) nie zawsze mają userId.
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
   type: { 
     type: String, 
     enum: [

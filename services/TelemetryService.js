@@ -17,6 +17,7 @@ class TelemetryService {
       // Provider actions
       PROVIDER_CONTACT: 'provider_contact',
       PROVIDER_COMPARE: 'provider_compare',
+      MAP_OPEN: 'map_open',
       QUOTE_REQUEST: 'quote_request',
       
       // Order flow
@@ -67,6 +68,10 @@ class TelemetryService {
       LOGIN: 'login',
       REGISTER: 'register',
       ONBOARDING_COMPLETED: 'onboarding_completed',
+      PROVIDER_PROFILE_COMPLETED: 'provider_profile_completed',
+      PROVIDER_SERVICES_UPDATED: 'provider_services_updated',
+      PROVIDER_OFFER_CREATED: 'provider_offer_created',
+      NOTIFICATION_ACTION_CLICK: 'notification_action_click',
       
       // Disputes
       DISPUTE_REPORTED: 'dispute_reported',
@@ -320,17 +325,30 @@ class TelemetryService {
   async getConversionFunnel(startDate, endDate) {
     const funnelTypes = [
       this.eventTypes.PAGE_VIEW,
+      this.eventTypes.MAP_OPEN,
       this.eventTypes.SEARCH,
       this.eventTypes.PROVIDER_VIEW,
       this.eventTypes.PROVIDER_CONTACT,
       this.eventTypes.QUOTE_REQUEST,
       this.eventTypes.ORDER_CREATED,
+      this.eventTypes.ORDER_CTA_CLICK,
+      this.eventTypes.ORDER_AUTH_REQUIRED,
+      this.eventTypes.REGISTRATION_START,
+      this.eventTypes.REGISTRATION_SUCCESS,
+      this.eventTypes.EMAIL_VERIFICATION_SUCCESS,
+      this.eventTypes.ONBOARDING_COMPLETED,
       this.eventTypes.ORDER_FORM_START,
       this.eventTypes.ORDER_FORM_SUCCESS,
       this.eventTypes.ORDER_ACCEPTED,
       this.eventTypes.PAYMENT_SUCCEEDED,
+      this.eventTypes.PAYMENT_FAILED,
+      this.eventTypes.CHECKOUT_STARTED,
+      this.eventTypes.CHECKOUT_ABANDONED,
       this.eventTypes.OFFER_FORM_START,
-      this.eventTypes.OFFER_FORM_SUBMIT
+      this.eventTypes.OFFER_FORM_SUBMIT,
+      this.eventTypes.PROVIDER_PROFILE_COMPLETED,
+      this.eventTypes.PROVIDER_SERVICES_UPDATED,
+      this.eventTypes.PROVIDER_OFFER_CREATED
     ];
     const pipeline = [
       {
@@ -353,16 +371,29 @@ class TelemetryService {
   async getConversionFunnelDetailed(startDate, endDate) {
     const funnelTypes = [
       this.eventTypes.PAGE_VIEW,
+      this.eventTypes.MAP_OPEN,
       this.eventTypes.SEARCH,
       this.eventTypes.PROVIDER_VIEW,
       this.eventTypes.PROVIDER_CONTACT,
       this.eventTypes.QUOTE_REQUEST,
+      this.eventTypes.ORDER_CTA_CLICK,
       this.eventTypes.ORDER_FORM_START,
+      this.eventTypes.ORDER_AUTH_REQUIRED,
+      this.eventTypes.REGISTRATION_START,
+      this.eventTypes.REGISTRATION_SUCCESS,
+      this.eventTypes.EMAIL_VERIFICATION_SUCCESS,
       this.eventTypes.ORDER_FORM_SUCCESS,
+      this.eventTypes.ONBOARDING_COMPLETED,
+      this.eventTypes.PROVIDER_PROFILE_COMPLETED,
+      this.eventTypes.PROVIDER_SERVICES_UPDATED,
       this.eventTypes.OFFER_FORM_START,
       this.eventTypes.OFFER_FORM_SUBMIT,
+      this.eventTypes.PROVIDER_OFFER_CREATED,
       this.eventTypes.ORDER_ACCEPTED,
-      this.eventTypes.PAYMENT_SUCCEEDED
+      this.eventTypes.CHECKOUT_STARTED,
+      this.eventTypes.CHECKOUT_ABANDONED,
+      this.eventTypes.PAYMENT_SUCCEEDED,
+      this.eventTypes.PAYMENT_FAILED
     ];
 
     const overall = await Event.aggregate([

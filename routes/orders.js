@@ -77,6 +77,33 @@ function applyProviderCompletionState(order, completedAt = new Date()) {
   order.clientCompletionAcceptedAt = null;
 }
 
+function validateOrderCompletionInput({
+  completionType,
+  completionNotes,
+  additionalAmount,
+  paymentReason,
+} = {}) {
+  if (completionType && !['simple', 'with_notes', 'with_payment'].includes(completionType)) {
+    return 'Nieprawidłowy typ zakończenia';
+  }
+  if (
+    completionType === 'with_notes' &&
+    (typeof completionNotes !== 'string' || !completionNotes.trim())
+  ) {
+    return 'Uwagi są wymagane przy zakończeniu z uwagami';
+  }
+  if (completionType === 'with_payment') {
+    const amount = Number(additionalAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return 'Kwota dopłaty musi być większa od 0';
+    }
+    if (typeof paymentReason !== 'string' || !paymentReason.trim()) {
+      return 'Uzasadnienie dopłaty jest wymagane';
+    }
+  }
+  return null;
+}
+
 function canConfirmReceipt(order) {
   return order?.status === 'completed';
 }
@@ -3663,24 +3690,9 @@ router.post('/:id/complete', auth, loadOrderById, requireKycForOrderComplete, as
     // Pobierz dane zakończenia z body
     const { completionType, completionNotes, additionalAmount, paymentReason } = req.body;
     
-    // Walidacja completionType
-    if (completionType && !['simple', 'with_notes', 'with_payment'].includes(completionType)) {
-      return res.status(400).json({ message: 'Nieprawidłowy typ zakończenia' });
-    }
-    
-    // Walidacja dla 'with_notes'
-    if (completionType === 'with_notes' && (!completionNotes || !completionNotes.trim())) {
-      return res.status(400).json({ message: 'Uwagi są wymagane przy zakończeniu z uwagami' });
-    }
-    
-    // Walidacja dla 'with_payment'
-    if (completionType === 'with_payment') {
-      if (!additionalAmount || parseFloat(additionalAmount) <= 0) {
-        return res.status(400).json({ message: 'Kwota dopłaty musi być większa od 0' });
-      }
-      if (!paymentReason || !paymentReason.trim()) {
-        return res.status(400).json({ message: 'Uzasadnienie dopłaty jest wymagane' });
-      }
+    const completionValidationError = validateOrderCompletionInput(req.body);
+    if (completionValidationError) {
+      return res.status(400).json({ message: completionValidationError });
     }
     
     const completedAt = new Date();
@@ -3690,13 +3702,11 @@ router.post('/:id/complete', auth, loadOrderById, requireKycForOrderComplete, as
     if (completionType) {
       order.completionType = completionType;
     }
-    if (completionNotes) {
+    if (typeof completionNotes === 'string' && completionNotes.trim()) {
       order.completionNotes = completionNotes.trim();
     }
-    if (additionalAmount) {
-      order.additionalAmount = parseFloat(additionalAmount);
-    }
-    if (paymentReason) {
+    if (completionType === 'with_payment') {
+      order.additionalAmount = Number(additionalAmount);
       order.paymentReason = paymentReason.trim();
     }
     
@@ -4873,6 +4883,7 @@ router.__testables = {
   isOrderOwnerOrAdmin,
   getPaymentPreferenceChangeBlockReason,
   applyProviderCompletionState,
+  validateOrderCompletionInput,
   canConfirmReceipt,
   releaseFailureHttpStatus,
   getStartWorkBlock,

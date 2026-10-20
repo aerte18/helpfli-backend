@@ -70,15 +70,16 @@ exports.requireCompanyOwner = async (req, res, next) => {
   }
 };
 
-// Middleware sprawdzające dostęp do konkretnej firmy
-exports.requireCompanyAccess = (companyIdParam = 'companyId') => {
-  return async (req, res, next) => {
+// Middleware sprawdzające dostęp do konkretnej firmy.
+// Eksportujemy bezpośredni middleware, ponieważ wszystkie routery przekazują go
+// do Express jako `requireCompanyAccess`, bez wywołania fabryki.
+exports.requireCompanyAccess = async (req, res, next) => {
     try {
       if (!req.user) {
         return res.status(401).json({ message: 'Brak autoryzacji' });
       }
 
-      const companyId = req.params[companyIdParam] || req.body.companyId;
+      const companyId = req.params.companyId || req.body.companyId;
       if (!companyId) {
         return res.status(400).json({ message: 'ID firmy jest wymagane' });
       }
@@ -101,12 +102,14 @@ exports.requireCompanyAccess = (companyIdParam = 'companyId') => {
 
       req.company = company;
       req.userCompany = user.company;
-      req.canManageCompany = company.canManage(user._id);
+      const canManage = user.role === 'admin' || company.canManage(user._id);
+      req.canManageCompany = canManage;
+      req.companyId = company._id.toString();
+      req.companyAccess = { canManage, canView: true };
       next();
     } catch (error) {
       res.status(500).json({ message: 'Błąd serwera', error: error.message });
     }
-  };
 };
 
 // Middleware sprawdzające czy firma jest zweryfikowana

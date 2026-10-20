@@ -78,6 +78,10 @@ class EmailVerificationService {
       html
     });
 
+    if (!result?.ok) {
+      throw new Error(result?.reason || 'verification_email_send_failed');
+    }
+
     return result;
   }
 

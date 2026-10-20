@@ -27,10 +27,14 @@ const requireCompanyAccess = async (req, res, next) => {
     }
 
     // Sprawdź dostęp
+    const canManage = user.role === 'admin' || company.canManage(user._id);
     if (user.role === 'admin' || company.canAccess(user._id)) {
+      if (!canManage) {
+        return res.status(403).json({ message: 'Analityka firmy jest dostępna dla właściciela i menedżerów' });
+      }
       req.company = company;
       req.companyAccess = {
-        canManage: company.canManage(user._id),
+        canManage,
         canView: true
       };
       return next();

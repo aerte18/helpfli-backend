@@ -33,8 +33,7 @@ const requireCompanyAccess = async (req, res, next) => {
 
     const canAccess = user.role === 'admin' ||
                       company.isOwner(user._id) ||
-                      company.isManager(user._id) ||
-                      company.isProvider(user._id);
+                      company.isManager(user._id);
 
     if (canAccess) {
       req.company = company;
@@ -42,7 +41,7 @@ const requireCompanyAccess = async (req, res, next) => {
       return next();
     }
 
-    return res.status(403).json({ message: 'Brak uprawnień do zarządzania firmą' });
+    return res.status(403).json({ message: 'Rozliczenia firmy są dostępne dla właściciela i menedżerów' });
   } catch (error) {
     logger.error('[REQUIRE_COMPANY_ACCESS]', error);
     res.status(500).json({ message: 'Błąd serwera', error: error.message });

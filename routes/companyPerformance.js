@@ -22,9 +22,7 @@ const requireCompanyAccess = async (req, res, next) => {
         req.companyId = companyId;
         return next();
       } else {
-        req.companyAccess = { canManage: false, canView: true };
-        req.companyId = companyId;
-        return next();
+        return res.status(403).json({ message: 'Statystyki zespołu są dostępne dla właściciela i menedżerów' });
       }
     }
 
